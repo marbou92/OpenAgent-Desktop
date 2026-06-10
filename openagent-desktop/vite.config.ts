@@ -11,8 +11,6 @@ const electronExternals = [
   'electron-updater',
   'chokidar',
   'js-yaml',
-  'cron',
-  'screenshot-desktop',
   'dotenv',
   'node-fetch',
   'form-data',
