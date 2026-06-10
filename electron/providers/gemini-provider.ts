@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Google Gemini Provider
+ * OpenAgent-Desktop - Google Gemini Provider
  * Full implementation for Gemini models:
  * - Support Gemini 2.5 Pro, 2.0 Flash, etc.
  * - Gemini API format (contents, parts)

@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Message Bubble Component
+ * OpenAgent-Desktop - Message Bubble Component
  *
  * Different styles for user/assistant/system/tool messages,
  * markdown rendering, code blocks with copy button, image display,

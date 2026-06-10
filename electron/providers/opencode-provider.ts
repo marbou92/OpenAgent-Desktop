@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - OpenCode Provider
+ * OpenAgent-Desktop - OpenCode Provider
  * Integrates with https://github.com/anomalyco/opencode:
  * - OpenCode API format
  * - Session management

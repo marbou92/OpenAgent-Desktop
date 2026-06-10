@@ -1,11 +1,11 @@
-# OpenAgent Desktop
+# OpenAgent-Desktop
 
 <div align="center">
 
 ![OpenAgent Desktop](https://img.shields.io/badge/OpenAgent-Desktop-6366f1?style=for-the-badge&logo=electron&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![CI](https://img.shields.io/github/actions/workflow/status/openagent/openagent-desktop/ci.yml?style=for-the-badge&branch=main)](https://github.com/openagent/openagent-desktop/actions)
-[![Downloads](https://img.shields.io/github/downloads/openagent/openagent-desktop/total?style=for-the-badge)](https://github.com/openagent/openagent-desktop/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/marbou92/OpenAgent-Desktop/ci.yml?style=for-the-badge&branch=main)](https://github.com/marbou92/OpenAgent-Desktop/actions)
+[![Downloads](https://img.shields.io/github/downloads/marbou92/OpenAgent-Desktop/total?style=for-the-badge)](https://github.com/marbou92/OpenAgent-Desktop/releases)
 
 **The open-source AI Agent desktop platform that connects you to 35+ LLM providers and 60+ extensions.**
 
@@ -172,7 +172,7 @@ Extend your AI agent with powerful tools and integrations:
 
 ### Download Pre-built Binaries
 
-Download the latest release for your platform from the [Releases page](https://github.com/openagent/openagent-desktop/releases):
+Download the latest release for your platform from the [Releases page](https://github.com/marbou92/OpenAgent-Desktop/releases):
 
 | Platform | Download |
 |----------|----------|
@@ -195,7 +195,7 @@ Download the latest release for your platform from the [Releases page](https://g
 
 ```bash
 # Clone the repository
-git clone https://github.com/openagent/openagent-desktop.git
+git clone https://github.com/marbou92/OpenAgent-Desktop.git
 cd openagent-desktop
 
 # Install dependencies
@@ -236,7 +236,7 @@ npm run electron:build -- --linux
 
 ### Windows 7 Support
 
-OpenAgent Desktop provides a legacy build for Windows 7 using Electron 22 (the last version supporting Windows 7). This build is available as a separate download from the releases page, tagged with `-Win7` suffix.
+OpenAgent-Desktop provides a legacy build for Windows 7 using Electron 22 (the last version supporting Windows 7). This build is available as a separate download from the releases page, tagged with `-Win7` suffix.
 
 ---
 
@@ -321,7 +321,7 @@ openagent-desktop/
 
 ### Quick Start
 
-1. Open OpenAgent Desktop
+1. Open OpenAgent-Desktop
 2. Navigate to **Settings → Providers**
 3. Click **Add Provider**
 4. Select your provider and enter your API key
@@ -589,7 +589,7 @@ triggers:
 
 ## ACP (Agent Communication Protocol)
 
-ACP is the standardized protocol for inter-agent communication in OpenAgent Desktop.
+ACP is the standardized protocol for inter-agent communication in OpenAgent-Desktop.
 
 ### Protocol Overview
 
@@ -782,14 +782,14 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ### Reporting Issues
 
-- Use the [GitHub Issue Tracker](https://github.com/openagent/openagent-desktop/issues)
+- Use the [GitHub Issue Tracker](https://github.com/marbou92/OpenAgent-Desktop/issues)
 - Search existing issues before creating a new one
 - Include steps to reproduce, expected behavior, and actual behavior
 - Include your OS, app version, and relevant configuration
 
 ### Feature Requests
 
-- Open a [Discussion](https://github.com/openagent/openagent-desktop/discussions)
+- Open a [Discussion](https://github.com/marbou92/OpenAgent-Desktop/discussions)
 - Describe the use case and expected behavior
 - Explain why existing features don't meet your needs
 
@@ -802,7 +802,7 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 ```
 MIT License
 
-Copyright (c) 2024 OpenAgent Desktop Contributors
+Copyright (c) 2024-2026 marbou92 and OpenAgent-Desktop Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -829,6 +829,6 @@ SOFTWARE.
 
 **[⬆ Back to Top](#openagent-desktop)**
 
-Made with ❤️ by the OpenAgent community
+Made with ❤️ by marbou92 and contributors
 
 </div>

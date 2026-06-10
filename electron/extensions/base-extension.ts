@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Base Extension
+ * OpenAgent-Desktop - Base Extension
  *
  * Abstract base class implementing ExtensionInterface with:
  * - Lifecycle management (initialize, shutdown)
@@ -751,7 +751,7 @@ export abstract class BaseExtension implements ExtensionInterface {
       protocolVersion: '2024-11-05',
       capabilities: clientCapabilities,
       clientInfo: {
-        name: 'OpenAgent Desktop',
+        name: 'OpenAgent-Desktop',
         version: '1.0.0',
       },
     });

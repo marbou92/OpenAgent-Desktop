@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Session Manager
+ * OpenAgent-Desktop - Session Manager
  *
  * Manages chat sessions with full CRUD operations, persistence,
  * search, export/import, auto-save, and session templates.

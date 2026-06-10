@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Extension System Types
+ * OpenAgent-Desktop - Extension System Types
  *
  * Defines all TypeScript types for the MCP-based extension/skills system.
  * Supports 60+ extensions inspired by Goose (https://github.com/aaif-goose/goose).

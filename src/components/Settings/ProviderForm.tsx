@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Provider Form Component
+ * OpenAgent-Desktop - Provider Form Component
  *
  * Dynamic form based on provider type, with test connection,
  * model selector, API key show/hide, and import from env vars.

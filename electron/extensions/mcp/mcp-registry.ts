@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - MCP Registry
+ * OpenAgent-Desktop - MCP Registry
  *
  * Registry of all MCP-based community extensions. Each entry includes:
  * - name, description, repository URL, command, args, env vars needed

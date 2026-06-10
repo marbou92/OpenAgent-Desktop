@@ -1,7 +1,7 @@
 /**
- * OpenAgent Desktop - Hook Manager
+ * OpenAgent-Desktop - Hook Manager
  *
- * Implements lifecycle hooks for the OpenAgent Desktop application.
+ * Implements lifecycle hooks for the OpenAgent-Desktop application.
  * Hooks are shell commands that run at specific points in the agent's
  * lifecycle, allowing users to customize behavior, add validations,
  * or integrate with external tools.

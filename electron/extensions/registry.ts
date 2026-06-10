@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Extension Registry
+ * OpenAgent-Desktop - Extension Registry
  *
  * Central registry that:
  * - Registers all built-in extensions

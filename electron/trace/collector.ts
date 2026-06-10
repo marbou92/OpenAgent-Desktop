@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Thinking Trace Collector
+ * OpenAgent-Desktop - Thinking Trace Collector
  *
  * Captures AI thinking process steps in real-time.
  * Each trace entry captures the AI's reasoning, actions, tool calls,

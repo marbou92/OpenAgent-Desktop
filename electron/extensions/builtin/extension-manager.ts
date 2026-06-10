@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Extension Manager Extension
+ * OpenAgent-Desktop - Extension Manager Extension
  *
  * Enabled by default. Manages extensions:
  * - list_extensions: List all extensions and their status
@@ -480,7 +480,7 @@ export function createExtensionManagerExtension(): ExtensionConfig {
     id: 'extension_manager',
     type: ExtensionType.ExtensionManager,
     name: 'Extension Manager',
-    description: 'Install, enable, disable, and manage extensions for OpenAgent Desktop',
+    description: 'Install, enable, disable, and manage extensions for OpenAgent-Desktop',
     version: '1.0.0',
     enabled: true,
     settings: {

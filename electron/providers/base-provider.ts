@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Base Provider
+ * OpenAgent-Desktop - Base Provider
  * Abstract base class implementing ProviderInterface with:
  * - SSE stream parsing
  * - Retry logic with exponential backoff

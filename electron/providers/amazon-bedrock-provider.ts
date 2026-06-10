@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Amazon Bedrock Provider
+ * OpenAgent-Desktop - Amazon Bedrock Provider
  * Full implementation:
  * - AWS authentication (profile or access keys)
  * - Bedrock-specific message format

@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Thinking Trace Panel
+ * OpenAgent-Desktop - Thinking Trace Panel
  *
  * Collapsible side panel showing real-time streaming of thinking steps,
  * color-coded by type, with timestamps, expand/collapse, search,

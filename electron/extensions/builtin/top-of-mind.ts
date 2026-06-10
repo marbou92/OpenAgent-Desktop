@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Top of Mind Extension
+ * OpenAgent-Desktop - Top of Mind Extension
  *
  * Manages persistent instructions injected every turn:
  * - set_persistent_instructions: Inject every turn

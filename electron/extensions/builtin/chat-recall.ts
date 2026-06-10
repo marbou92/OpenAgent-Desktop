@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Chat Recall Extension
+ * OpenAgent-Desktop - Chat Recall Extension
  *
  * Search and recall across all session history:
  * - search_conversations: Search across all session history

@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Ollama Provider
+ * OpenAgent-Desktop - Ollama Provider
  * Local model runner:
  * - OpenAI-compatible endpoint
  * - Support for all Ollama models

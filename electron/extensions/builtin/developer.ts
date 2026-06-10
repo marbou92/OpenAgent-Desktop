@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Developer Extension
+ * OpenAgent-Desktop - Developer Extension
  *
  * Built-in extension enabled by default providing core development tools:
  * - shell: Execute shell commands

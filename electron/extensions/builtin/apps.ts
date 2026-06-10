@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Apps Extension
+ * OpenAgent-Desktop - Apps Extension
  *
  * Create and manage standalone HTML applications:
  * - create_app: Create HTML app in standalone window

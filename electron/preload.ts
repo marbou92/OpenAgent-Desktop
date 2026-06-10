@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Electron Preload Script
+ * OpenAgent-Desktop - Electron Preload Script
  *
  * This script runs in the renderer's preload context and exposes
  * a safe, controlled API to the renderer process via contextBridge.

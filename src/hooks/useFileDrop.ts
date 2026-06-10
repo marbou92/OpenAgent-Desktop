@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - useFileDrop Hook
+ * OpenAgent-Desktop - useFileDrop Hook
  *
  * Listens for drag-and-drop events on the document,
  * tracks dropped files, and converts them for sending.

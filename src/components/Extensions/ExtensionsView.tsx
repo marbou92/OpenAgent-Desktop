@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Extensions View Component
+ * OpenAgent-Desktop - Extensions View Component
  *
  * Grid/list of extensions with status indicators, enable/disable toggle,
  * extension detail panel, install, search/filter, categories, and settings.

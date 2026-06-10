@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Code Mode Extension
+ * OpenAgent-Desktop - Code Mode Extension
  *
  * Execute code snippets to interact with MCP tools:
  * - execute_javascript: Execute JS to interact with MCP tools

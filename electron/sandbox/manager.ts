@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Sandbox Manager
+ * OpenAgent-Desktop - Sandbox Manager
  *
  * Implements VM-level sandboxing with OS-specific strategies:
  * - Windows 10+: WSL2 sandbox
@@ -716,7 +716,7 @@ class LimaSandbox implements SandboxInterface {
     writable: true`;
     }
 
-    return `# OpenAgent Desktop Lima sandbox configuration
+    return `# OpenAgent-Desktop Lima sandbox configuration
 vmType: qemu
 images:
   - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"

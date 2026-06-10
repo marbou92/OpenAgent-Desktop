@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Settings View Component
+ * OpenAgent-Desktop - Settings View Component
  *
  * Tabbed settings view with General, Providers, Sandbox, Advanced, About tabs.
  */
@@ -445,7 +445,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 </svg>
               </div>
               <div>
-                <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>OpenAgent Desktop</h2>
+                <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>OpenAgent-Desktop</h2>
                 <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>AI-powered desktop agent</p>
               </div>
             </div>

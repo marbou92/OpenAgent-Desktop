@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Sidebar Component
+ * OpenAgent-Desktop - Sidebar Component
  *
  * Navigation items with icons, active session indicator,
  * provider status, quick actions, and version display.
@@ -152,7 +152,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </svg>
           </div>
           <span className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
-            OpenAgent
+            OpenAgent-Desktop
           </span>
         </div>
         <button

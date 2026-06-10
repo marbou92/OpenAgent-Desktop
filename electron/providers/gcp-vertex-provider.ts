@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - GCP Vertex AI Provider
+ * OpenAgent-Desktop - GCP Vertex AI Provider
  * Full implementation:
  * - Google Cloud authentication
  * - Support for Gemini + Claude via Vertex

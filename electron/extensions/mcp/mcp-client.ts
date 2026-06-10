@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - MCP Client
+ * OpenAgent-Desktop - MCP Client
  *
  * Full-featured MCP (Model Context Protocol) client for communicating with
  * external MCP servers. Implements JSON-RPC 2.0 over stdio with:
@@ -310,7 +310,7 @@ export class MCPClient extends EventEmitter {
       protocolVersion: this.protocolVersion,
       capabilities: clientCapabilities,
       clientInfo: {
-        name: 'OpenAgent Desktop',
+        name: 'OpenAgent-Desktop',
         version: '1.0.0',
       },
     });

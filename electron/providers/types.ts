@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Provider System Types
+ * OpenAgent-Desktop - Provider System Types
  * Complete type definitions for 35+ AI providers
  */
 

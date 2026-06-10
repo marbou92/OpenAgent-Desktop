@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Mistral AI Provider
+ * OpenAgent-Desktop - Mistral AI Provider
  * Mistral, Codestral, Pixtral models:
  * - Mistral-specific API format (also OpenAI-compatible)
  * - Function calling support

@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Complete TypeScript Types for the Renderer
+ * OpenAgent-Desktop - Complete TypeScript Types for the Renderer
  *
  * All types matching the Electron API, plus UI-specific types
  * for the renderer process.

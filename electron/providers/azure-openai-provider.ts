@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Azure OpenAI Provider
+ * OpenAgent-Desktop - Azure OpenAI Provider
  * Azure-specific implementation:
  * - Azure-specific authentication and endpoint format
  * - Support AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME, AZURE_OPENAI_API_KEY

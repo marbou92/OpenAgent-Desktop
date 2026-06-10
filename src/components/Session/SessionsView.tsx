@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Sessions View Component
+ * OpenAgent-Desktop - Sessions View Component
  *
  * List of all sessions with search, preview, load/delete/export,
  * import, session metadata, and session templates.

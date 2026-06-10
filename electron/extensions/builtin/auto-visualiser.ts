@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Auto Visualiser Extension
+ * OpenAgent-Desktop - Auto Visualiser Extension
  *
  * Generate charts and diagrams via MCP-UI protocol:
  * - create_chart: Auto-generate chart (bar, line, pie, scatter, etc.)

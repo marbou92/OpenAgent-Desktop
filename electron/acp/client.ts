@@ -1,10 +1,10 @@
 /**
- * OpenAgent Desktop - ACP (Agent Client Protocol) Client
+ * OpenAgent-Desktop - ACP (Agent Client Protocol) Client
  *
  * Implements the Agent Client Protocol for connecting to
  * ACP-compliant agent servers (such as Claude ACP, Codex ACP, etc.).
  *
- * ACP enables OpenAgent Desktop to:
+ * ACP enables OpenAgent-Desktop to:
  * - Connect to external ACP-compliant agent servers
  * - Manage sessions via ACP
  * - Stream responses from ACP agents
@@ -746,7 +746,7 @@ export class ACPClient extends EventEmitter {
       method: "acp/handshake",
       params: {
         protocolVersion: ACP_PROTOCOL_VERSION,
-        clientName: "OpenAgent Desktop",
+        clientName: "OpenAgent-Desktop",
         clientVersion: "1.0.0",
         capabilities: ["streaming", "tools", "sessions"],
       },

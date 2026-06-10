@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - OpenRouter Provider
+ * OpenAgent-Desktop - OpenRouter Provider
  * API gateway for 200+ models:
  * - Unified API for multiple providers
  * - OpenAI-compatible chat completions
@@ -107,8 +107,8 @@ export class OpenRouterProvider extends OpenAIProvider {
 
       const headers: Record<string, string> = {
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://openagent.dev',
-        'X-Title': 'OpenAgent Desktop',
+        'HTTP-Referer': 'https://github.com/marbou92/OpenAgent-Desktop',
+        'X-Title': 'OpenAgent-Desktop',
       };
 
       if (this.config.organization) {
@@ -153,8 +153,8 @@ export class OpenRouterProvider extends OpenAIProvider {
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${apiKey}`,
-      'HTTP-Referer': 'https://openagent.dev',
-      'X-Title': 'OpenAgent Desktop',
+      'HTTP-Referer': 'https://github.com/marbou92/OpenAgent-Desktop',
+      'X-Title': 'OpenAgent-Desktop',
     };
 
     // Delegate to parent streaming implementation

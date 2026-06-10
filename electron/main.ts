@@ -1,7 +1,7 @@
 /**
- * OpenAgent Desktop - Electron Main Process Entry Point
+ * OpenAgent-Desktop - Electron Main Process Entry Point
  *
- * This is the main process for the OpenAgent Desktop application.
+ * This is the main process for the OpenAgent-Desktop application.
  * It manages the BrowserWindow, IPC handlers, system tray, auto-updater,
  * deep links, and coordinates all subsystems.
  */
@@ -58,9 +58,9 @@ interface DropppedFile {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const IS_DEV = process.env.NODE_ENV === "development" || !app.isPackaged;
-const APP_NAME = "OpenAgent Desktop";
-const DEEP_LINK_PROTOCOL = "openagent";
-const CONFIG_FILE = "openagent-config.json";
+const APP_NAME = "OpenAgent-Desktop";
+const DEEP_LINK_PROTOCOL = "openagent-desktop";
+const CONFIG_FILE = "openagent-desktop-config.json";
 const MAX_TRACE_DAYS = 30;
 
 // ─── Global State ─────────────────────────────────────────────────────────────
@@ -157,10 +157,10 @@ function createMainWindow(): BrowserWindow {
 
   // Load the application
   if (IS_DEV) {
-    mainWindow.loadURL("http://localhost:3000");
+    mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
-    mainWindow.loadFile(path.join(__dirname, "../out/index.html"));
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
   // Window lifecycle
@@ -199,7 +199,7 @@ function createMainWindow(): BrowserWindow {
   // Handle file drops from OS
   mainWindow.webContents.on("will-navigate", (event, url) => {
     // Prevent navigation away from app
-    if (!url.startsWith("http://localhost:3000") && !url.startsWith("file://")) {
+    if (!url.startsWith("http://localhost:5173") && !url.startsWith("file://")) {
       event.preventDefault();
     }
   });

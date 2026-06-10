@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Groq Provider
+ * OpenAgent-Desktop - Groq Provider
  * High-performance inference provider:
  * - Ultra-fast LLM inference using LPU technology
  * - Support for Llama, Mixtral, Gemma models

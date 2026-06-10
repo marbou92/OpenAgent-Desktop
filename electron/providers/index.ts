@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Provider System
+ * OpenAgent-Desktop - Provider System
  * Barrel export for all provider modules
  */
 

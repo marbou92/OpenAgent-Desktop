@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Main App Component
+ * OpenAgent-Desktop - Main App Component
  *
  * Root component with Zustand store, sidebar + main content layout,
  * view routing, toast notifications, modal system, keyboard shortcuts,
@@ -247,7 +247,7 @@ const App: React.FC = () => {
         }
       }
 
-      store.addToast({ type: 'success', title: 'OpenAgent Desktop initialized' });
+      store.addToast({ type: 'success', title: 'OpenAgent-Desktop initialized' });
     } catch (err: any) {
       store.addToast({ type: 'error', title: 'Initialization failed', message: err.message });
     } finally {
@@ -613,7 +613,7 @@ const LoadingScreen: React.FC = () => (
       <div className="dot" />
       <div className="dot" />
     </div>
-    <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Initializing OpenAgent Desktop...</p>
+    <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Initializing OpenAgent-Desktop...</p>
   </div>
 );
 

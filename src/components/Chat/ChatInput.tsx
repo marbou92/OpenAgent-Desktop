@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Chat Input Component
+ * OpenAgent-Desktop - Chat Input Component
  *
  * Multi-line text input with auto-resize, file attachment,
  * voice input placeholder, send button with loading state,

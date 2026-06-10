@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - File Drop Zone Component
+ * OpenAgent-Desktop - File Drop Zone Component
  *
  * Overlay when files are dragged over the window.
  * Shows file list with sizes and type icons.

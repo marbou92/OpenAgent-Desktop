@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Summon Extension
+ * OpenAgent-Desktop - Summon Extension
  *
  * Enabled by default. Provides subagent and skill delegation:
  * - load_skill: Load a skill into the current session
@@ -412,7 +412,7 @@ export class SummonExtension extends BaseExtension {
     context: string,
   ): string {
     const parts: string[] = [
-      'You are a subagent of OpenAgent Desktop. Complete the following task:',
+      'You are a subagent of OpenAgent-Desktop. Complete the following task:',
       '',
       `Task: ${description}`,
     ];

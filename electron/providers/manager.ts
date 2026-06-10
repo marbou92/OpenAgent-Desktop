@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Provider Manager
+ * OpenAgent-Desktop - Provider Manager
  * Central registry and management for all AI providers:
  * - Registry of all provider instances
  * - CRUD for provider configurations (persisted in electron-store)

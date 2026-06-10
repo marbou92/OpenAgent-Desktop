@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Recipes View Component
+ * OpenAgent-Desktop - Recipes View Component
  *
  * Recipe cookbook, custom recipes, import, create, run,
  * slash command preview, schedule, and share.

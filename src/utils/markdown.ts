@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Markdown Utilities
+ * OpenAgent-Desktop - Markdown Utilities
  *
  * Custom markdown-to-HTML renderer with no external dependencies.
  * Supports headers, bold, italic, strikethrough, code blocks,

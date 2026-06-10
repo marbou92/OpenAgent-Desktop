@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Memory Extension
+ * OpenAgent-Desktop - Memory Extension
  *
  * Persistent context storage across sessions using electron-store:
  * - save_memory: Store persistent context

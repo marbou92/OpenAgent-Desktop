@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - OpenAI Provider
+ * OpenAgent-Desktop - OpenAI Provider
  * Full implementation for OpenAI models and compatible endpoints:
  * - Support GPT-4o, o1, o3, GPT-5 series
  * - OpenAI chat completions format

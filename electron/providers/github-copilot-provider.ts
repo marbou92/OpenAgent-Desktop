@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - GitHub Copilot Provider
+ * OpenAgent-Desktop - GitHub Copilot Provider
  * Full implementation:
  * - Device flow OAuth authentication
  * - Models from OpenAI, Anthropic, Google via Copilot infra

@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Computer Controller Extension
+ * OpenAgent-Desktop - Computer Controller Extension
  *
  * Controls the computer via accessibility APIs (macOS/Windows):
  * - see_screen: Capture and annotate screen with UI element IDs

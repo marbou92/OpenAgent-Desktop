@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Anthropic Provider
+ * OpenAgent-Desktop - Anthropic Provider
  * Full implementation for Claude models:
  * - Claude 4, 3.5 Sonnet, 3 Opus, etc.
  * - Anthropic-specific API format (content blocks)

@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Recipe Engine
+ * OpenAgent-Desktop - Recipe Engine
  *
  * Recipes are reusable workflows that define a sequence of AI interactions,
  * tool calls, and sub-recipes. They enable users to automate complex tasks
@@ -145,7 +145,7 @@ const BUILTIN_RECIPES: Recipe[] = [
     name: "Code Review",
     description: "Review code changes and provide feedback on quality, security, and best practices.",
     version: "1.0.0",
-    author: "OpenAgent",
+    author: "OpenAgent-Desktop",
     extensions: [],
     prompt: `Please review the following code changes and provide feedback:
 
@@ -190,7 +190,7 @@ Focus on:
     name: "Explain Code",
     description: "Explain what a piece of code does in plain language.",
     version: "1.0.0",
-    author: "OpenAgent",
+    author: "OpenAgent-Desktop",
     extensions: [],
     prompt: `Please explain the following code in plain language:
 
@@ -226,7 +226,7 @@ Break down:
     name: "Write Tests",
     description: "Generate unit tests for the provided code.",
     version: "1.0.0",
-    author: "OpenAgent",
+    author: "OpenAgent-Desktop",
     extensions: [],
     prompt: `Write comprehensive unit tests for the following code:
 
@@ -280,7 +280,7 @@ Generate tests that cover:
     name: "Refactor Code",
     description: "Refactor code to improve quality, readability, and performance.",
     version: "1.0.0",
-    author: "OpenAgent",
+    author: "OpenAgent-Desktop",
     extensions: [],
     prompt: `Refactor the following code to improve its quality:
 
@@ -341,7 +341,7 @@ Return the refactored code with explanations of changes made.`,
     name: "Generate Documentation",
     description: "Generate documentation for the provided code.",
     version: "1.0.0",
-    author: "OpenAgent",
+    author: "OpenAgent-Desktop",
     extensions: [],
     prompt: `Generate comprehensive documentation for the following code:
 
@@ -396,7 +396,7 @@ Include:
     name: "Security Audit",
     description: "Perform a security audit on the provided code.",
     version: "1.0.0",
-    author: "OpenAgent",
+    author: "OpenAgent-Desktop",
     extensions: [],
     prompt: `Perform a thorough security audit on the following code:
 
@@ -438,7 +438,7 @@ Rate each finding by severity: Critical, High, Medium, Low, Info`,
     name: "Full-Stack Feature",
     description: "Implement a full-stack feature with frontend, backend, and tests.",
     version: "1.0.0",
-    author: "OpenAgent",
+    author: "OpenAgent-Desktop",
     extensions: [],
     prompt: `Implement a full-stack feature with the following requirements:
 
@@ -739,7 +739,7 @@ export class RecipeEngine extends EventEmitter {
     if (source.startsWith("http://") || source.startsWith("https://")) {
       // Import from URL
       recipeData = await this.fetchRecipeFromUrl(source);
-    } else if (source.startsWith("openagent://")) {
+    } else if (source.startsWith("openagent-desktop://")) {
       // Import from deep link (base64 encoded in hash)
       const url = new URL(source);
       const encodedData = url.hash.substring(1);
@@ -793,7 +793,7 @@ export class RecipeEngine extends EventEmitter {
     };
 
     const encoded = Buffer.from(JSON.stringify(shareable)).toString("base64");
-    const urlBase = baseUrl || "openagent://import-recipe";
+    const urlBase = baseUrl || "openagent-desktop://import-recipe";
     return `${urlBase}#data=${encoded}`;
   }
 

@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Chat View Component
+ * OpenAgent-Desktop - Chat View Component
  *
  * Main chat view with message list, auto-scroll, thinking trace toggle,
  * streaming display, tool calls, permission requests, and empty state.
@@ -326,7 +326,7 @@ const WelcomeScreen: React.FC<{ onNewSession: () => void }> = ({ onNewSession })
       </svg>
     </div>
     <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--color-text-primary)' }}>
-      Welcome to OpenAgent Desktop
+      Welcome to OpenAgent-Desktop
     </h1>
     <p className="text-center max-w-md mb-8" style={{ color: 'var(--color-text-tertiary)' }}>
       Your personal AI assistant with sandboxed execution, extensions, and recipe automation.

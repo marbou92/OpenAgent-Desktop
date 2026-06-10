@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - useChat Hook
+ * OpenAgent-Desktop - useChat Hook
  *
  * Manages chat interactions with streaming support, tool call handling,
  * permission mode management, and auto-save.

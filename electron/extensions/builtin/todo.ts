@@ -1,5 +1,5 @@
 /**
- * OpenAgent Desktop - Todo Extension
+ * OpenAgent-Desktop - Todo Extension
  *
  * Built-in extension enabled by default for task management:
  * - create_todo: Create a task
