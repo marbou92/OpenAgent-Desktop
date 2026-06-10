@@ -13,7 +13,8 @@ import { exec, ExecOptions } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { screenshot } from 'screenshot-desktop';
+// screenshot-desktop is replaced with native system screenshot commands
+// to avoid Vite bundling issues with native modules.
 import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
@@ -885,15 +886,48 @@ export class DeveloperExtension extends BaseExtension {
 
   private async executeScreenCapture(args: Record<string, unknown>): Promise<ToolResult> {
     try {
+      const platform = process.platform;
       const display = args.display as number | undefined;
+      let command: string;
 
-      const screenshotOptions: Record<string, unknown> = { format: 'png' };
-      if (display !== undefined) {
-        screenshotOptions.screen = display;
+      // Use native system screenshot commands instead of screenshot-desktop npm package
+      if (platform === 'darwin') {
+        // macOS: use screencapture
+        command = 'screencapture -x -t png /tmp/openagent-screenshot.png';
+      } else if (platform === 'win32') {
+        // Windows: use PowerShell
+        command =
+          'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; ' +
+          '$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; ' +
+          '$bitmap = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height); ' +
+          '$graphics = [System.Drawing.Graphics]::FromImage($bitmap); ' +
+          '$graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size); ' +
+          '$bitmap.Save("C:\\Temp\\openagent-screenshot.png"); ' +
+          '$graphics.Dispose(); $bitmap.Dispose()"';
+      } else {
+        // Linux: try scrot, then gnome-screenshot, then import (ImageMagick)
+        command =
+          '(which scrot && scrot /tmp/openagent-screenshot.png) || ' +
+          '(which gnome-screenshot && gnome-screenshot -f /tmp/openagent-screenshot.png) || ' +
+          '(which import && import -window root /tmp/openagent-screenshot.png)';
       }
 
-      const imgBuffer = await screenshot(screenshotOptions);
+      await new Promise<void>((resolve, reject) => {
+        exec(command, { timeout: 10000 }, (error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+
+      // Read the captured screenshot
+      const screenshotPath = platform === 'win32'
+        ? 'C:\\Temp\\openagent-screenshot.png'
+        : '/tmp/openagent-screenshot.png';
+      const imgBuffer = await fs.readFile(screenshotPath);
       const base64 = imgBuffer.toString('base64');
+
+      // Clean up temp file
+      try { await fs.unlink(screenshotPath); } catch { /* ignore */ }
 
       return this.success(
         `Screen captured successfully (${this.formatBytes(base64.length)} base64 encoded)`,
@@ -905,10 +939,9 @@ export class DeveloperExtension extends BaseExtension {
         },
       );
     } catch (err) {
-      // Fallback: if screenshot-desktop isn't available, return a helpful message
       return this.error(
         `Screen capture failed: ${err instanceof Error ? err.message : String(err)}. ` +
-        'Ensure screenshot-desktop is installed and the system supports screen capture.',
+        'Ensure your system supports screen capture (screencapture on macOS, scrot/gnome-screenshot on Linux, PowerShell on Windows).',
       );
     }
   }
