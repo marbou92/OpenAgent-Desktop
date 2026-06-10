@@ -19,6 +19,7 @@ vite.config.ts.timestamp-*
 tsconfig.tsbuildinfo
 
 # Electron
+dist-electron/
 release/
 electron-builder.yml
 !electron-builder.env
