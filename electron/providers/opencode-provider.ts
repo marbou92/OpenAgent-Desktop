@@ -111,9 +111,9 @@ export class OpenCodeProvider extends BaseProvider {
       headers,
     });
 
-    const data = await response.json();
-    this.sessionId = data.id || data.session_id;
-    return this.sessionId;
+    const data = await response.json() as Record<string, any>;
+    this.sessionId = (data.id || data.session_id || '') as string;
+    return this.sessionId!;
   }
 
   async getSession(sessionId: string): Promise<OpenCodeSession | null> {
@@ -131,7 +131,7 @@ export class OpenCodeProvider extends BaseProvider {
         headers,
       });
 
-      return await response.json();
+      return (await response.json()) as OpenCodeSession | null;
     } catch {
       return null;
     }
@@ -152,7 +152,7 @@ export class OpenCodeProvider extends BaseProvider {
         headers,
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       return Array.isArray(data) ? data : data.sessions || [];
     } catch {
       return [];
@@ -462,7 +462,7 @@ export class OpenCodeProvider extends BaseProvider {
         headers,
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       if (Array.isArray(data)) {
         return data.map((m: any) => m.id || m.name || m).sort();
       }

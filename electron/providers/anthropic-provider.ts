@@ -237,7 +237,7 @@ export class AnthropicProvider extends BaseProvider {
             text: system,
             cache_control: { type: 'ephemeral' },
           },
-        ];
+        ] as any;
       } else {
         body.system = system;
       }
@@ -551,7 +551,7 @@ export class AnthropicProvider extends BaseProvider {
         },
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, unknown>;
       return !!(data.id || data.content);
     } catch {
       return false;

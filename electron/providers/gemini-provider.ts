@@ -53,7 +53,7 @@ interface GeminiPart {
 }
 
 interface GeminiContent {
-  role?: 'user' | 'model';
+  role?: 'user' | 'model' | 'function';
   parts: GeminiPart[];
 }
 
@@ -494,7 +494,7 @@ export class GeminiProvider extends BaseProvider {
         },
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       return !!(data.models && Array.isArray(data.models));
     } catch {
       return false;
@@ -519,7 +519,7 @@ export class GeminiProvider extends BaseProvider {
         },
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       if (data.models && Array.isArray(data.models)) {
         return data.models
           .map((m: any) => m.name?.replace('models/', '') || '')

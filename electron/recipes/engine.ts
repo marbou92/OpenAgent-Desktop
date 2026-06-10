@@ -756,6 +756,8 @@ export class RecipeEngine extends EventEmitter {
       ...recipeData,
       id: `imported:${crypto.randomUUID()}`,
       source: source.startsWith("http") ? source : undefined,
+      name: recipeData.name || 'Imported Recipe',
+      prompt: recipeData.prompt || '',
     });
 
     return imported;
@@ -768,6 +770,8 @@ export class RecipeEngine extends EventEmitter {
     return this.create({
       ...recipeData,
       id: `imported:${crypto.randomUUID()}`,
+      name: recipeData.name || 'Imported Recipe',
+      prompt: recipeData.prompt || '',
     });
   }
 
@@ -1399,7 +1403,9 @@ export class RecipeEngine extends EventEmitter {
           );
 
           // Update schedule metadata
-          recipe.schedule.lastRunAt = new Date().toISOString();
+          if (recipe.schedule) {
+            recipe.schedule.lastRunAt = new Date().toISOString();
+          }
 
           await this.traceCollector?.addEntry("system", {
             type: "info",

@@ -420,11 +420,11 @@ export class HookManager extends EventEmitter {
         timeout,
         maxBuffer: 1024 * 1024, // 1MB
         env: { ...process.env },
-        shell: true,
-      }, (error, stdout, stderr) => {
+        shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
+      }, (error: child_process.ExecException | null, stdout: string, stderr: string) => {
         if (error) {
           resolve({
-            exitCode: error.killed ? -1 : (error.code as number) || 1,
+            exitCode: error.killed ? -1 : (typeof error.code === 'number' ? error.code : 1),
             stdout: stdout || "",
             stderr: stderr || error.message,
           });

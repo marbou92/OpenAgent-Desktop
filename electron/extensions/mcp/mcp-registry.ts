@@ -984,8 +984,8 @@ export class MCPRegistry {
   }
 
   /** Get all required environment variables across all extensions */
-  getAllRequiredEnvVars(): Record<ExtensionType, string[]> {
-    const result: Record<ExtensionType, string[]> = {};
+  getAllRequiredEnvVars(): Partial<Record<ExtensionType, string[]>> {
+    const result: Partial<Record<ExtensionType, string[]>> = {};
     for (const [type, ext] of this.extensions) {
       result[type] = ext.requiredEnvVars;
     }

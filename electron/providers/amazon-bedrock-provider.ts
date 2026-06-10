@@ -22,6 +22,8 @@ import {
   ProviderType,
 } from './types';
 import { BaseProvider } from './base-provider';
+import { webcrypto } from 'crypto';
+const subtleCrypto = webcrypto.subtle;
 
 // ─── Bedrock Models ────────────────────────────────────────────────────────────
 
@@ -139,14 +141,14 @@ class AwsSigV4Signer {
     const encoder = new TextEncoder();
     const keyData =
       typeof key === 'string' ? encoder.encode(key) : key;
-    const cryptoKey = await crypto.subtle.importKey(
+    const cryptoKey = await subtleCrypto.importKey(
       'raw',
       keyData,
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['sign']
     );
-    return crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data));
+    return subtleCrypto.sign('HMAC', cryptoKey, encoder.encode(data));
   }
 
   private async hmacHex(key: ArrayBuffer, data: string): Promise<string> {
@@ -156,7 +158,7 @@ class AwsSigV4Signer {
 
   private async sha256Hex(data: string): Promise<string> {
     const encoder = new TextEncoder();
-    const hash = await crypto.subtle.digest(
+    const hash = await subtleCrypto.digest(
       'SHA-256',
       encoder.encode(data)
     );

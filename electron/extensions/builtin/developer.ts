@@ -272,7 +272,7 @@ export class DeveloperExtension extends BaseExtension {
       timeout,
       maxBuffer: 10 * 1024 * 1024, // 10MB
       env: { ...process.env, ...extraEnv } as Record<string, string>,
-      shell: true,
+      shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
     };
 
     return new Promise((resolve) => {
@@ -544,7 +544,7 @@ export class DeveloperExtension extends BaseExtension {
   private async editorUndo(filePath: string): Promise<ToolResult> {
     // Find the most recent edit for this file
     const editIndex = this.editHistory.findLastIndex(
-      (record) => record.filePath === filePath,
+      (record: FileEditRecord) => record.filePath === filePath,
     );
 
     if (editIndex === -1) {

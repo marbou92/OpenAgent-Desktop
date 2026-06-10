@@ -78,7 +78,7 @@ export class GroqProvider extends OpenAIProvider {
         },
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       if (data.data && Array.isArray(data.data)) {
         return data.data
           .map((m: any) => m.id)

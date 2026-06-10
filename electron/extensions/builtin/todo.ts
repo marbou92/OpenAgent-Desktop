@@ -291,7 +291,7 @@ export class TodoExtension extends BaseExtension {
 
     for (const field of allowedFields) {
       if (field in updates && updates[field] !== undefined) {
-        (todo as Record<string, unknown>)[field] = updates[field];
+        (todo as unknown as Record<string, unknown>)[field] = updates[field];
         appliedUpdates.push(field);
       }
     }

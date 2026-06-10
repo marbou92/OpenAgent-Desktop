@@ -56,7 +56,7 @@ interface VertexPart {
 }
 
 interface VertexContent {
-  role?: 'user' | 'model';
+  role?: 'user' | 'model' | 'function';
   parts: VertexPart[];
 }
 
@@ -136,7 +136,7 @@ class GcpAuthTokenManager {
       );
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as Record<string, any>;
         this.accessToken = data.access_token;
         this.expiresAt = Date.now() + (data.expires_in - 60) * 1000;
         return this.accessToken!;

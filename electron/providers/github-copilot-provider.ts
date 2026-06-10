@@ -123,7 +123,7 @@ export class GitHubCopilotProvider extends BaseProvider {
       );
     }
 
-    const data: DeviceCodeResponse = await response.json();
+    const data = await response.json() as DeviceCodeResponse;
     return {
       userCode: data.user_code,
       verificationUri: data.verification_uri,
@@ -146,7 +146,7 @@ export class GitHubCopilotProvider extends BaseProvider {
         body: `client_id=${GitHubCopilotProvider.CLIENT_ID}&device_code=${deviceCode}&grant_type=urn:ietf:params:oauth:grant-type:device_code`,
       });
 
-      const data: DeviceTokenResponse = await response.json();
+      const data = await response.json() as DeviceTokenResponse;
 
       if (data.error === 'authorization_pending') {
         continue;
@@ -239,7 +239,7 @@ export class GitHubCopilotProvider extends BaseProvider {
       );
     }
 
-    const data = await response.json();
+    const data = await response.json() as Record<string, any>;
     this.copilotToken = {
       token: data.token,
       expiresAt: (data.expires_at || 0) * 1000,
@@ -640,7 +640,7 @@ export class GitHubCopilotProvider extends BaseProvider {
         headers,
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       if (data.data && Array.isArray(data.data)) {
         return data.data.map((m: any) => m.id).sort();
       }

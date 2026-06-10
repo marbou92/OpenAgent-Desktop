@@ -279,6 +279,12 @@ export class MCPClient extends EventEmitter {
     if (!this.process) return;
 
     return new Promise((resolve) => {
+      const proc = this.process;
+      if (!proc) {
+        resolve();
+        return;
+      }
+
       const timeout = setTimeout(() => {
         if (this.process) {
           this.process.kill('SIGKILL');
@@ -286,13 +292,13 @@ export class MCPClient extends EventEmitter {
         resolve();
       }, 5000);
 
-      this.process.on('exit', () => {
+      proc.on('exit', () => {
         clearTimeout(timeout);
         this.process = null;
         resolve();
       });
 
-      this.process.kill('SIGTERM');
+      proc.kill('SIGTERM');
     });
   }
 
@@ -417,6 +423,10 @@ export class MCPClient extends EventEmitter {
 
   /** Handle a response message */
   private handleResponse(response: MCPResponse): void {
+    if (response.id === null || response.id === undefined) {
+      this.emit('unexpectedResponse', response);
+      return;
+    }
     const pending = this.pendingRequests.get(response.id);
     if (!pending) {
       this.emit('unexpectedResponse', response);
@@ -432,7 +442,10 @@ export class MCPClient extends EventEmitter {
   private handleIncomingMessage(message: MCPNotification & { id?: number | string; params?: Record<string, unknown> }): void {
     // Server-to-client requests (have an id)
     if (message.id !== undefined && message.id !== null) {
-      this.handleServerRequest(message).catch((err) => {
+      this.handleServerRequest({
+        ...message,
+        id: message.id,
+      }).catch((err) => {
         this.emit('error', err);
       });
       return;
@@ -466,7 +479,7 @@ export class MCPClient extends EventEmitter {
       case 'sampling/createMessage': {
         if (this.samplingHandler) {
           try {
-            const result = await this.samplingHandler(message.params as SamplingParams);
+            const result = await this.samplingHandler(message.params as unknown as SamplingParams);
             this.sendResponse(message.id, result);
           } catch (err) {
             this.sendError(message.id, -32603, err instanceof Error ? err.message : String(err));
@@ -480,7 +493,7 @@ export class MCPClient extends EventEmitter {
       case 'elicitation/create': {
         if (this.elicitationHandler) {
           try {
-            const result = await this.elicitationHandler(message.params as ElicitationRequest);
+            const result = await this.elicitationHandler(message.params as unknown as ElicitationRequest);
             this.sendResponse(message.id, result);
           } catch (err) {
             this.sendError(message.id, -32603, err instanceof Error ? err.message : String(err));

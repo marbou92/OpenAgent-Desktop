@@ -529,7 +529,7 @@ export class OpenAIProvider extends BaseProvider {
         headers,
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       return !!(data.data && Array.isArray(data.data));
     } catch {
       return false;
@@ -557,7 +557,7 @@ export class OpenAIProvider extends BaseProvider {
         headers,
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       if (data.data && Array.isArray(data.data)) {
         return data.data
           .map((m: any) => m.id)

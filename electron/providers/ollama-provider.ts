@@ -339,7 +339,7 @@ export class OllamaProvider extends BaseProvider {
         headers: {},
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       return !!(data.models && Array.isArray(data.models));
     } catch {
       return false;
@@ -361,7 +361,7 @@ export class OllamaProvider extends BaseProvider {
         headers: {},
       });
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, any>;
       if (data.models && Array.isArray(data.models)) {
         return data.models.map((m: any) => m.name).sort();
       }

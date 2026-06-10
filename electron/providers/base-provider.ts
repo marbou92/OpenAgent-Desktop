@@ -374,7 +374,7 @@ export abstract class BaseProvider implements ProviderInterface {
       if (error.retryable) return true;
       if (
         error.type === ProviderErrorType.RATE_LIMIT ||
-        error.type === ProviderType.SERVER_ERROR ||
+        error.type === ProviderErrorType.SERVER_ERROR ||
         error.type === ProviderErrorType.NETWORK ||
         error.type === ProviderErrorType.TIMEOUT
       ) {
