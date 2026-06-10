@@ -1,0 +1,441 @@
+/**
+ * OpenAgent-Desktop - useChat Hook
+ *
+ * Manages chat interactions with streaming support, tool call handling,
+ * permission mode management, and auto-save.
+ */
+
+import { useState, useCallback, useRef, useEffect } from 'react';
+import {
+  ChatMessage,
+  AttachedFile,
+  ProviderInfo,
+  ToolCall,
+  TraceEntry,
+  PermissionRequest,
+} from '../types';
+
+const api = (window as any).openagent;
+
+interface UseChatOptions {
+  sessionId: string | null;
+  providers: ProviderInfo[];
+  permissionMode: 'auto' | 'approve' | 'smart_approve' | 'chat';
+  onMessagesUpdate?: (messages: ChatMessage[]) => void;
+  onTraceEntry?: (entry: TraceEntry) => void;
+  onPermissionRequest?: (request: PermissionRequest) => void;
+}
+
+interface UseChatReturn {
+  messages: ChatMessage[];
+  isStreaming: boolean;
+  error: string | null;
+  streamingContent: string;
+  streamingThinking: string;
+  activeToolCalls: ToolCall[];
+  sendMessage: (content: string, files?: AttachedFile[]) => Promise<void>;
+  stopStreaming: () => Promise<void>;
+  clearMessages: () => void;
+  retryLastMessage: () => Promise<void>;
+}
+
+export function useChat(options: UseChatOptions): UseChatReturn {
+  const {
+    sessionId,
+    providers,
+    permissionMode,
+    onMessagesUpdate,
+    onTraceEntry,
+    onPermissionRequest,
+  } = options;
+
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [streamingThinking, setStreamingThinking] = useState('');
+  const [activeToolCalls, setActiveToolCalls] = useState<ToolCall[]>([]);
+
+  const unsubscribeRef = useRef<(() => void)[]>([]);
+  const streamingContentRef = useRef<string>('');
+  const streamingThinkingRef = useRef<string>('');
+  const lastUserMessageRef = useRef<string>('');
+  const lastFilesRef = useRef<AttachedFile[]>([]);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  const isStreamingRef = useRef(false);
+
+  // Keep messagesRef in sync
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Cleanup listeners on unmount or session change
+  useEffect(() => {
+    return () => {
+      unsubscribeRef.current.forEach(fn => fn());
+      unsubscribeRef.current = [];
+    };
+  }, [sessionId]);
+
+  // Subscribe to stream events when session changes
+  useEffect(() => {
+    if (!api) return;
+
+    const unsubChunk = api.on.chatStreamChunk((data: { sessionId: string; chunk: string }) => {
+      if (data.sessionId !== sessionId) return;
+      streamingContentRef.current += data.chunk;
+      setStreamingContent(streamingContentRef.current);
+
+      // Update the streaming assistant message
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: streamingContentRef.current,
+          };
+        }
+        return updated;
+      });
+    });
+
+    const unsubThinking = api.on.chatStreamThinking((data: { sessionId: string; thinking: string }) => {
+      if (data.sessionId !== sessionId) return;
+      streamingThinkingRef.current = data.thinking;
+      setStreamingThinking(data.thinking);
+
+      // Update the streaming assistant message thinking
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            thinking: data.thinking,
+          };
+        }
+        return updated;
+      });
+    });
+
+    const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
+      if (data.sessionId !== sessionId) return;
+      const incomingToolCall = data.toolCall;
+      const newToolCall: ToolCall = {
+        id: (incomingToolCall.id as string) || crypto.randomUUID(),
+        name: (incomingToolCall.name as string) || 'unknown',
+        arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
+        status: 'pending',
+      };
+
+      setActiveToolCalls(prev => [...prev, newToolCall]);
+
+      // If permission mode requires approval, emit a permission request
+      if (permissionMode === 'approve' || permissionMode === 'smart_approve') {
+        onPermissionRequest?.({
+          id: newToolCall.id,
+          toolName: newToolCall.name,
+          toolArguments: newToolCall.arguments,
+          onApprove: () => {
+            setActiveToolCalls(prev =>
+              prev.map(tc => (tc.id === newToolCall.id ? { ...tc, status: 'completed' as const } : tc))
+            );
+          },
+          onDeny: () => {
+            setActiveToolCalls(prev =>
+              prev.map(tc => (tc.id === newToolCall.id ? { ...tc, status: 'failed' as const } : tc))
+            );
+          },
+        });
+      }
+    });
+
+    const unsubToolResult = api.on.chatStreamToolResult((data: { sessionId: string; toolResult: Record<string, unknown> }) => {
+      if (data.sessionId !== sessionId) return;
+
+      // Update the tool call with result
+      setActiveToolCalls(prev =>
+        prev.map(tc => {
+          if (tc.id === (data.toolResult as any).id) {
+            return {
+              ...tc,
+              result: (data.toolResult as any).result,
+              status: 'completed' as const,
+            };
+          }
+          return tc;
+        })
+      );
+    });
+
+    const unsubEnd = api.on.chatStreamEnd((data: { sessionId: string; content: string }) => {
+      if (data.sessionId !== sessionId) return;
+
+      // Finalize the streaming message
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: data.content || streamingContentRef.current,
+            isStreaming: false,
+            thinking: streamingThinkingRef.current || lastMsg.thinking,
+          };
+        }
+        return updated;
+      });
+
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      setStreamingContent('');
+      setStreamingThinking('');
+      streamingContentRef.current = '';
+      streamingThinkingRef.current = '';
+      setActiveToolCalls([]);
+    });
+
+    const unsubError = api.on.chatStreamError((data: { sessionId: string; error: string }) => {
+      if (data.sessionId !== sessionId) return;
+
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: `Error: ${data.error}`,
+            isStreaming: false,
+            error: data.error,
+          };
+        }
+        return updated;
+      });
+
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      setError(data.error);
+      setStreamingContent('');
+      setStreamingThinking('');
+      streamingContentRef.current = '';
+      streamingThinkingRef.current = '';
+      setActiveToolCalls([]);
+    });
+
+    const unsubCancelled = api.on.chatStreamCancelled((data: { sessionId: string }) => {
+      if (data.sessionId !== sessionId) return;
+
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: streamingContentRef.current || lastMsg.content,
+            isStreaming: false,
+          };
+        }
+        return updated;
+      });
+
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      setStreamingContent('');
+      setStreamingThinking('');
+      streamingContentRef.current = '';
+      streamingThinkingRef.current = '';
+      setActiveToolCalls([]);
+    });
+
+    const unsubTrace = api.on.traceEntry((entry: TraceEntry) => {
+      if (entry.sessionId === sessionId) {
+        onTraceEntry?.(entry);
+      }
+    });
+
+    unsubscribeRef.current = [
+      unsubChunk,
+      unsubThinking,
+      unsubToolCall,
+      unsubToolResult,
+      unsubEnd,
+      unsubError,
+      unsubCancelled,
+      unsubTrace,
+    ];
+
+    return () => {
+      unsubscribeRef.current.forEach(fn => fn());
+      unsubscribeRef.current = [];
+    };
+  }, [sessionId, permissionMode, onTraceEntry, onPermissionRequest]);
+
+  // Notify parent when messages change
+  useEffect(() => {
+    onMessagesUpdate?.(messages);
+  }, [messages, onMessagesUpdate]);
+
+  const sendMessage = useCallback(async (content: string, files: AttachedFile[] = []) => {
+    if (!sessionId || !api) {
+      setError('No active session or API not available');
+      return;
+    }
+
+    if (isStreamingRef.current) {
+      setError('Already streaming a response');
+      return;
+    }
+
+    setError(null);
+    streamingContentRef.current = '';
+    streamingThinkingRef.current = '';
+    lastUserMessageRef.current = content;
+    lastFilesRef.current = files;
+
+    // Create user message
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
+      files: files.length > 0 ? files : undefined,
+    };
+
+    // Create assistant placeholder
+    const assistantMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      isStreaming: true,
+    };
+
+    setMessages(prev => [...prev, userMessage, assistantMessage]);
+    setIsStreaming(true);
+    isStreamingRef.current = true;
+
+    try {
+      // Get default provider
+      const defaultProvider = providers.find(p => p.isDefault) || providers[0];
+      if (!defaultProvider) {
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMsg = updated[updated.length - 1];
+          if (lastMsg.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...lastMsg,
+              content: 'No AI provider configured. Please add an API key in **Settings**.',
+              isStreaming: false,
+              error: 'No provider configured',
+            };
+          }
+          return updated;
+        });
+        setIsStreaming(false);
+        isStreamingRef.current = false;
+        setError('No provider configured');
+        return;
+      }
+
+      // Start streaming via the Electron API
+      await api.chat.stream(sessionId, content, {
+        providerId: defaultProvider.id,
+        model: defaultProvider.models?.[0] || 'gpt-4o',
+        files: files.map(f => f.path),
+      });
+    } catch (err: any) {
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg.role === 'assistant') {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: `Failed to get response: ${err.message}`,
+            isStreaming: false,
+            error: err.message,
+          };
+        }
+        return updated;
+      });
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      setError(err.message);
+    }
+  }, [sessionId, providers]);
+
+  const stopStreaming = useCallback(async () => {
+    if (!sessionId || !api) return;
+
+    try {
+      await api.chat.cancel(sessionId);
+    } catch (err: any) {
+      console.error('Failed to cancel streaming:', err);
+    }
+
+    // Immediately update local state
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+
+    setMessages(prev => {
+      const updated = [...prev];
+      const lastMsg = updated[updated.length - 1];
+      if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+        updated[updated.length - 1] = {
+          ...lastMsg,
+          content: streamingContentRef.current || lastMsg.content || '*(cancelled)*',
+          isStreaming: false,
+        };
+      }
+      return updated;
+    });
+
+    setStreamingContent('');
+    setStreamingThinking('');
+    streamingContentRef.current = '';
+    streamingThinkingRef.current = '';
+    setActiveToolCalls([]);
+  }, [sessionId]);
+
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setError(null);
+    setStreamingContent('');
+    setStreamingThinking('');
+    setActiveToolCalls([]);
+    streamingContentRef.current = '';
+    streamingThinkingRef.current = '';
+  }, []);
+
+  const retryLastMessage = useCallback(async () => {
+    if (!lastUserMessageRef.current) return;
+
+    // Remove the last assistant message
+    setMessages(prev => {
+      const updated = [...prev];
+      if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') {
+        updated.pop();
+      }
+      if (updated.length > 0 && updated[updated.length - 1].role === 'user') {
+        updated.pop();
+      }
+      return updated;
+    });
+
+    // Re-send
+    await sendMessage(lastUserMessageRef.current, lastFilesRef.current);
+  }, [sendMessage]);
+
+  return {
+    messages,
+    isStreaming,
+    error,
+    streamingContent,
+    streamingThinking,
+    activeToolCalls,
+    sendMessage,
+    stopStreaming,
+    clearMessages,
+    retryLastMessage,
+  };
+}
