@@ -399,158 +399,158 @@ const electronAPI = {
 
   on: {
     // Sandbox events
-    sandboxStatusChanged: (callback: (status: SandboxStatus) => void): () => {
+    sandboxStatusChanged: (callback: (status: SandboxStatus) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: SandboxStatus) => callback(data);
       ipcRenderer.on("sandbox:status-changed", handler);
       return () => ipcRenderer.removeListener("sandbox:status-changed", handler);
     },
 
-    sandboxError: (callback: (error: { message: string }) => void): () => {
+    sandboxError: (callback: (error: { message: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data);
       ipcRenderer.on("sandbox:error", handler);
       return () => ipcRenderer.removeListener("sandbox:error", handler);
     },
 
-    sandboxHealth: (callback: (health: Record<string, unknown>) => void): () => {
+    sandboxHealth: (callback: (health: Record<string, unknown>) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: Record<string, unknown>) => callback(data);
       ipcRenderer.on("sandbox:health", handler);
       return () => ipcRenderer.removeListener("sandbox:health", handler);
     },
 
     // Extension events
-    extensionInstalled: (callback: (extension: ExtensionInfo) => void): () => {
+    extensionInstalled: (callback: (extension: ExtensionInfo) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: ExtensionInfo) => callback(data);
       ipcRenderer.on("extension:installed", handler);
       return () => ipcRenderer.removeListener("extension:installed", handler);
     },
 
-    extensionUninstalled: (callback: (data: { extensionId: string }) => void): () => {
+    extensionUninstalled: (callback: (data: { extensionId: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { extensionId: string }) => callback(data);
       ipcRenderer.on("extension:uninstalled", handler);
       return () => ipcRenderer.removeListener("extension:uninstalled", handler);
     },
 
-    extensionError: (callback: (error: { message: string }) => void): () => {
+    extensionError: (callback: (error: { message: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data);
       ipcRenderer.on("extension:error", handler);
       return () => ipcRenderer.removeListener("extension:error", handler);
     },
 
     // ACP events
-    acpConnected: (callback: (info: Record<string, unknown>) => void): () => {
+    acpConnected: (callback: (info: Record<string, unknown>) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: Record<string, unknown>) => callback(data);
       ipcRenderer.on("acp:connected", handler);
       return () => ipcRenderer.removeListener("acp:connected", handler);
     },
 
-    acpDisconnected: (callback: () => void): () => {
+    acpDisconnected: (callback: () => void): (() => void) => {
       const handler = () => callback();
       ipcRenderer.on("acp:disconnected", handler);
       return () => ipcRenderer.removeListener("acp:disconnected", handler);
     },
 
-    acpMessage: (callback: (message: Record<string, unknown>) => void): () => {
+    acpMessage: (callback: (message: Record<string, unknown>) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: Record<string, unknown>) => callback(data);
       ipcRenderer.on("acp:message", handler);
       return () => ipcRenderer.removeListener("acp:message", handler);
     },
 
-    acpError: (callback: (error: { message: string }) => void): () => {
+    acpError: (callback: (error: { message: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data);
       ipcRenderer.on("acp:error", handler);
       return () => ipcRenderer.removeListener("acp:error", handler);
     },
 
     // Chat stream events
-    chatStreamChunk: (callback: (data: { sessionId: string; chunk: string }) => void): () => {
+    chatStreamChunk: (callback: (data: { sessionId: string; chunk: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; chunk: string }) => callback(data);
       ipcRenderer.on("chat:stream-chunk", handler);
       return () => ipcRenderer.removeListener("chat:stream-chunk", handler);
     },
 
-    chatStreamToolCall: (callback: (data: { sessionId: string; toolCall: Record<string, unknown> }) => void): () => {
+    chatStreamToolCall: (callback: (data: { sessionId: string; toolCall: Record<string, unknown> }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; toolCall: Record<string, unknown> }) => callback(data);
       ipcRenderer.on("chat:stream-tool-call", handler);
       return () => ipcRenderer.removeListener("chat:stream-tool-call", handler);
     },
 
-    chatStreamToolResult: (callback: (data: { sessionId: string; toolResult: Record<string, unknown> }) => void): () => {
+    chatStreamToolResult: (callback: (data: { sessionId: string; toolResult: Record<string, unknown> }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; toolResult: Record<string, unknown> }) => callback(data);
       ipcRenderer.on("chat:stream-tool-result", handler);
       return () => ipcRenderer.removeListener("chat:stream-tool-result", handler);
     },
 
-    chatStreamThinking: (callback: (data: { sessionId: string; thinking: string }) => void): () => {
+    chatStreamThinking: (callback: (data: { sessionId: string; thinking: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; thinking: string }) => callback(data);
       ipcRenderer.on("chat:stream-thinking", handler);
       return () => ipcRenderer.removeListener("chat:stream-thinking", handler);
     },
 
-    chatStreamError: (callback: (data: { sessionId: string; error: string }) => void): () => {
+    chatStreamError: (callback: (data: { sessionId: string; error: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; error: string }) => callback(data);
       ipcRenderer.on("chat:stream-error", handler);
       return () => ipcRenderer.removeListener("chat:stream-error", handler);
     },
 
-    chatStreamEnd: (callback: (data: { sessionId: string; content: string }) => void): () => {
+    chatStreamEnd: (callback: (data: { sessionId: string; content: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; content: string }) => callback(data);
       ipcRenderer.on("chat:stream-end", handler);
       return () => ipcRenderer.removeListener("chat:stream-end", handler);
     },
 
-    chatStreamCancelled: (callback: (data: { sessionId: string }) => void): () => {
+    chatStreamCancelled: (callback: (data: { sessionId: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }) => callback(data);
       ipcRenderer.on("chat:stream-cancelled", handler);
       return () => ipcRenderer.removeListener("chat:stream-cancelled", handler);
     },
 
     // File events
-    fileDropped: (callback: (files: DroppedFile[]) => void): () => {
+    fileDropped: (callback: (files: DroppedFile[]) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: DroppedFile[]) => callback(data);
       ipcRenderer.on("file:dropped", handler);
       return () => ipcRenderer.removeListener("file:dropped", handler);
     },
 
     // Trace events
-    traceEntry: (callback: (entry: TraceEntry) => void): () => {
+    traceEntry: (callback: (entry: TraceEntry) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: TraceEntry) => callback(data);
       ipcRenderer.on("trace:entry", handler);
       return () => ipcRenderer.removeListener("trace:entry", handler);
     },
 
     // Updater events
-    updaterChecking: (callback: () => void): () => {
+    updaterChecking: (callback: () => void): (() => void) => {
       const handler = () => callback();
       ipcRenderer.on("updater:checking", handler);
       return () => ipcRenderer.removeListener("updater:checking", handler);
     },
 
-    updaterAvailable: (callback: (data: { version: string; releaseNotes?: string }) => void): () => {
+    updaterAvailable: (callback: (data: { version: string; releaseNotes?: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { version: string; releaseNotes?: string }) => callback(data);
       ipcRenderer.on("updater:available", handler);
       return () => ipcRenderer.removeListener("updater:available", handler);
     },
 
-    updaterProgress: (callback: (data: { percent: number; transferred: number; total: number }) => void): () => {
+    updaterProgress: (callback: (data: { percent: number; transferred: number; total: number }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { percent: number; transferred: number; total: number }) => callback(data);
       ipcRenderer.on("updater:progress", handler);
       return () => ipcRenderer.removeListener("updater:progress", handler);
     },
 
-    updaterDownloaded: (callback: (data: { version: string }) => void): () => {
+    updaterDownloaded: (callback: (data: { version: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { version: string }) => callback(data);
       ipcRenderer.on("updater:downloaded", handler);
       return () => ipcRenderer.removeListener("updater:downloaded", handler);
     },
 
-    updaterError: (callback: (data: { message: string }) => void): () => {
+    updaterError: (callback: (data: { message: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data);
       ipcRenderer.on("updater:error", handler);
       return () => ipcRenderer.removeListener("updater:error", handler);
     },
 
     // App error
-    appError: (callback: (data: { message: string; stack?: string }) => void): () => {
+    appError: (callback: (data: { message: string; stack?: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { message: string; stack?: string }) => callback(data);
       ipcRenderer.on("app:error", handler);
       return () => ipcRenderer.removeListener("app:error", handler);
