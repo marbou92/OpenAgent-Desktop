@@ -96,6 +96,9 @@ auto-generated/
 # Storybook
 storybook-static/
 
+# Prevent nested project directory (was accidentally committed)
+openagent-desktop/
+
 # Misc
 *.tgz
 .npmrc
