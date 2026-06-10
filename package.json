@@ -1,5 +1,5 @@
 {
-  "name": "openagent-desktop",
+  "nae": "openagent-desktop",
   "version": "1.0.0",
   "description": "Open-source desktop AI agent with VM-level sandboxing, 35+ providers, 60+ extensions, recipe system, and ACP protocol support",
   "main": "dist/electron/main.js",
