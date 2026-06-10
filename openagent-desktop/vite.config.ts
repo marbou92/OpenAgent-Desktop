@@ -4,6 +4,22 @@ import electron from 'vite-plugin-electron';
 import renderer from 'vite-plugin-electron-renderer';
 import path from 'path';
 
+// NPM packages used in electron main process that must be externalized
+// (Node.js builtins like fs, path, crypto are auto-externalized by vite-plugin-electron)
+const electronExternals = [
+  'electron-store',
+  'electron-updater',
+  'chokidar',
+  'js-yaml',
+  'cron',
+  'screenshot-desktop',
+  'dotenv',
+  'node-fetch',
+  'form-data',
+  'uuid',
+  'eventsource-parser',
+];
+
 export default defineConfig({
   plugins: [
     react(),
@@ -14,37 +30,10 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: [
-                'electron',
-                'electron-store',
-                'electron-updater',
-                'chokidar',
-                'js-yaml',
-                'cron',
-                'screenshot-desktop',
-                'dotenv',
-                'node-fetch',
-                'form-data',
-                'uuid',
-                'events',
-                'fs',
-                'path',
-                'os',
-                'crypto',
-                'child_process',
-                'http',
-                'https',
-                'url',
-                'util',
-                'stream',
-                'net',
-                'tls',
-                'zlib',
-                'buffer',
-              ]
-            }
-          }
-        }
+              external: electronExternals,
+            },
+          },
+        },
       },
       {
         entry: 'electron/preload.ts',
@@ -53,25 +42,28 @@ export default defineConfig({
         },
         vite: {
           build: {
-            outDir: 'dist-electron'
-          }
-        }
-      }
+            outDir: 'dist-electron',
+            rollupOptions: {
+              external: ['electron'],
+            },
+          },
+        },
+      },
     ]),
-    renderer()
+    renderer(),
   ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
-      '@electron': path.resolve(__dirname, 'electron')
-    }
+      '@electron': path.resolve(__dirname, 'electron'),
+    },
   },
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
   },
   build: {
     outDir: 'dist',
-    sourcemap: true
-  }
+    sourcemap: true,
+  },
 });
