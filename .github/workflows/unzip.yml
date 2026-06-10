@@ -1,0 +1,29 @@
+name: Auto Unzip Mobile Uploads
+
+on:
+  push:
+    paths:
+      - '*.zip' # Triggers only when a .zip file is uploaded to the root
+
+jobs:
+  unzip-files:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Gives the action permission to write extracted files back to your repo
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Unzip Archive
+        run: |
+          unzip *.zip
+          rm *.zip
+
+      - name: Commit and Push Extracted Files
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .
+          git commit -m "Automatically unpacked uploaded ZIP folder"
+          git push
