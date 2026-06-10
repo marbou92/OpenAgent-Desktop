@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      workflows: write # 👈 This line fixes the "remote rejected" error
 
     steps:
       - name: Checkout Repository
