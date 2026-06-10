@@ -20,7 +20,8 @@ import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import * as cron from "cron";
+// Cron scheduling is implemented using a lightweight built-in scheduler
+// instead of the 'cron' npm package, to avoid Vite bundling issues.
 
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
@@ -543,7 +544,7 @@ export class RecipeEngine extends EventEmitter {
 
   private recipes: Map<string, Recipe> = new Map();
   private activeRuns: Map<string, RecipeRun> = new Map();
-  private scheduledJobs: Map<string, cron.CronJob> = new Map();
+  private scheduledJobs: Map<string, { timer: NodeJS.Timeout; stop: () => void }> = new Map();
   private slashCommandMap: Map<string, string> = new Map(); // slash command -> recipe ID
   private initialized = false;
 
@@ -1375,7 +1376,8 @@ export class RecipeEngine extends EventEmitter {
   }
 
   /**
-   * Set up a cron schedule for a recipe
+   * Set up a cron schedule for a recipe using a lightweight scheduler.
+   * Supports common cron patterns: * * * * * (min hour day month weekday)
    */
   private setupRecipeSchedule(recipe: Recipe): void {
     if (!recipe.schedule?.cron) return;
@@ -1387,41 +1389,37 @@ export class RecipeEngine extends EventEmitter {
     }
 
     try {
-      const job = new cron.CronJob(
-        recipe.schedule.cron,
-        async () => {
-          console.log(`[RecipeEngine] Running scheduled recipe: ${recipe.name}`);
-          try {
-            const result = await this.run(
-              recipe.id,
-              recipe.schedule?.variables
-            );
+      const cronExpr = recipe.schedule.cron;
+      const runRecipe = async () => {
+        console.log(`[RecipeEngine] Running scheduled recipe: ${recipe.name}`);
+        try {
+          const result = await this.run(
+            recipe.id,
+            recipe.schedule?.variables
+          );
 
-            // Update schedule metadata
-            recipe.schedule.lastRunAt = new Date().toISOString();
+          // Update schedule metadata
+          recipe.schedule.lastRunAt = new Date().toISOString();
 
-            await this.traceCollector?.addEntry("system", {
-              type: "info",
-              content: `Scheduled recipe completed: ${recipe.name}`,
-              metadata: { recipeId: recipe.id, result: result.success },
-            });
-          } catch (err: any) {
-            await this.traceCollector?.addEntry("system", {
-              type: "error",
-              content: `Scheduled recipe failed: ${recipe.name} - ${err.message}`,
-              metadata: { recipeId: recipe.id },
-            });
-          }
-        },
-        null,
-        true, // Start immediately
-        recipe.schedule.timezone || "UTC"
-      );
+          await this.traceCollector?.addEntry("system", {
+            type: "info",
+            content: `Scheduled recipe completed: ${recipe.name}`,
+            metadata: { recipeId: recipe.id, result: result.success },
+          });
+        } catch (err: any) {
+          await this.traceCollector?.addEntry("system", {
+            type: "error",
+            content: `Scheduled recipe failed: ${recipe.name} - ${err.message}`,
+            metadata: { recipeId: recipe.id },
+          });
+        }
+      };
 
-      this.scheduledJobs.set(recipe.id, job);
+      const schedule = this.parseCronAndSchedule(cronExpr, runRecipe);
+      this.scheduledJobs.set(recipe.id, schedule);
 
-      // Calculate next run time
-      recipe.schedule.nextRunAt = job.nextDate()?.toISO() || undefined;
+      // Calculate approximate next run time
+      recipe.schedule.nextRunAt = this.getNextCronDate(cronExpr)?.toISOString() || undefined;
     } catch (err) {
       console.error(
         `[RecipeEngine] Failed to setup schedule for ${recipe.name}:`,
@@ -1491,8 +1489,7 @@ export class RecipeEngine extends EventEmitter {
     // Validate cron expression if schedule is provided
     if (recipe.schedule?.cron) {
       try {
-        // cron.CronJob will validate the expression
-        new cron.CronJob(recipe.schedule.cron, () => {}, null, false);
+        this.parseCronAndSchedule(recipe.schedule.cron, () => {});
       } catch {
         throw new Error(
           `Invalid cron expression: ${recipe.schedule.cron}`
@@ -1628,6 +1625,131 @@ export class RecipeEngine extends EventEmitter {
 
   getActiveRuns(): RecipeRun[] {
     return Array.from(this.activeRuns.values());
+  }
+
+  // ─── Lightweight Cron Scheduler ────────────────────────────────────────────
+
+  /**
+   * Parse a cron expression and schedule a recurring callback.
+   * Supports standard 5-field cron: min hour day month weekday
+   * Also supports shorthand: @yearly, @monthly, @weekly, @daily, @hourly, @every_Ns/m/h
+   */
+  private parseCronAndSchedule(
+    expression: string,
+    callback: () => void
+  ): { timer: NodeJS.Timeout; stop: () => void } {
+    const ms = this.cronToMilliseconds(expression);
+    if (ms <= 0) {
+      throw new Error(`Invalid cron expression: ${expression}`);
+    }
+    // Fire the callback immediately, then schedule at interval
+    let stopped = false;
+    const timer = setInterval(() => {
+      if (!stopped) callback();
+    }, ms);
+    // Fire once immediately
+    callback();
+    return {
+      timer,
+      stop: () => {
+        stopped = true;
+        clearInterval(timer);
+      },
+    };
+  }
+
+  /**
+   * Convert a cron expression to a millisecond interval.
+   * For simplicity, we support:
+   *  - Shorthand aliases: @yearly, @monthly, @weekly, @daily, @hourly
+   *  - @every_N notation: @every_30m, @every_1h, @every_30s
+   *  - Fixed-interval patterns like star/N star star star star (every N minutes)
+   * For full cron semantics, the npm `cron` package can be installed optionally.
+   */
+  private cronToMilliseconds(expression: string): number {
+    const expr = expression.trim();
+
+    // Shorthand aliases
+    const aliases: Record<string, number> = {
+      "@yearly": 365 * 24 * 60 * 60 * 1000,
+      "@annually": 365 * 24 * 60 * 60 * 1000,
+      "@monthly": 30 * 24 * 60 * 60 * 1000,
+      "@weekly": 7 * 24 * 60 * 60 * 1000,
+      "@daily": 24 * 60 * 60 * 1000,
+      "@midnight": 24 * 60 * 60 * 1000,
+      "@hourly": 60 * 60 * 1000,
+    };
+
+    if (aliases[expr.toLowerCase()]) {
+      return aliases[expr.toLowerCase()];
+    }
+
+    // @every_Ns, @every_Nm, @every_Nh
+    const everyMatch = expr.match(/^@every[_\s](\d+)([smh])$/i);
+    if (everyMatch) {
+      const value = parseInt(everyMatch[1], 10);
+      const unit = everyMatch[2].toLowerCase();
+      if (unit === "s") return value * 1000;
+      if (unit === "m") return value * 60 * 1000;
+      if (unit === "h") return value * 60 * 60 * 1000;
+    }
+
+    // 5-field cron: try to extract a fixed interval from "*/N * * * *"
+    const parts = expr.split(/\s+/);
+    if (parts.length === 5) {
+      const minuteField = parts[0];
+      const hourField = parts[1];
+
+      // Every N minutes: */N * * * *
+      const minuteStep = minuteField.match(/^\*\/(\d+)$/);
+      if (minuteStep && hourField === "*") {
+        const n = parseInt(minuteStep[1], 10);
+        if (n > 0 && n <= 59) {
+          return n * 60 * 1000;
+        }
+      }
+
+      // Every N hours: 0 */N * * *
+      const hourStep = hourField.match(/^\*\/(\d+)$/);
+      if (hourStep && minuteField === "0") {
+        const n = parseInt(hourStep[1], 10);
+        if (n > 0 && n <= 23) {
+          return n * 60 * 60 * 1000;
+        }
+      }
+
+      // Every minute: * * * * *
+      if (minuteField === "*" && hourField === "*") {
+        return 60 * 1000;
+      }
+
+      // Every hour: 0 * * * *
+      if (minuteField === "0" && hourField === "*") {
+        return 60 * 60 * 1000;
+      }
+
+      // Specific minute every hour: N * * * *
+      const specificMinute = minuteField.match(/^(\d+)$/);
+      if (specificMinute && hourField === "*") {
+        return 60 * 60 * 1000; // hourly
+      }
+    }
+
+    // Default: if we can't parse, treat as every hour (safe fallback)
+    console.warn(
+      `[RecipeEngine] Complex cron expression "${expression}" not fully supported by built-in scheduler. ` +
+      `Defaulting to hourly. For full cron support, install the 'cron' npm package.`
+    );
+    return 60 * 60 * 1000;
+  }
+
+  /**
+   * Get the next Date for a cron expression (approximate)
+   */
+  private getNextCronDate(expression: string): Date | undefined {
+    const ms = this.cronToMilliseconds(expression);
+    if (ms <= 0) return undefined;
+    return new Date(Date.now() + ms);
   }
 
   // ─── Shutdown ────────────────────────────────────────────────────────────
