@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from 'react';
-import { ProviderInfo, AppSettings, Toast } from '../../types';
+import { ProviderInfo, AppSettings, DEFAULT_SETTINGS, Toast } from '../../types';
 import ProviderForm from './ProviderForm';
 
 const api = (window as any).openagent;

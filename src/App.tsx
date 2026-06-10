@@ -293,7 +293,7 @@ const App: React.FC = () => {
       store.setCurrentSession(session);
       store.setCurrentSessionId(sessionId);
       store.setMessages(
-        session.messages.map((m) => ({
+        session.messages.map((m: any) => ({
           ...m,
           isStreaming: false,
         }))

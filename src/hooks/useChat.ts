@@ -121,29 +121,30 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
-      const toolCall: ToolCall = {
-        id: (toolCall.id as string) || crypto.randomUUID(),
-        name: (toolCall.name as string) || 'unknown',
-        arguments: (toolCall.arguments as Record<string, unknown>) || {},
+      const incomingToolCall = data.toolCall;
+      const newToolCall: ToolCall = {
+        id: (incomingToolCall.id as string) || crypto.randomUUID(),
+        name: (incomingToolCall.name as string) || 'unknown',
+        arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
         status: 'pending',
       };
 
-      setActiveToolCalls(prev => [...prev, toolCall]);
+      setActiveToolCalls(prev => [...prev, newToolCall]);
 
       // If permission mode requires approval, emit a permission request
       if (permissionMode === 'approve' || permissionMode === 'smart_approve') {
         onPermissionRequest?.({
-          id: toolCall.id,
-          toolName: toolCall.name,
-          toolArguments: toolCall.arguments,
+          id: newToolCall.id,
+          toolName: newToolCall.name,
+          toolArguments: newToolCall.arguments,
           onApprove: () => {
             setActiveToolCalls(prev =>
-              prev.map(tc => (tc.id === toolCall.id ? { ...tc, status: 'completed' as const } : tc))
+              prev.map(tc => (tc.id === newToolCall.id ? { ...tc, status: 'completed' as const } : tc))
             );
           },
           onDeny: () => {
             setActiveToolCalls(prev =>
-              prev.map(tc => (tc.id === toolCall.id ? { ...tc, status: 'failed' as const } : tc))
+              prev.map(tc => (tc.id === newToolCall.id ? { ...tc, status: 'failed' as const } : tc))
             );
           },
         });
