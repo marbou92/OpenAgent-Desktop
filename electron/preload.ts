@@ -1,4 +1,287 @@
+/**
+ * OpenAgent-Desktop - Electron Preload Script
+ *
+ * This script runs in the renderer's preload context and exposes
+ * a safe, controlled API to the renderer process via contextBridge.
+ * It provides type-safe wrappers around IPC calls to the main process.
+ */
 
+import { contextBridge, ipcRenderer } from "electron";
+
+// ─── Type Definitions ─────────────────────────────────────────────────────────
+
+interface ProviderConfig {
+  id?: string;
+  name: string;
+  type: string;
+  apiKey?: string;
+  baseUrl?: string;
+  models?: string[];
+  settings?: Record<string, unknown>;
+}
+
+interface ProviderInfo {
+  id: string;
+  name: string;
+  type: string;
+  models: string[];
+  isDefault: boolean;
+  configured: boolean;
+}
+
+interface ExtensionInfo {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  enabled: boolean;
+  installed: boolean;
+  config?: Record<string, unknown>;
+  capabilities?: string[];
+}
+
+interface SessionInfo {
+  id: string;
+  name: string;
+  providerId: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  metadata?: Record<string, unknown>;
+}
+
+interface SessionData {
+  id: string;
+  name: string;
+  providerId: string;
+  model: string;
+  messages: SessionMessage[];
+  extensions: string[];
+  recipes: string[];
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface SessionMessage {
+  id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+  toolCalls?: ToolCall[];
+}
+
+interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  result?: unknown;
+}
+
+interface RecipeInfo {
+  id: string;
+  name: string;
+  description: string;
+  variables: RecipeVariable[];
+  subRecipes: string[];
+  extensions: string[];
+  slashCommand?: string;
+}
+
+interface RecipeVariable {
+  name: string;
+  description: string;
+  defaultValue?: string;
+  required: boolean;
+}
+
+interface RecipeResult {
+  recipeId: string;
+  success: boolean;
+  output: string;
+  duration: number;
+  subResults?: RecipeResult[];
+}
+
+interface SandboxStatus {
+  running: boolean;
+  type: string;
+  startedAt?: string;
+  health: "healthy" | "degraded" | "unhealthy" | "stopped";
+  resourceUsage?: {
+    cpuPercent: number;
+    memoryUsedMB: number;
+    memoryLimitMB: number;
+    diskUsedMB: number;
+    diskLimitMB: number;
+  };
+}
+
+interface ExecuteResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  duration: number;
+  timedOut: boolean;
+}
+
+interface HookInfo {
+  id: string;
+  name: string;
+  type: "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "PreSession" | "PostSession";
+  command: string;
+  enabled: boolean;
+  conditions: HookConditions;
+}
+
+interface HookConditions {
+  toolName?: string;
+  extensionId?: string;
+  pattern?: string;
+}
+
+interface HookResult {
+  hookId: string;
+  success: boolean;
+  output?: string;
+  deny?: boolean;
+  reason?: string;
+  duration: number;
+}
+
+interface ACPStatus {
+  connected: boolean;
+  serverUrl?: string;
+  sessionId?: string;
+  agentInfo?: Record<string, unknown>;
+}
+
+interface TraceEntry {
+  id: string;
+  sessionId: string;
+  timestamp: string;
+  type: "thinking" | "action" | "tool_call" | "tool_result" | "error" | "info";
+  content: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface DroppedFile {
+  path: string;
+  name: string;
+  size: number;
+  type: string;
+}
+
+interface IPCResult<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+// ─── Helper: Type-safe IPC invoke wrapper ─────────────────────────────────────
+
+async function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
+  const result: IPCResult<T> = await ipcRenderer.invoke(channel, ...args);
+  if (!result.success) {
+    throw new Error(result.error || `IPC call failed: ${channel}`);
+  }
+  return result.data as T;
+}
+
+// ─── API Object Construction ──────────────────────────────────────────────────
+
+const electronAPI = {
+  // ── Providers ──────────────────────────────────────────────────────────────
+
+  providers: {
+    list: (): Promise<ProviderInfo[]> => invoke<ProviderInfo[]>("provider:list"),
+
+    add: (config: ProviderConfig): Promise<ProviderInfo> =>
+      invoke<ProviderInfo>("provider:add", config),
+
+    remove: (providerId: string): Promise<void> =>
+      invoke<void>("provider:remove", providerId),
+
+    test: (providerId: string): Promise<{ working: boolean; latency: number; models: string[] }> =>
+      invoke<{ working: boolean; latency: number; models: string[] }>("provider:test", providerId),
+
+    setDefault: (providerId: string, model: string): Promise<void> =>
+      invoke<void>("provider:setDefault", providerId, model),
+  },
+
+  // ── Extensions ─────────────────────────────────────────────────────────────
+
+  extensions: {
+    list: (): Promise<ExtensionInfo[]> => invoke<ExtensionInfo[]>("extension:list"),
+
+    enable: (extensionId: string): Promise<void> =>
+      invoke<void>("extension:enable", extensionId),
+
+    disable: (extensionId: string): Promise<void> =>
+      invoke<void>("extension:disable", extensionId),
+
+    install: (source: string, options?: Record<string, unknown>): Promise<ExtensionInfo> =>
+      invoke<ExtensionInfo>("extension:install", source, options),
+
+    configure: (extensionId: string, config: Record<string, unknown>): Promise<void> =>
+      invoke<void>("extension:configure", extensionId, config),
+  },
+
+  // ── Sessions ───────────────────────────────────────────────────────────────
+
+  sessions: {
+    list: (): Promise<SessionInfo[]> => invoke<SessionInfo[]>("session:list"),
+
+    create: (options?: { name?: string; providerId?: string; model?: string; templateId?: string }): Promise<SessionData> =>
+      invoke<SessionData>("session:create", options),
+
+    load: (sessionId: string): Promise<SessionData> =>
+      invoke<SessionData>("session:load", sessionId),
+
+    save: (sessionId: string, data: Partial<SessionData>): Promise<void> =>
+      invoke<void>("session:save", sessionId, data),
+
+    delete: (sessionId: string): Promise<void> =>
+      invoke<void>("session:delete", sessionId),
+
+    export: (sessionId: string, format: "json" | "markdown"): Promise<string> =>
+      invoke<string>("session:export", sessionId, format),
+  },
+
+  // ── Recipes ────────────────────────────────────────────────────────────────
+
+  recipes: {
+    list: (): Promise<RecipeInfo[]> => invoke<RecipeInfo[]>("recipe:list"),
+
+    create: (recipeData: Partial<RecipeInfo> & { prompt: string }): Promise<RecipeInfo> =>
+      invoke<RecipeInfo>("recipe:create", recipeData),
+
+    run: (recipeId: string, variables?: Record<string, string>): Promise<RecipeResult> =>
+      invoke<RecipeResult>("recipe:run", recipeId, variables),
+
+    delete: (recipeId: string): Promise<void> =>
+      invoke<void>("recipe:delete", recipeId),
+
+    import: (source: string, format?: string): Promise<RecipeInfo> =>
+      invoke<RecipeInfo>("recipe:import", source, format),
+  },
+
+  // ── Sandbox ────────────────────────────────────────────────────────────────
+
+  sandbox: {
+    status: (): Promise<SandboxStatus> => invoke<SandboxStatus>("sandbox:status"),
+
+    start: (config?: { cpuLimit?: number; memoryLimitMB?: number; diskLimitMB?: number; networkIsolation?: boolean; allowedPaths?: string[] }): Promise<void> =>
+      invoke<void>("sandbox:start", config),
+
+    stop: (): Promise<void> => invoke<void>("sandbox:stop"),
+
+    execute: (command: string, options?: { cwd?: string; timeout?: number; env?: Record<string, string> }): Promise<ExecuteResult> =>
+      invoke<ExecuteResult>("sandbox:execute", command, options),
+  },
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
 
