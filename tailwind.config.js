@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: 'class',
+  darkMode: ['class', '[data-theme="dark"]'],
   content: [
     './index.html',
     './src/**/*.{js,jsx,ts,tsx}',
@@ -22,6 +22,40 @@ module.exports = {
           900: '#312e81',
           950: '#1e1b4b',
         },
+        // Theme-aware semantic colors via CSS variables
+        background: {
+          DEFAULT: 'var(--color-background)',
+          secondary: 'var(--color-background-secondary)',
+          tertiary: 'var(--color-background-tertiary)',
+        },
+        foreground: {
+          DEFAULT: 'var(--color-foreground)',
+          secondary: 'var(--color-foreground-secondary)',
+          muted: 'var(--color-foreground-muted)',
+        },
+        accent: {
+          DEFAULT: 'var(--color-accent)',
+          hover: 'var(--color-accent-hover)',
+          muted: 'var(--color-accent-muted)',
+        },
+        border: {
+          DEFAULT: 'var(--color-border)',
+          hover: 'var(--color-border-hover)',
+        },
+        card: {
+          DEFAULT: 'var(--color-card)',
+          hover: 'var(--color-card-hover)',
+        },
+        input: 'var(--color-input)',
+        destructive: {
+          DEFAULT: 'var(--color-destructive)',
+          hover: 'var(--color-destructive-hover)',
+        },
+        success: 'var(--color-success)',
+        warning: 'var(--color-warning)',
+        error: 'var(--color-error)',
+        info: 'var(--color-info)',
+        muted: 'var(--color-foreground-muted)',
       },
       spacing: {
         '4.5': '1.125rem',

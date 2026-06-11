@@ -26,6 +26,8 @@ import * as child_process from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { logger } from "../utils/logger";
+import { createError, ErrorCode } from "../utils/structured-errors";
 
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
@@ -127,15 +129,25 @@ export class HookManager extends EventEmitter {
     if (this.initialized) return;
 
     // Ensure config directory exists
-    if (!fs.existsSync(this.configDir)) {
-      fs.mkdirSync(this.configDir, { recursive: true });
+    try {
+      if (!fs.existsSync(this.configDir)) {
+        fs.mkdirSync(this.configDir, { recursive: true });
+        logger.info('HookManager', `Created config directory: ${this.configDir}`);
+      }
+    } catch (err: any) {
+      const structErr = createError(ErrorCode.DIR_CREATE_FAILED, `Failed to create config directory: ${this.configDir}`, {
+        dir: this.configDir,
+        systemError: err.code,
+      });
+      logger.error('HookManager', structErr.message, err);
+      // Continue anyway — loadHooks will handle missing files gracefully
     }
 
     // Load persisted hooks
     this.loadHooks();
 
     this.initialized = true;
-    console.log(`[HookManager] Initialized with ${this.hooks.size} hooks`);
+    logger.info('HookManager', `Initialized with ${this.hooks.size} hooks`);
   }
 
   // ─── CRUD Operations ─────────────────────────────────────────────────────
@@ -293,6 +305,8 @@ export class HookManager extends EventEmitter {
       hookType: type,
     };
 
+    logger.debug('HookManager', `Triggering ${hooks.filter(h => h.enabled).length} enabled hooks of type ${type}`);
+
     for (const hook of hooks) {
       // Skip disabled hooks
       if (!hook.enabled) continue;
@@ -300,9 +314,18 @@ export class HookManager extends EventEmitter {
       // Check conditions
       if (!this.matchesConditions(hook, enrichedContext)) continue;
 
-      // Execute the hook
+      // Execute the hook with timeout and error handling
       const result = await this.executeHook(hook, enrichedContext);
       results.push(result);
+
+      // Log execution result
+      if (result.success) {
+        logger.info('HookManager', `Hook "${hook.name}" completed successfully in ${result.duration}ms`);
+      } else if (result.deny) {
+        logger.warn('HookManager', `Hook "${hook.name}" denied action: ${result.reason || 'No reason'}`);
+      } else {
+        logger.warn('HookManager', `Hook "${hook.name}" failed: ${result.error || 'Unknown error'}`);
+      }
 
       // If a PreToolUse hook denies, stop processing further hooks
       if (result.deny) {
@@ -325,7 +348,7 @@ export class HookManager extends EventEmitter {
   }
 
   /**
-   * Execute a single hook command
+   * Execute a single hook command with robust error handling and timeout.
    */
   private async executeHook(
     hook: Hook,
@@ -345,8 +368,8 @@ export class HookManager extends EventEmitter {
       // Prepare the context as JSON for stdin
       const contextJson = JSON.stringify(context, null, 2);
 
-      // Execute the shell command with context as stdin
-      const execResult = await this.execCommand(hook.command, contextJson, timeout);
+      // Execute the shell command with timeout
+      const execResult = await this.execCommandWithTimeout(hook.command, contextJson, timeout);
 
       result.success = execResult.exitCode === 0;
       result.output = this.truncateOutput(execResult.stdout);
@@ -354,6 +377,25 @@ export class HookManager extends EventEmitter {
 
       if (execResult.exitCode !== 0) {
         result.error = this.truncateOutput(execResult.stderr || `Exit code: ${execResult.exitCode}`);
+      }
+
+      // Check if execution was timed out
+      if (execResult.timedOut) {
+        result.success = false;
+        result.error = `Hook timed out after ${timeout}ms`;
+        result.duration = Date.now() - startTime;
+        logger.warn('HookManager', `Hook "${hook.name}" timed out after ${timeout}ms`, {
+          hookId: hook.id,
+          command: hook.command,
+          timeout,
+        });
+
+        // Create structured error for timeout
+        const structErr = createError(ErrorCode.PROVIDER_TIMEOUT, `Hook "${hook.name}" timed out`, {
+          hookId: hook.id,
+          timeout,
+        });
+        logger.warn('HookManager', structErr.message);
       }
 
       // Parse the output for deny signals
@@ -379,6 +421,7 @@ export class HookManager extends EventEmitter {
           exitCode: execResult.exitCode,
           duration: result.duration,
           deny: result.deny,
+          timedOut: execResult.timedOut,
         },
       });
     } catch (err: any) {
@@ -386,9 +429,17 @@ export class HookManager extends EventEmitter {
       result.error = err.message;
       result.duration = Date.now() - startTime;
 
-      // Timeout or execution error on pre-hooks means deny
+      // Log structured error for the execution failure
+      const structErr = createError(ErrorCode.EXTENSION_LOAD_ERROR, `Hook "${hook.name}" execution failed: ${err.message}`, {
+        hookId: hook.id,
+        command: hook.command,
+        errorMessage: err.message,
+      });
+      logger.error('HookManager', structErr.message, err);
+
+      // Timeout or execution error on pre-hooks — don't deny, just log
       if (hook.type === "PreToolUse" || hook.type === "UserPromptSubmit") {
-        result.deny = false; // Don't deny on execution errors, just log them
+        result.deny = false;
       }
 
       await this.traceCollector?.addEntry(context.sessionId || "system", {
@@ -407,14 +458,20 @@ export class HookManager extends EventEmitter {
   }
 
   /**
-   * Execute a shell command with stdin
+   * Execute a shell command with stdin and explicit timeout handling.
+   * Returns a result object that includes a timedOut flag for better
+   * error reporting on Windows 7 where child_process timeout may be
+   * unreliable.
    */
-  private execCommand(
+  private execCommandWithTimeout(
     command: string,
     stdin: string,
     timeout: number
-  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  ): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }> {
     return new Promise((resolve) => {
+      let timedOut = false;
+      let settled = false;
+
       const proc = child_process.exec(command, {
         encoding: "utf-8",
         timeout,
@@ -422,27 +479,69 @@ export class HookManager extends EventEmitter {
         env: { ...process.env },
         shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
       }, (error: child_process.ExecException | null, stdout: string, stderr: string) => {
+        if (settled) return; // Prevent double resolve
+        settled = true;
+
         if (error) {
           resolve({
             exitCode: error.killed ? -1 : (typeof error.code === 'number' ? error.code : 1),
             stdout: stdout || "",
             stderr: stderr || error.message,
+            timedOut,
           });
         } else {
           resolve({
             exitCode: 0,
             stdout: stdout || "",
             stderr: stderr || "",
+            timedOut: false,
           });
         }
       });
 
       // Write context to stdin
-      if (proc.stdin) {
-        proc.stdin.write(stdin);
-        proc.stdin.end();
+      try {
+        if (proc.stdin) {
+          proc.stdin.write(stdin);
+          proc.stdin.end();
+        }
+      } catch (err: any) {
+        logger.warn('HookManager', `Failed to write to stdin for command: ${command}`, err);
       }
+
+      // Explicit timeout as a safety net (important for Windows 7)
+      setTimeout(() => {
+        if (!settled) {
+          timedOut = true;
+          settled = true;
+          try {
+            proc.kill();
+          } catch {
+            // Process may have already exited
+          }
+          resolve({
+            exitCode: -1,
+            stdout: "",
+            stderr: `Hook timed out after ${timeout}ms`,
+            timedOut: true,
+          });
+        }
+      }, timeout + 1000); // 1 second grace period beyond child_process timeout
     });
+  }
+
+  /**
+   * @deprecated Use execCommandWithTimeout instead.
+   * Kept for backward compatibility.
+   */
+  private execCommand(
+    command: string,
+    stdin: string,
+    timeout: number
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    return this.execCommandWithTimeout(command, stdin, timeout).then(
+      ({ exitCode, stdout, stderr }) => ({ exitCode, stdout, stderr })
+    );
   }
 
   // ─── Condition Matching ──────────────────────────────────────────────────
@@ -482,7 +581,7 @@ export class HookManager extends EventEmitter {
         }
       } catch {
         // Invalid regex, skip pattern matching
-        console.warn(`[HookManager] Invalid regex pattern: ${conditions.pattern}`);
+        logger.warn('HookManager', `Invalid regex pattern: ${conditions.pattern}`);
       }
     }
 
@@ -570,7 +669,11 @@ export class HookManager extends EventEmitter {
         try {
           new RegExp(hook.conditions.pattern);
         } catch {
-          throw new Error(`Invalid regex pattern in conditions: ${hook.conditions.pattern}`);
+          const structErr = createError(ErrorCode.CONFIG_VALIDATION_FAILED, `Invalid regex pattern in conditions: ${hook.conditions.pattern}`, {
+            pattern: hook.conditions.pattern,
+            hookId: hook.id,
+          });
+          throw new Error(structErr.message);
         }
       }
     }
@@ -586,9 +689,7 @@ export class HookManager extends EventEmitter {
 
     for (const pattern of dangerousPatterns) {
       if (pattern.test(hook.command)) {
-        console.warn(
-          `[HookManager] WARNING: Hook "${hook.name}" contains potentially dangerous command: ${hook.command}`
-        );
+        logger.warn('HookManager', `Hook "${hook.name}" contains potentially dangerous command: ${hook.command}`);
       }
     }
   }
@@ -604,12 +705,21 @@ export class HookManager extends EventEmitter {
       const hooksArray: Hook[] = data.hooks || [];
 
       for (const hook of hooksArray) {
-        this.hooks.set(hook.id, hook);
+        try {
+          this.validateHook(hook);
+          this.hooks.set(hook.id, hook);
+        } catch (validationErr: any) {
+          logger.warn('HookManager', `Skipping invalid hook "${hook.name || hook.id}": ${validationErr.message}`);
+        }
       }
 
-      console.log(`[HookManager] Loaded ${hooksArray.length} hooks`);
-    } catch (err) {
-      console.error("[HookManager] Error loading hooks:", err);
+      logger.info('HookManager', `Loaded ${hooksArray.length} hooks (${this.hooks.size} valid)`);
+    } catch (err: any) {
+      const structErr = createError(ErrorCode.PERSIST_CORRUPT_DATA, `Error loading hooks from ${this.configPath}`, {
+        path: this.configPath,
+        errorMessage: err.message,
+      });
+      logger.error('HookManager', structErr.message, err);
       // Start with empty hooks
       this.hooks.clear();
     }
@@ -624,14 +734,36 @@ export class HookManager extends EventEmitter {
 
     // Ensure directory exists
     const dir = path.dirname(this.configPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch (err: any) {
+      logger.error('HookManager', `Failed to create directory for hooks config: ${dir}`, err);
+      return;
     }
 
     // Write atomically
     const tmpPath = this.configPath + ".tmp";
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
-    fs.renameSync(tmpPath, this.configPath);
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+      fs.renameSync(tmpPath, this.configPath);
+      logger.debug('HookManager', `Persisted ${this.hooks.size} hooks to ${this.configPath}`);
+    } catch (err: any) {
+      const structErr = createError(ErrorCode.PERSIST_WRITE_FAILED, `Failed to persist hooks to ${this.configPath}`, {
+        path: this.configPath,
+        errorMessage: err.message,
+      });
+      logger.error('HookManager', structErr.message, err);
+      // Clean up temp file
+      try {
+        if (fs.existsSync(tmpPath)) {
+          fs.unlinkSync(tmpPath);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   }
 
   // ─── Utility ─────────────────────────────────────────────────────────────

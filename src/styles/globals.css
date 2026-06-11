@@ -2,15 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── CSS Custom Properties (Dark Theme Default) ────────────────────────────── */
+/* ─── CSS Custom Properties (Dark Theme Default - Violet Palette) ─────────── */
 
 :root {
+  /* New design token system */
+  --color-background: #0a0a0f;
+  --color-background-secondary: #111118;
+  --color-background-tertiary: #1a1a24;
+  --color-foreground: #f0f0f5;
+  --color-foreground-secondary: #a0a0b0;
+  --color-foreground-muted: #6a6a7a;
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #7c3eed;
+  --color-accent-muted: rgba(139,92,246,0.15);
+  --color-border: #2a2a38;
+  --color-border-hover: #3a3a4a;
+  --color-card: #15151f;
+  --color-card-hover: #1a1a28;
+  --color-input: #1e1e2e;
+  --color-destructive: #ef4444;
+  --color-destructive-hover: #dc2626;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Legacy variables (mapped to new tokens) */
   --color-bg-primary: #0a0a0f;
   --color-bg-secondary: #111118;
   --color-bg-tertiary: #1a1a24;
-  --color-bg-elevated: #22222e;
-  --color-bg-hover: #2a2a38;
-  --color-bg-active: #32323f;
+  --color-bg-elevated: #15151f;
+  --color-bg-hover: #3a3a4a;
+  --color-bg-active: rgba(139,92,246,0.15);
 
   --color-text-primary: #f0f0f5;
   --color-text-secondary: #a0a0b0;
@@ -18,19 +41,13 @@
   --color-text-muted: #4a4a5a;
 
   --color-border-primary: #2a2a38;
-  --color-border-secondary: #1e1e2a;
-  --color-border-focus: #6366f1;
+  --color-border-secondary: #1a1a24;
+  --color-border-focus: #8b5cf6;
 
-  --color-accent: #8b5cf6;
-  --color-accent-hover: #7c3aed;
-  --color-accent-soft: rgba(139, 92, 246, 0.15);
-  --color-accent-muted: rgba(139, 92, 246, 0.08);
+  --color-accent-soft: rgba(139,92,246,0.15);
+  --color-accent-muted-legacy: rgba(139,92,246,0.08);
 
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
-
+  /* Trace colors */
   --color-trace-thinking: #a855f7;
   --color-trace-action: #3b82f6;
   --color-trace-tool-call: #22c55e;
@@ -38,16 +55,48 @@
   --color-trace-error: #ef4444;
   --color-trace-info: #6b7280;
 
+  /* Layout tokens */
   --titlebar-height: 38px;
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 60px;
 
+  /* Theme customization tokens */
+  --font-size-base: 14px;
+  --density-scale: 1;
+  --border-radius-base: 8px;
+  --animation-speed: 1;
+
   color-scheme: dark;
+
+  /* Smooth theme transitions */
+  transition: background-color 0.2s, color 0.2s;
 }
 
-/* ─── Light Theme Overrides ──────────────────────────────────────────────────── */
+/* ─── Light Theme Overrides (Violet Palette) ───────────────────────────────── */
 
 [data-theme='light'] {
+  --color-background: #ffffff;
+  --color-background-secondary: #f8f9fa;
+  --color-background-tertiary: #f0f1f3;
+  --color-foreground: #1a1a2e;
+  --color-foreground-secondary: #4a4a5e;
+  --color-foreground-muted: #7a7a8e;
+  --color-accent: #7c3aed;
+  --color-accent-hover: #6d28d9;
+  --color-accent-muted: rgba(124,58,237,0.1);
+  --color-border: #e2e4e8;
+  --color-border-hover: #c8ccd0;
+  --color-card: #ffffff;
+  --color-card-hover: #f8f9fa;
+  --color-input: #f0f1f3;
+  --color-destructive: #dc2626;
+  --color-destructive-hover: #b91c1c;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-info: #2563eb;
+
+  /* Legacy variables */
   --color-bg-primary: #ffffff;
   --color-bg-secondary: #f8f9fa;
   --color-bg-tertiary: #f0f1f3;
@@ -62,14 +111,59 @@
 
   --color-border-primary: #dee2e6;
   --color-border-secondary: #e9ecef;
-  --color-border-focus: #6366f1;
+  --color-border-focus: #7c3aed;
 
-  --color-accent: #7c3aed;
-  --color-accent-hover: #6d28d9;
-  --color-accent-soft: rgba(124, 58, 237, 0.1);
-  --color-accent-muted: rgba(124, 58, 237, 0.05);
+  --color-accent-soft: rgba(124,58,237,0.1);
+  --color-accent-muted-legacy: rgba(124,58,237,0.05);
 
   color-scheme: light;
+}
+
+/* ─── Midnight Theme (Extra dark variant) ──────────────────────────────────── */
+
+[data-theme='midnight'] {
+  --color-background: #000000;
+  --color-background-secondary: #08080c;
+  --color-background-tertiary: #101018;
+  --color-foreground: #e8e8f0;
+  --color-foreground-secondary: #8888a0;
+  --color-foreground-muted: #505068;
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #7c3eed;
+  --color-accent-muted: rgba(139,92,246,0.12);
+  --color-border: #18182a;
+  --color-border-hover: #28283e;
+  --color-card: #0a0a14;
+  --color-card-hover: #10101c;
+  --color-input: #10101c;
+  --color-destructive: #ef4444;
+  --color-destructive-hover: #dc2626;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Legacy variables */
+  --color-bg-primary: #000000;
+  --color-bg-secondary: #08080c;
+  --color-bg-tertiary: #101018;
+  --color-bg-elevated: #0a0a14;
+  --color-bg-hover: #28283e;
+  --color-bg-active: rgba(139,92,246,0.12);
+
+  --color-text-primary: #e8e8f0;
+  --color-text-secondary: #8888a0;
+  --color-text-tertiary: #505068;
+  --color-text-muted: #383850;
+
+  --color-border-primary: #18182a;
+  --color-border-secondary: #101018;
+  --color-border-focus: #8b5cf6;
+
+  --color-accent-soft: rgba(139,92,246,0.12);
+  --color-accent-muted-legacy: rgba(139,92,246,0.06);
+
+  color-scheme: dark;
 }
 
 /* ─── Base Styles ────────────────────────────────────────────────────────────── */
@@ -89,6 +183,7 @@ body,
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto,
     Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
+  font-size: var(--font-size-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--color-bg-primary);
@@ -381,7 +476,7 @@ body,
   margin: 0.75rem 0;
   padding: 0.5rem 1rem;
   border-left: 3px solid var(--color-accent);
-  background: var(--color-accent-muted);
+  background: var(--color-accent-muted-legacy);
   border-radius: 0 4px 4px 0;
 }
 
@@ -439,7 +534,7 @@ body,
 }
 
 .markdown-content tr:nth-child(even) {
-  background: var(--color-accent-muted);
+  background: var(--color-accent-muted-legacy);
 }
 
 .markdown-content a {

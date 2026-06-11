@@ -4,6 +4,11 @@
  * Enhanced grid of extensions with icons, categories, descriptions,
  * search/filter by category, install/uninstall/enable/disable buttons,
  * required env vars per extension, and clear enabled/disabled states.
+ *
+ * Phase 4 additions:
+ * - Sort options (Name A-Z, Name Z-A, Recently Added, Category)
+ * - Installed/Available toggle tabs
+ * - Improved extension cards with installation status badge, configure button
  */
 
 import React, { useState, useMemo } from 'react';
@@ -39,6 +44,21 @@ const CATEGORIES: { value: ExtensionCategory | 'all'; label: string; icon: strin
   { value: 'data', label: 'Data', icon: '📊' },
 ];
 
+// ─── Sort Options ──────────────────────────────────────────────────────────────
+
+type SortOption = 'name-asc' | 'name-desc' | 'recent' | 'category';
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'name-asc', label: 'Name (A-Z)' },
+  { value: 'name-desc', label: 'Name (Z-A)' },
+  { value: 'recent', label: 'Recently Added' },
+  { value: 'category', label: 'Category' },
+];
+
+// ─── Tab Options ───────────────────────────────────────────────────────────────
+
+type FilterTab = 'all' | 'installed' | 'available';
+
 // ─── Category Icon Colors ──────────────────────────────────────────────────────
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -72,22 +92,23 @@ const MARKETPLACE_EXTENSIONS: Array<{
   icon: string;
   trusted: boolean;
   downloads?: number;
+  addedAt?: string;
 }> = [
-  { id: 'ext-shell', name: 'Shell', description: 'Execute shell commands in the sandbox environment with full terminal support', version: '1.0.0', author: 'OpenAgent', category: 'development', envVars: [], capabilities: ['execute', 'terminal'], icon: '🖥️', trusted: true, downloads: 15420 },
-  { id: 'ext-browser-use', name: 'Browser Use', description: 'Control web browsers, navigate pages, fill forms, and extract data', version: '1.2.0', author: 'OpenAgent', category: 'browser', envVars: ['BROWSER_HEADLESS'], capabilities: ['navigate', 'click', 'type', 'screenshot'], icon: '🌐', trusted: true, downloads: 12350 },
-  { id: 'ext-file-editor', name: 'File Editor', description: 'Read, write, create, and modify files and directories', version: '1.1.0', author: 'OpenAgent', category: 'development', envVars: [], capabilities: ['read', 'write', 'create', 'delete'], icon: '📝', trusted: true, downloads: 18200 },
-  { id: 'ext-memory', name: 'Memory', description: 'Persistent memory storage for conversations and context across sessions', version: '1.0.0', author: 'OpenAgent', category: 'memory', envVars: [], capabilities: ['store', 'recall', 'search'], icon: '🧠', trusted: true, downloads: 9800 },
-  { id: 'ext-doc-generator', name: 'Document Generator', description: 'Create professional PPTs, Word docs, Excel sheets, and PDFs', version: '1.3.0', author: 'OpenAgent', category: 'document_generation', envVars: [], capabilities: ['pptx', 'docx', 'xlsx', 'pdf'], icon: '📄', trusted: true, downloads: 11200 },
-  { id: 'ext-web-search', name: 'Web Search', description: 'Search the internet and retrieve real-time information from the web', version: '1.1.0', author: 'OpenAgent', category: 'search', envVars: ['SEARCH_API_KEY'], capabilities: ['search', 'scrape'], icon: '🔍', trusted: true, downloads: 14300 },
-  { id: 'ext-docker', name: 'Docker', description: 'Manage Docker containers, images, and compose stacks', version: '0.9.0', author: 'Community', category: 'cloud', envVars: ['DOCKER_HOST'], capabilities: ['containers', 'images', 'compose'], icon: '🐳', trusted: false, downloads: 5600 },
-  { id: 'ext-database', name: 'Database', description: 'Connect to PostgreSQL, MySQL, SQLite and other databases', version: '1.0.0', author: 'Community', category: 'database', envVars: ['DB_CONNECTION_STRING'], capabilities: ['query', 'migrate', 'schema'], icon: '🗃️', trusted: false, downloads: 4200 },
-  { id: 'ext-github', name: 'GitHub', description: 'Interact with GitHub repositories, issues, pull requests, and actions', version: '1.2.0', author: 'Community', category: 'development', envVars: ['GITHUB_TOKEN'], capabilities: ['repos', 'issues', 'prs', 'actions'], icon: '🐙', trusted: false, downloads: 8900 },
-  { id: 'ext-slack', name: 'Slack', description: 'Send messages, read channels, and manage Slack workspaces', version: '0.8.0', author: 'Community', category: 'communication', envVars: ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'], capabilities: ['message', 'channels', 'files'], icon: '💬', trusted: false, downloads: 3100 },
-  { id: 'ext-image-gen', name: 'Image Generator', description: 'Generate images from text descriptions using AI models', version: '1.0.0', author: 'Community', category: 'design', envVars: ['IMAGE_API_KEY'], capabilities: ['generate', 'edit', 'variations'], icon: '🎨', trusted: false, downloads: 6700 },
-  { id: 'ext-scheduler', name: 'Scheduler', description: 'Schedule tasks and recipes to run at specific times or intervals', version: '0.7.0', author: 'Community', category: 'automation', envVars: [], capabilities: ['cron', 'interval', 'delay'], icon: '⏰', trusted: false, downloads: 2800 },
-  { id: 'ext-data-analyzer', name: 'Data Analyzer', description: 'Analyze datasets, create visualizations, and generate reports', version: '1.1.0', author: 'Community', category: 'data', envVars: [], capabilities: ['analyze', 'visualize', 'report'], icon: '📊', trusted: false, downloads: 4500 },
-  { id: 'ext-media-handler', name: 'Media Handler', description: 'Process images, audio, and video files with ffmpeg and other tools', version: '0.9.0', author: 'Community', category: 'media', envVars: ['FFMPEG_PATH'], capabilities: ['convert', 'resize', 'trim'], icon: '🎬', trusted: false, downloads: 3600 },
-  { id: 'ext-system-monitor', name: 'System Monitor', description: 'Monitor CPU, memory, disk, and network usage in real-time', version: '1.0.0', author: 'Community', category: 'system', envVars: [], capabilities: ['monitor', 'alert', 'log'], icon: '⚙️', trusted: false, downloads: 2200 },
+  { id: 'ext-shell', name: 'Shell', description: 'Execute shell commands in the sandbox environment with full terminal support', version: '1.0.0', author: 'OpenAgent', category: 'development', envVars: [], capabilities: ['execute', 'terminal'], icon: '🖥️', trusted: true, downloads: 15420, addedAt: '2024-01-15' },
+  { id: 'ext-browser-use', name: 'Browser Use', description: 'Control web browsers, navigate pages, fill forms, and extract data', version: '1.2.0', author: 'OpenAgent', category: 'browser', envVars: ['BROWSER_HEADLESS'], capabilities: ['navigate', 'click', 'type', 'screenshot'], icon: '🌐', trusted: true, downloads: 12350, addedAt: '2024-02-10' },
+  { id: 'ext-file-editor', name: 'File Editor', description: 'Read, write, create, and modify files and directories', version: '1.1.0', author: 'OpenAgent', category: 'development', envVars: [], capabilities: ['read', 'write', 'create', 'delete'], icon: '📝', trusted: true, downloads: 18200, addedAt: '2024-01-01' },
+  { id: 'ext-memory', name: 'Memory', description: 'Persistent memory storage for conversations and context across sessions', version: '1.0.0', author: 'OpenAgent', category: 'memory', envVars: [], capabilities: ['store', 'recall', 'search'], icon: '🧠', trusted: true, downloads: 9800, addedAt: '2024-03-01' },
+  { id: 'ext-doc-generator', name: 'Document Generator', description: 'Create professional PPTs, Word docs, Excel sheets, and PDFs', version: '1.3.0', author: 'OpenAgent', category: 'document_generation', envVars: [], capabilities: ['pptx', 'docx', 'xlsx', 'pdf'], icon: '📄', trusted: true, downloads: 11200, addedAt: '2024-02-20' },
+  { id: 'ext-web-search', name: 'Web Search', description: 'Search the internet and retrieve real-time information from the web', version: '1.1.0', author: 'OpenAgent', category: 'search', envVars: ['SEARCH_API_KEY'], capabilities: ['search', 'scrape'], icon: '🔍', trusted: true, downloads: 14300, addedAt: '2024-01-20' },
+  { id: 'ext-docker', name: 'Docker', description: 'Manage Docker containers, images, and compose stacks', version: '0.9.0', author: 'Community', category: 'cloud', envVars: ['DOCKER_HOST'], capabilities: ['containers', 'images', 'compose'], icon: '🐳', trusted: false, downloads: 5600, addedAt: '2024-03-15' },
+  { id: 'ext-database', name: 'Database', description: 'Connect to PostgreSQL, MySQL, SQLite and other databases', version: '1.0.0', author: 'Community', category: 'database', envVars: ['DB_CONNECTION_STRING'], capabilities: ['query', 'migrate', 'schema'], icon: '🗃️', trusted: false, downloads: 4200, addedAt: '2024-03-10' },
+  { id: 'ext-github', name: 'GitHub', description: 'Interact with GitHub repositories, issues, pull requests, and actions', version: '1.2.0', author: 'Community', category: 'development', envVars: ['GITHUB_TOKEN'], capabilities: ['repos', 'issues', 'prs', 'actions'], icon: '🐙', trusted: false, downloads: 8900, addedAt: '2024-02-28' },
+  { id: 'ext-slack', name: 'Slack', description: 'Send messages, read channels, and manage Slack workspaces', version: '0.8.0', author: 'Community', category: 'communication', envVars: ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'], capabilities: ['message', 'channels', 'files'], icon: '💬', trusted: false, downloads: 3100, addedAt: '2024-04-01' },
+  { id: 'ext-image-gen', name: 'Image Generator', description: 'Generate images from text descriptions using AI models', version: '1.0.0', author: 'Community', category: 'design', envVars: ['IMAGE_API_KEY'], capabilities: ['generate', 'edit', 'variations'], icon: '🎨', trusted: false, downloads: 6700, addedAt: '2024-03-20' },
+  { id: 'ext-scheduler', name: 'Scheduler', description: 'Schedule tasks and recipes to run at specific times or intervals', version: '0.7.0', author: 'Community', category: 'automation', envVars: [], capabilities: ['cron', 'interval', 'delay'], icon: '⏰', trusted: false, downloads: 2800, addedAt: '2024-04-05' },
+  { id: 'ext-data-analyzer', name: 'Data Analyzer', description: 'Analyze datasets, create visualizations, and generate reports', version: '1.1.0', author: 'Community', category: 'data', envVars: [], capabilities: ['analyze', 'visualize', 'report'], icon: '📊', trusted: false, downloads: 4500, addedAt: '2024-03-25' },
+  { id: 'ext-media-handler', name: 'Media Handler', description: 'Process images, audio, and video files with ffmpeg and other tools', version: '0.9.0', author: 'Community', category: 'media', envVars: ['FFMPEG_PATH'], capabilities: ['convert', 'resize', 'trim'], icon: '🎬', trusted: false, downloads: 3600, addedAt: '2024-02-15' },
+  { id: 'ext-system-monitor', name: 'System Monitor', description: 'Monitor CPU, memory, disk, and network usage in real-time', version: '1.0.0', author: 'Community', category: 'system', envVars: [], capabilities: ['monitor', 'alert', 'log'], icon: '⚙️', trusted: false, downloads: 2200, addedAt: '2024-04-10' },
 ];
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -95,6 +116,8 @@ const MARKETPLACE_EXTENSIONS: Array<{
 const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, addToast }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<ExtensionCategory | 'all'>('all');
+  const [sortOption, setSortOption] = useState<SortOption>('name-asc');
+  const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [selectedExtension, setSelectedExtension] = useState<ExtensionInfo | null>(null);
   const [installUrl, setInstallUrl] = useState('');
   const [showInstallForm, setShowInstallForm] = useState(false);
@@ -120,25 +143,65 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
     return [...extensions, ...marketplaceItems] as ExtensionInfo[];
   }, [extensions]);
 
-  const filteredExtensions = useMemo(() => {
+  const filteredAndSortedExtensions = useMemo(() => {
     let result = allExtensions;
 
+    // Category filter
     if (categoryFilter !== 'all') {
       result = result.filter((e) => e.category === categoryFilter);
     }
 
+    // Search filter (fuzzy by name and description)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(
-        (e) =>
-          e.name.toLowerCase().includes(query) ||
-          e.description.toLowerCase().includes(query) ||
-          e.id.toLowerCase().includes(query)
-      );
+      const queryChars = query.split('');
+      result = result.filter((e) => {
+        const nameLower = e.name.toLowerCase();
+        const descLower = e.description.toLowerCase();
+        // Simple fuzzy: match all characters in order
+        const fuzzyMatch = (text: string) => {
+          let idx = 0;
+          for (const ch of queryChars) {
+            idx = text.indexOf(ch, idx);
+            if (idx === -1) return false;
+            idx++;
+          }
+          return true;
+        };
+        return nameLower.includes(query) || descLower.includes(query) || fuzzyMatch(nameLower) || fuzzyMatch(descLower);
+      });
     }
 
+    // Tab filter (Installed / Available)
+    if (filterTab === 'installed') {
+      result = result.filter((e) => e.installed);
+    } else if (filterTab === 'available') {
+      result = result.filter((e) => !e.installed);
+    }
+
+    // Sort
+    result = [...result].sort((a, b) => {
+      switch (sortOption) {
+        case 'name-asc':
+          return a.name.localeCompare(b.name);
+        case 'name-desc':
+          return b.name.localeCompare(a.name);
+        case 'recent': {
+          const aMeta = MARKETPLACE_EXTENSIONS.find((m) => m.id === a.id);
+          const bMeta = MARKETPLACE_EXTENSIONS.find((m) => m.id === b.id);
+          const aDate = aMeta?.addedAt || '1970-01-01';
+          const bDate = bMeta?.addedAt || '1970-01-01';
+          return bDate.localeCompare(aDate);
+        }
+        case 'category':
+          return (a.category || '').localeCompare(b.category || '');
+        default:
+          return 0;
+      }
+    });
+
     return result;
-  }, [allExtensions, searchQuery, categoryFilter]);
+  }, [allExtensions, searchQuery, categoryFilter, sortOption, filterTab]);
 
   const installedCount = extensions.filter((e) => e.installed).length;
   const enabledCount = extensions.filter((e) => e.enabled).length;
@@ -198,6 +261,10 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
   const handleUninstall = async (extensionId: string) => {
     if (!confirm('Uninstall this extension?')) return;
     addToast({ type: 'info', title: 'Uninstall not yet supported via API' });
+  };
+
+  const handleConfigure = (extensionId: string) => {
+    addToast({ type: 'info', title: 'Configuration', message: `Configure ${extensionId} — coming soon` });
   };
 
   // Find marketplace metadata for an extension
@@ -271,8 +338,9 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
             </div>
           )}
 
-          {/* Search & Filter */}
+          {/* Search, Tabs & Filter */}
           <div className="space-y-3">
+            {/* Search bar */}
             <div className="flex items-center gap-3">
               <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'var(--color-bg-secondary)' }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -288,7 +356,38 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
                   style={{ color: 'var(--color-text-primary)' }}
                 />
               </div>
+              {/* Sort Dropdown */}
+              <select
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value as SortOption)}
+                className="px-3 py-2 rounded-lg border text-sm outline-none cursor-pointer"
+                style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-secondary)' }}
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </div>
+
+            {/* Installed / Available toggle tabs */}
+            <div className="flex items-center gap-2">
+              {(['all', 'installed', 'available'] as FilterTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setFilterTab(tab)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                  style={{
+                    background: filterTab === tab ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
+                    color: filterTab === tab ? 'white' : 'var(--color-text-tertiary)',
+                    border: filterTab === tab ? '1px solid var(--color-accent)' : '1px solid var(--color-border-primary)',
+                  }}
+                >
+                  {tab === 'all' ? 'All' : tab === 'installed' ? 'Installed' : 'Available'}
+                </button>
+              ))}
+            </div>
+
+            {/* Category filter bar */}
             <div className="flex gap-1.5 overflow-x-auto pb-1">
               {CATEGORIES.map((cat) => (
                 <button
@@ -311,14 +410,14 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
 
         {/* Extension Grid */}
         <div className="flex-1 overflow-y-auto p-4">
-          {filteredExtensions.length === 0 ? (
+          {filteredAndSortedExtensions.length === 0 ? (
             <div className="text-center py-12" style={{ color: 'var(--color-text-tertiary)' }}>
               <p className="text-lg">No extensions found</p>
               <p className="text-sm mt-1">Try adjusting your search or filters</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredExtensions.map((ext) => {
+              {filteredAndSortedExtensions.map((ext) => {
                 const meta = getMarketplaceMeta(ext.id);
                 const categoryColor = CATEGORY_COLORS[ext.category || ''] || 'var(--color-accent)';
                 return (
@@ -330,6 +429,7 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
                     onToggle={handleToggleExtension}
                     onInstall={meta ? () => handleInstallMarketplace(meta) : undefined}
                     onUninstall={ext.installed && !ext.builtin ? () => handleUninstall(ext.id) : undefined}
+                    onConfigure={ext.installed ? () => handleConfigure(ext.id) : undefined}
                     onSelect={() => {
                       setSelectedExtension(ext);
                       setSelectedMarketplaceExt(meta || null);
@@ -352,6 +452,7 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
           onToggle={handleToggleExtension}
           onInstall={selectedMarketplaceExt ? () => handleInstallMarketplace(selectedMarketplaceExt) : undefined}
           onUninstall={selectedExtension?.installed && !selectedExtension?.builtin ? () => handleUninstall(selectedExtension!.id) : undefined}
+          onConfigure={selectedExtension?.installed ? () => handleConfigure(selectedExtension!.id) : undefined}
           onClose={() => {
             setSelectedExtension(null);
             setSelectedMarketplaceExt(null);
@@ -373,10 +474,11 @@ const ExtensionCardEnhanced: React.FC<{
   onToggle: (id: string, enabled: boolean) => void;
   onInstall?: () => void;
   onUninstall?: () => void;
+  onConfigure?: () => void;
   onSelect: () => void;
   isSelected: boolean;
   installing: boolean;
-}> = ({ extension, categoryColor, marketplaceMeta, onToggle, onInstall, onUninstall, onSelect, isSelected, installing }) => (
+}> = ({ extension, categoryColor, marketplaceMeta, onToggle, onInstall, onUninstall, onConfigure, onSelect, isSelected, installing }) => (
   <div
     onClick={onSelect}
     className="rounded-xl p-4 border cursor-pointer transition-all group"
@@ -405,6 +507,17 @@ const ExtensionCardEnhanced: React.FC<{
             <span className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
               {extension.name}
             </span>
+            {/* Installation status badge */}
+            {extension.installed && extension.enabled && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--color-success)' }}>
+                Active
+              </span>
+            )}
+            {extension.installed && !extension.enabled && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
+                Disabled
+              </span>
+            )}
             {extension.builtin && (
               <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
                 built-in
@@ -422,7 +535,7 @@ const ExtensionCardEnhanced: React.FC<{
         </div>
       </div>
 
-      {/* Status indicator */}
+      {/* Status indicator / Toggle */}
       {extension.installed ? (
         <button
           onClick={(e) => {
@@ -492,13 +605,17 @@ const ExtensionCardEnhanced: React.FC<{
           Enable
         </button>
       )}
-      {extension.installed && extension.enabled && (
-        <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-success)' }}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-          Active
-        </span>
+      {extension.installed && onConfigure && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onConfigure();
+          }}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium border"
+          style={{ borderColor: 'var(--color-border-primary)', color: 'var(--color-text-secondary)' }}
+        >
+          Configure
+        </button>
       )}
       {extension.installed && !extension.builtin && onUninstall && (
         <button
@@ -541,10 +658,11 @@ const ExtensionDetailPanelEnhanced: React.FC<{
   onToggle: (id: string, enabled: boolean) => void;
   onInstall?: () => void;
   onUninstall?: () => void;
+  onConfigure?: () => void;
   onClose: () => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
   installing: boolean;
-}> = ({ extension, marketplaceMeta, onToggle, onInstall, onUninstall, onClose, addToast, installing }) => {
+}> = ({ extension, marketplaceMeta, onToggle, onInstall, onUninstall, onConfigure, onClose, addToast, installing }) => {
   const categoryColor = CATEGORY_COLORS[extension.category || ''] || 'var(--color-accent)';
 
   return (
@@ -737,6 +855,15 @@ const ExtensionDetailPanelEnhanced: React.FC<{
             style={{ background: 'var(--color-accent)', color: 'white' }}
           >
             {installing ? 'Installing...' : 'Install Extension'}
+          </button>
+        )}
+        {extension.installed && onConfigure && (
+          <button
+            onClick={onConfigure}
+            className="w-full py-2 rounded-lg text-sm font-medium border"
+            style={{ borderColor: 'var(--color-border-primary)', color: 'var(--color-text-secondary)' }}
+          >
+            Configure
           </button>
         )}
         {extension.installed && !extension.builtin && onUninstall && (

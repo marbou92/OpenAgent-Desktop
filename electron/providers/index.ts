@@ -107,3 +107,7 @@ export {
   getProviderManager,
   setProviderManager,
 } from './manager';
+
+// ─── File Storage ──────────────────────────────────────────────────────────────
+
+export { FileStorageAdapter, StorageAdapter } from './file-storage';

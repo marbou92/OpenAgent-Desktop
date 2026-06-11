@@ -4,9 +4,11 @@
  * Tabbed settings view with General, Providers, Sandbox, Advanced, About tabs.
  */
 
-import React, { useState } from 'react';
-import { ProviderInfo, AppSettings, DEFAULT_SETTINGS, Toast } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { ProviderInfo, AppSettings, DEFAULT_SETTINGS, Toast, HookInfo } from '../../types';
 import ProviderForm from './ProviderForm';
+import AppearanceView from './AppearanceView';
+import HookEditorView, { HookLogView } from './HookEditorView';
 
 const api = (window as any).openagent;
 
@@ -18,7 +20,7 @@ interface SettingsViewProps {
   addToast: (toast: Omit<Toast, 'id'>) => void;
 }
 
-type SettingsTab = 'general' | 'providers' | 'sandbox' | 'advanced' | 'about';
+type SettingsTab = 'general' | 'appearance' | 'providers' | 'hooks' | 'sandbox' | 'advanced' | 'about';
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   {
@@ -32,6 +34,19 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
+    id: 'appearance',
+    label: 'Appearance',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+        <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+        <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+        <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+        <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+      </svg>
+    ),
+  },
+  {
     id: 'providers',
     label: 'Providers',
     icon: (
@@ -40,6 +55,16 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
         <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
         <line x1="6" y1="6" x2="6.01" y2="6" />
         <line x1="6" y1="18" x2="6.01" y2="18" />
+      </svg>
+    ),
+  },
+  {
+    id: 'hooks',
+    label: 'Hooks',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
       </svg>
     ),
   },
@@ -89,6 +114,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const [showProviderForm, setShowProviderForm] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderInfo | null>(null);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [hooks, setHooks] = useState<HookInfo[]>([]);
+  const [editingHook, setEditingHook] = useState<HookInfo | null>(null);
+  const [showHookEditor, setShowHookEditor] = useState(false);
 
   const handleTestProvider = async (providerId: string) => {
     if (!api?.providers?.test) return;
@@ -130,6 +158,84 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       addToast({ type: 'error', title: 'Failed to set default', message: err.message });
     }
   };
+
+  // ─── Hook Handlers ──────────────────────────────────────────────────────────
+
+  const loadHooks = async () => {
+    if (!api?.hooks?.list) return;
+    try {
+      const result = await api.hooks.list();
+      if (Array.isArray(result)) {
+        setHooks(result);
+      }
+    } catch {}
+  };
+
+  const handleToggleHook = async (hookId: string, currentlyEnabled: boolean) => {
+    if (!api?.hooks) return;
+    try {
+      if (currentlyEnabled) {
+        // To disable, remove and re-add with enabled=false
+        const existingHook = hooks.find((h) => h.id === hookId);
+        if (existingHook) {
+          await api.hooks.remove(hookId);
+          await api.hooks.add({ ...existingHook, enabled: false, id: undefined });
+          await loadHooks();
+          addToast({ type: 'success', title: 'Hook disabled' });
+        }
+      } else {
+        const existingHook = hooks.find((h) => h.id === hookId);
+        if (existingHook) {
+          await api.hooks.remove(hookId);
+          await api.hooks.add({ ...existingHook, enabled: true, id: undefined });
+          await loadHooks();
+          addToast({ type: 'success', title: 'Hook enabled' });
+        }
+      }
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Failed to toggle hook', message: err.message });
+    }
+  };
+
+  const handleSaveHook = async (hookData: Omit<HookInfo, 'id'>) => {
+    if (!api?.hooks?.add) return;
+    try {
+      if (editingHook) {
+        // Remove old hook first
+        await api.hooks.remove(editingHook.id);
+      }
+      await api.hooks.add(hookData);
+      await loadHooks();
+      setShowHookEditor(false);
+      setEditingHook(null);
+      addToast({ type: 'success', title: editingHook ? 'Hook updated' : 'Hook created' });
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Failed to save hook', message: err.message });
+    }
+  };
+
+  const handleDeleteHook = async (hookId: string) => {
+    if (!api?.hooks?.remove) return;
+    if (!confirm('Delete this hook?')) return;
+    try {
+      await api.hooks.remove(hookId);
+      await loadHooks();
+      addToast({ type: 'success', title: 'Hook deleted' });
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Failed to delete hook', message: err.message });
+    }
+  };
+
+  // Load hooks when the hooks tab is activated
+  useEffect(() => {
+    if (activeTab === 'hooks' && hooks.length === 0 && api?.hooks?.list) {
+      api.hooks.list().then((result: HookInfo[]) => {
+        if (Array.isArray(result)) {
+          setHooks(result);
+        }
+      }).catch(() => {});
+    }
+  }, [activeTab, hooks.length]);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -204,6 +310,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             </SettingsSection>
           </div>
         );
+
+      case 'appearance':
+        return <AppearanceView />;
 
       case 'providers':
         return (
@@ -338,6 +447,163 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 }}
                 addToast={addToast}
               />
+            )}
+          </div>
+        );
+
+      case 'hooks':
+        return (
+          <div className="space-y-6">
+            {showHookEditor ? (
+              <HookEditorView
+                hook={editingHook || undefined}
+                onSave={handleSaveHook}
+                onCancel={() => {
+                  setShowHookEditor(false);
+                  setEditingHook(null);
+                }}
+              />
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>Lifecycle Hooks</h2>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
+                      Shell commands that run at specific points in the agent lifecycle
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingHook(null);
+                      setShowHookEditor(true);
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5"
+                    style={{ background: 'var(--color-accent)', color: 'white' }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    Add Hook
+                  </button>
+                </div>
+
+                {hooks.length === 0 ? (
+                  <div className="text-center py-12" style={{ color: 'var(--color-text-tertiary)' }}>
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                    <p className="text-lg">No hooks configured</p>
+                    <p className="text-sm mt-1">Add a hook to customize agent behavior</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {hooks.map((hook) => (
+                      <div
+                        key={hook.id}
+                        className="rounded-xl p-4 border"
+                        style={{ background: 'var(--color-bg-secondary)', borderColor: hook.enabled ? 'var(--color-border-primary)' : 'var(--color-border-primary)', opacity: hook.enabled ? 1 : 0.7 }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: hook.enabled ? 'var(--color-accent-soft)' : 'var(--color-bg-tertiary)' }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hook.enabled ? 'var(--color-accent)' : 'var(--color-text-muted)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                              </svg>
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm" style={{ color: 'var(--color-text-primary)' }}>{hook.name}</span>
+                                <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
+                                  {hook.type}
+                                </span>
+                              </div>
+                              <code className="text-xs font-mono" style={{ color: 'var(--color-text-tertiary)' }}>
+                                {hook.command}
+                              </code>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {/* Enable/Disable Toggle */}
+                            <button
+                              onClick={() => handleToggleHook(hook.id, hook.enabled)}
+                              className="relative w-10 h-5 rounded-full transition-colors"
+                              style={{ background: hook.enabled ? 'var(--color-success)' : 'var(--color-bg-tertiary)' }}
+                            >
+                              <span
+                                className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
+                                style={{ transform: hook.enabled ? 'translateX(20px)' : 'translateX(0)' }}
+                              />
+                            </button>
+                            {/* Edit Button */}
+                            <button
+                              onClick={() => {
+                                setEditingHook(hook);
+                                setShowHookEditor(true);
+                              }}
+                              className="p-1.5 rounded transition-colors"
+                              style={{ color: 'var(--color-text-tertiary)' }}
+                              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
+                              title="Edit hook"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                            </button>
+                            {/* Delete Button */}
+                            <button
+                              onClick={() => handleDeleteHook(hook.id)}
+                              className="p-1.5 rounded transition-colors"
+                              style={{ color: 'var(--color-text-tertiary)' }}
+                              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-error)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
+                              title="Delete hook"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Conditions summary */}
+                        {(hook.conditions?.toolName || hook.conditions?.extensionId || hook.conditions?.pattern) && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {hook.conditions.toolName && (
+                              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
+                                Tool: {hook.conditions.toolName}
+                              </span>
+                            )}
+                            {hook.conditions.extensionId && (
+                              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
+                                Ext: {hook.conditions.extensionId}
+                              </span>
+                            )}
+                            {hook.conditions.pattern && (
+                              <span className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
+                                /{hook.conditions.pattern}/
+                              </span>
+                            )}
+                            {hook.timeout && (
+                              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
+                                {hook.timeout}s timeout
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Hook Execution Log */}
+                <HookLogView />
+              </>
             )}
           </div>
         );

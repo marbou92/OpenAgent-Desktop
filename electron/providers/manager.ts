@@ -45,6 +45,7 @@ import { OllamaProvider } from './ollama-provider';
 import { OpenRouterProvider } from './openrouter-provider';
 import { OpenCodeProvider } from './opencode-provider';
 import { GitHubCopilotProvider } from './github-copilot-provider';
+import { FileStorageAdapter, StorageAdapter } from './file-storage';
 
 // ─── OpenAI-Compatible Thin Wrappers ───────────────────────────────────────────
 
@@ -924,14 +925,9 @@ const PROVIDER_FACTORIES: Record<ProviderType, (config: ProviderConfig) => Provi
   [ProviderType.custom_openai]: (c) => new CustomOpenAIProvider(c),
 };
 
-// ─── Storage Interface ─────────────────────────────────────────────────────────
+// ─── Storage Interface (re-exported from file-storage) ──────────────────────────
 
-interface StorageAdapter {
-  get<T>(key: string, defaultValue?: T): T | undefined;
-  set(key: string, value: any): void;
-  delete(key: string): void;
-  clear(): void;
-}
+export type { StorageAdapter } from './file-storage';
 
 // ─── In-Memory Storage (fallback) ──────────────────────────────────────────────
 
@@ -969,11 +965,25 @@ export class ProviderManager {
   private defaultProviderId?: string;
   private storage: StorageAdapter;
   private healthMonitorInterval?: ReturnType<typeof setInterval>;
+  private healthMonitorIdleInterval?: ReturnType<typeof setInterval>;
   private activeStreams: Map<string, AbortController> = new Map();
   private isInitialized: boolean = false;
+  private onHealthUpdate?: (providerId: string, check: HealthCheck) => void;
 
-  constructor(storage?: StorageAdapter) {
-    this.storage = storage || new MemoryStorageAdapter();
+  constructor(storageOrPath?: StorageAdapter | string) {
+    if (typeof storageOrPath === 'string') {
+      this.storage = new FileStorageAdapter(storageOrPath, { encryptKeys: true });
+    } else {
+      this.storage = storageOrPath || new MemoryStorageAdapter();
+    }
+  }
+
+  /**
+   * Set a callback to be called whenever a health check is updated.
+   * Used by main.ts to emit 'provider:health-update' IPC events.
+   */
+  setHealthUpdateCallback(callback: (providerId: string, check: HealthCheck) => void): void {
+    this.onHealthUpdate = callback;
   }
 
   // ─── Initialization ─────────────────────────────────────────────────────────
@@ -997,6 +1007,10 @@ export class ProviderManager {
     if (this.healthMonitorInterval) {
       clearInterval(this.healthMonitorInterval);
       this.healthMonitorInterval = undefined;
+    }
+    if (this.healthMonitorIdleInterval) {
+      clearInterval(this.healthMonitorIdleInterval);
+      this.healthMonitorIdleInterval = undefined;
     }
     this.isInitialized = false;
   }
@@ -1844,10 +1858,154 @@ export class ProviderManager {
 
   // ─── Health Monitoring ──────────────────────────────────────────────────────
 
-  private startHealthMonitoring(intervalMs: number = 60000): void {
+  /**
+   * Perform a health check on a specific provider.
+   * Pings the provider's API with a minimal request (list models or test),
+   * records latency, status, and timestamp, and returns a HealthCheck object.
+   * Catches errors gracefully (network timeout, auth failure → appropriate status).
+   */
+  async performHealthCheck(providerId: string): Promise<HealthCheck> {
+    const provider = this.providers.get(providerId);
+    const config = this.configs.get(providerId);
+    const existing = this.healthChecks.get(providerId);
+
+    if (!provider || !config) {
+      const check: HealthCheck = {
+        providerId,
+        status: HealthStatus.unknown,
+        latencyMs: 0,
+        lastChecked: Date.now(),
+        error: 'Provider not found',
+        consecutiveFailures: existing?.consecutiveFailures || 0,
+      };
+      this.healthChecks.set(providerId, check);
+      return check;
+    }
+
+    const start = Date.now();
+    try {
+      // Try listModels first (lighter weight), fall back to test()
+      let isHealthy = false;
+      try {
+        const models = await Promise.race([
+          provider.listModels(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout')), 15000)
+          ),
+        ]);
+        isHealthy = Array.isArray(models);
+      } catch {
+        // listModels failed, try test() as fallback
+        isHealthy = await Promise.race([
+          provider.test(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout')), 15000)
+          ),
+        ]);
+      }
+
+      const latencyMs = Date.now() - start;
+      const consecutiveFailures = isHealthy ? 0 : (existing?.consecutiveFailures || 0) + 1;
+
+      const check: HealthCheck = {
+        providerId,
+        status: isHealthy
+          ? HealthStatus.healthy
+          : consecutiveFailures >= 3
+            ? HealthStatus.unhealthy
+            : HealthStatus.degraded,
+        latencyMs,
+        lastChecked: Date.now(),
+        consecutiveFailures,
+      };
+
+      this.healthChecks.set(providerId, check);
+
+      // Notify via callback
+      if (this.onHealthUpdate) {
+        try { this.onHealthUpdate(providerId, check); } catch {}
+      }
+
+      return check;
+    } catch (error) {
+      const consecutiveFailures = (existing?.consecutiveFailures || 0) + 1;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Classify error type for more specific status
+      let status = HealthStatus.degraded;
+      if (consecutiveFailures >= 3) {
+        status = HealthStatus.unhealthy;
+      }
+      if (errorMessage.includes('Timeout') || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('timed out')) {
+        status = consecutiveFailures >= 2 ? HealthStatus.unhealthy : HealthStatus.degraded;
+      }
+      if (errorMessage.includes('401') || errorMessage.includes('403') || errorMessage.includes('auth')) {
+        status = HealthStatus.unhealthy; // Auth failures are definitive
+      }
+
+      const check: HealthCheck = {
+        providerId,
+        status,
+        latencyMs: Date.now() - start,
+        lastChecked: Date.now(),
+        error: errorMessage,
+        consecutiveFailures,
+      };
+
+      this.healthChecks.set(providerId, check);
+
+      // Notify via callback
+      if (this.onHealthUpdate) {
+        try { this.onHealthUpdate(providerId, check); } catch {}
+      }
+
+      return check;
+    }
+  }
+
+  /**
+   * Start periodic health monitoring.
+   * Active (enabled) providers are checked every 15 minutes.
+   * Idle (disabled) providers are checked every 60 minutes.
+   * Results are stored in healthChecks Map and emitted via the onHealthUpdate callback.
+   */
+  private startHealthMonitoring(): void {
+    const ACTIVE_INTERVAL = 15 * 60 * 1000;  // 15 minutes
+    const IDLE_INTERVAL = 60 * 60 * 1000;     // 60 minutes
+
+    // Check active (enabled) providers every 15 minutes
     this.healthMonitorInterval = setInterval(async () => {
-      await this.runHealthChecks();
-    }, intervalMs);
+      const enabledConfigs = Array.from(this.configs.values()).filter((c) => c.enabled);
+      for (const config of enabledConfigs) {
+        try {
+          await this.performHealthCheck(config.id);
+        } catch {
+          // performHealthCheck handles errors internally
+        }
+      }
+    }, ACTIVE_INTERVAL);
+
+    // Check idle (disabled) providers every 60 minutes
+    this.healthMonitorIdleInterval = setInterval(async () => {
+      const disabledConfigs = Array.from(this.configs.values()).filter((c) => !c.enabled);
+      for (const config of disabledConfigs) {
+        try {
+          await this.performHealthCheck(config.id);
+        } catch {
+          // performHealthCheck handles errors internally
+        }
+      }
+    }, IDLE_INTERVAL);
+
+    // Run an initial health check immediately for enabled providers
+    (async () => {
+      const enabledConfigs = Array.from(this.configs.values()).filter((c) => c.enabled);
+      for (const config of enabledConfigs) {
+        try {
+          await this.performHealthCheck(config.id);
+        } catch {}
+      }
+    })();
   }
 
   async runHealthChecks(): Promise<Record<string, HealthCheck>> {
@@ -1918,14 +2076,21 @@ export class ProviderManager {
         ? 0
         : (existing?.consecutiveFailures || 0) + 1;
 
-    this.healthChecks.set(providerId, {
+    const check: HealthCheck = {
       providerId,
       status,
       latencyMs: existing?.latencyMs || 0,
       lastChecked: Date.now(),
       error,
       consecutiveFailures,
-    });
+    };
+
+    this.healthChecks.set(providerId, check);
+
+    // Notify via callback
+    if (this.onHealthUpdate) {
+      try { this.onHealthUpdate(providerId, check); } catch {}
+    }
   }
 
   getHealthCheck(providerId: string): HealthCheck | undefined {
@@ -2023,9 +2188,9 @@ export class ProviderManager {
 
 let managerInstance: ProviderManager | undefined;
 
-export function getProviderManager(): ProviderManager {
+export function getProviderManager(storageOrPath?: StorageAdapter | string): ProviderManager {
   if (!managerInstance) {
-    managerInstance = new ProviderManager();
+    managerInstance = new ProviderManager(storageOrPath);
   }
   return managerInstance;
 }
