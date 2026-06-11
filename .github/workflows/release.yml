@@ -24,6 +24,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -63,9 +64,9 @@ jobs:
         with:
           name: release-macos
           path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/latest-mac.yml
+            release/*.dmg
+            release/*.zip
+            release/latest-mac.yml
           retention-days: 5
 
       - name: Upload Windows artifacts
@@ -74,9 +75,9 @@ jobs:
         with:
           name: release-windows
           path: |
-            dist/*.exe
-            dist/*.msi
-            dist/latest.yml
+            release/*.exe
+            release/*.msi
+            release/latest.yml
           retention-days: 5
 
       - name: Upload Linux artifacts
@@ -85,10 +86,10 @@ jobs:
         with:
           name: release-linux
           path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.tar.gz
-            dist/latest-linux.yml
+            release/*.AppImage
+            release/*.deb
+            release/*.tar.gz
+            release/latest-linux.yml
           retention-days: 5
 
   create-release:

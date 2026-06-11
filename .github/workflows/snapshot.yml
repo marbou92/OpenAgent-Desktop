@@ -52,6 +52,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -103,8 +104,8 @@ jobs:
         with:
           name: snapshot-macos-${{ steps.nightly.outputs.date }}
           path: |
-            dist/*.dmg
-            dist/*.zip
+            release/*.dmg
+            release/*.zip
           retention-days: 14
 
       - name: Upload Windows snapshot artifacts
@@ -113,8 +114,8 @@ jobs:
         with:
           name: snapshot-windows-${{ steps.nightly.outputs.date }}
           path: |
-            dist/*.exe
-            dist/*.msi
+            release/*.exe
+            release/*.msi
           retention-days: 14
 
       - name: Upload Linux snapshot artifacts
@@ -123,9 +124,9 @@ jobs:
         with:
           name: snapshot-linux-${{ steps.nightly.outputs.date }}
           path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.tar.gz
+            release/*.AppImage
+            release/*.deb
+            release/*.tar.gz
           retention-days: 14
 
   create-snapshot-release:
