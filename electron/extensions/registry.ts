@@ -570,6 +570,147 @@ export class ExtensionRegistry extends EventEmitter {
     return true;
   }
 
+  // ─── IPC-facing API methods ─────────────────────────────────────────────────
+
+  /** List all registered extensions' metadata (enabled and disabled) */
+  async list(): Promise<ExtensionMetadata[]> {
+    return this.getAllExtensionMetadata();
+  }
+
+  /** Enable an extension by ID — persists config, initializes if needed */
+  async enable(extensionId: string): Promise<void> {
+    const config = this.configs.get(extensionId);
+    if (!config) {
+      throw new Error(`Extension "${extensionId}" not found`);
+    }
+
+    if (config.enabled) return; // Already enabled
+
+    const success = await this.enableExtension(extensionId);
+    if (!success) {
+      throw new Error(`Failed to enable extension "${extensionId}"`);
+    }
+  }
+
+  /** Disable an extension by ID — persists config, shuts down if running */
+  async disable(extensionId: string): Promise<void> {
+    const config = this.configs.get(extensionId);
+    if (!config) {
+      throw new Error(`Extension "${extensionId}" not found`);
+    }
+
+    if (!config.enabled) return; // Already disabled
+
+    const success = await this.disableExtension(extensionId);
+    if (!success) {
+      throw new Error(`Failed to disable extension "${extensionId}"`);
+    }
+  }
+
+  /** Install an extension from a source (URL or community name).
+   *  For MCP extensions, registers via MCPRegistry. For built-in, just enables. */
+  async install(source: string, options?: Record<string, unknown>): Promise<ExtensionInterface> {
+    // Check if source matches a built-in or already-installed extension ID
+    const existingConfig = this.configs.get(source);
+    if (existingConfig) {
+      if (!existingConfig.enabled) {
+        await this.enable(source);
+      }
+      const ext = this.extensions.get(source);
+      if (!ext) {
+        throw new Error(`Extension "${source}" not found after enable`);
+      }
+      return ext;
+    }
+
+    // Try as a community extension name
+    const communityResults = this.mcpRegistry.search(source);
+    if (communityResults.length > 0) {
+      const config = await this.installExtension(source);
+      if (!config) {
+        throw new Error(`Failed to install extension "${source}"`);
+      }
+      const ext = this.extensions.get(config.id);
+      if (!ext) {
+        throw new Error(`Extension instance not found after installation of "${config.id}"`);
+      }
+      return ext;
+    }
+
+    // Try as a URL
+    return this.installFromUrl(source);
+  }
+
+  /** Update an extension's configuration and persist it */
+  async configure(extensionId: string, config: Record<string, unknown>): Promise<void> {
+    const extConfig = this.configs.get(extensionId);
+    if (!extConfig) {
+      throw new Error(`Extension "${extensionId}" not found`);
+    }
+
+    // Merge the new config into settings
+    extConfig.settings = { ...extConfig.settings, ...config };
+
+    // Apply settings to the extension instance if it's a BaseExtension
+    const ext = this.extensions.get(extensionId);
+    if (ext instanceof BaseExtension) {
+      ext.updateSettings(config);
+    }
+
+    await this.saveConfigs();
+    this.emitEvent('extension:configured', extensionId, { config });
+  }
+
+  /** Install an extension from a URL (download and register) */
+  async installFromUrl(url: string): Promise<ExtensionInterface> {
+    // Run malware check on the URL
+    const malwareCheck = this.mcpRegistry.checkUrlOrCommand(url);
+    if (malwareCheck.flags.some((f) => f.severity === 'critical')) {
+      throw new Error(`Installation blocked — security concerns: ${malwareCheck.flags.map((f) => f.message).join('; ')}`);
+    }
+
+    // Extract name from URL
+    const urlParts = url.split('/');
+    const repoName = urlParts[urlParts.length - 1] || 'unknown';
+    const name = repoName.replace(/\.git$/, '').replace(/[-_]/g, ' ');
+
+    const config: ExtensionConfig = {
+      id: `custom_${Date.now()}`,
+      type: ExtensionType.Fetch, // Default type for custom extensions
+      name,
+      description: `Custom extension installed from ${url}`,
+      version: '0.1.0',
+      enabled: true,
+      settings: {},
+      mcpServer: {
+        command: 'npx',
+        args: ['-y', url],
+        env: {},
+      },
+      builtin: false,
+      installedAt: new Date().toISOString(),
+    };
+
+    // Create extension instance
+    const extension = new MCPExtensionWrapper(config);
+
+    // Register
+    this.extensions.set(config.id, extension);
+    this.configs.set(config.id, config);
+
+    // Try to initialize
+    try {
+      await extension.initialize();
+      this.syncToolRouting(config.id, extension);
+      this.emitEvent('extension:installed', config.id, { name: config.name, source: url });
+    } catch (err) {
+      this.emitEvent('extension:error', config.id, { error: String(err) });
+    }
+
+    await this.saveConfigs();
+    return extension;
+  }
+
   // ─── Tool routing ─────────────────────────────────────────────────────────
 
   /** Execute a tool by name — routes to the correct extension */
@@ -708,6 +849,7 @@ export class ExtensionRegistry extends EventEmitter {
     };
 
     return {
+      id,
       type: config.type,
       name: config.name,
       description: config.description,
@@ -719,6 +861,7 @@ export class ExtensionRegistry extends EventEmitter {
       permissions: ext instanceof BaseExtension ? ext.getPermissions() : [],
       builtin: config.builtin,
       enabledByDefault: this.isEnabledByDefault(config.type),
+      enabled: config.enabled,
     };
   }
 

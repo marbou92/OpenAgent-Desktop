@@ -200,8 +200,10 @@ export abstract class BaseProvider implements ProviderInterface {
       case ProviderType.ovhcloud:
       case ProviderType.tetrate:
       case ProviderType.chatgpt_codex:
-      case ProviderType.opencode:
         headers['Authorization'] = `Bearer ${apiKey || ''}`;
+        break;
+      case ProviderType.opencode:
+        // OpenCode uses HTTP Basic Auth; handled in OpenCodeProvider.
         break;
       case ProviderType.azure_openai:
         headers['api-key'] = apiKey || '';

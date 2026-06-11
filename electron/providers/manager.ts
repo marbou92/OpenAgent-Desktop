@@ -30,7 +30,9 @@ import {
   AutoDetectResult,
   ProviderError,
   ProviderErrorType,
+  Message,
 } from './types';
+import { EventEmitter } from 'events';
 import { AnthropicProvider } from './anthropic-provider';
 import { OpenAIProvider } from './openai-provider';
 import { GeminiProvider } from './gemini-provider';
@@ -849,16 +851,16 @@ const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
   [ProviderType.opencode]: {
     type: ProviderType.opencode,
     displayName: 'OpenCode',
-    description: 'OpenCode AI coding assistant',
+    description: 'OpenCode agent runtime server — session-based, event-driven AI coding agent',
     requiresApiKey: false,
-    defaultHost: 'http://localhost:13284',
-    defaultBasePath: '/api/v1',
-    defaultModels: ['opencode-default', 'opencode-coder'],
+    defaultHost: 'http://localhost:4096',
+    defaultBasePath: '',
+    defaultModels: ['opencode-default'],
     supportsStreaming: true,
     supportsToolUse: true,
-    supportsThinking: false,
+    supportsThinking: true,
     supportsPromptCaching: false,
-    envVarApiKey: 'OPENCODE_API_KEY',
+    envVarApiKey: 'OPENCODE_SERVER_PASSWORD',
     envVarHost: 'OPENCODE_HOST',
     website: 'https://github.com/anomalyco/opencode',
   },
@@ -967,6 +969,7 @@ export class ProviderManager {
   private defaultProviderId?: string;
   private storage: StorageAdapter;
   private healthMonitorInterval?: ReturnType<typeof setInterval>;
+  private activeStreams: Map<string, AbortController> = new Map();
   private isInitialized: boolean = false;
 
   constructor(storage?: StorageAdapter) {
@@ -1115,6 +1118,208 @@ export class ProviderManager {
       .filter((c) => c.enabled)
       .map((c) => this.providers.get(c.id))
       .filter((p): p is ProviderInterface => p !== undefined);
+  }
+
+  // ─── IPC-Facing Convenience Methods ─────────────────────────────────────────
+
+  /**
+   * Return all provider configs as an array.
+   * Used by the `provider:list` IPC handler.
+   */
+  async list(): Promise<ProviderConfig[]> {
+    return this.getAllConfigs();
+  }
+
+  /**
+   * Create and register a new provider from a loosely-typed config object,
+   * persist it, and return the provider instance.
+   * Used by the `provider:add` IPC handler.
+   */
+  async add(config: Record<string, unknown>): Promise<ProviderInterface> {
+    const providerConfig: Omit<ProviderConfig, 'id' | 'createdAt'> = {
+      type: config.type as ProviderType,
+      name: (config.name as string) || 'Unnamed Provider',
+      apiKey: config.apiKey as string | undefined,
+      apiHost: config.apiHost as string | undefined,
+      apiBasePath: config.apiBasePath as string | undefined,
+      organization: config.organization as string | undefined,
+      region: config.region as string | undefined,
+      profile: config.profile as string | undefined,
+      deploymentName: config.deploymentName as string | undefined,
+      projectId: config.projectId as string | undefined,
+      customHeaders: config.customHeaders as Record<string, string> | undefined,
+      models: config.models as string[] | undefined,
+      enabled: config.enabled as boolean ?? true,
+      isDefault: config.isDefault as boolean ?? false,
+    };
+
+    return this.addProvider(providerConfig);
+  }
+
+  /**
+   * Remove a provider by ID, clean up health checks, and delete from storage.
+   * Used by the `provider:remove` IPC handler.
+   */
+  async remove(id: string): Promise<void> {
+    return this.removeProvider(id);
+  }
+
+  /**
+   * Send a non-streaming chat message through the specified provider.
+   * Constructs a ChatRequest from the provided parameters and delegates
+   * to the provider's `chat()` method.
+   * Used by the `chat:send` IPC handler.
+   */
+  async send(
+    providerId: string,
+    model: string,
+    messages: any[],
+    message: string,
+    options: any
+  ): Promise<any> {
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new ProviderError(
+        `Provider not found: ${providerId}`,
+        ProviderErrorType.CONFIGURATION,
+        providerId
+      );
+    }
+
+    const chatMessages: Message[] = [
+      ...(messages || []).map((m: any) => ({
+        role: m.role || 'user',
+        content: m.content || '',
+        toolCalls: m.toolCalls,
+        toolCallId: m.toolCallId,
+        metadata: m.metadata,
+      })),
+      { role: 'user' as const, content: message },
+    ];
+
+    const request: ChatRequest = {
+      messages: chatMessages,
+      model,
+      maxTokens: options?.maxTokens,
+      temperature: options?.temperature,
+      tools: options?.tools,
+      stream: false,
+    };
+
+    const response = await provider.chat(request);
+    return {
+      content: response.message.content,
+      usage: response.usage,
+      thinking: response.thinking,
+      id: response.id,
+    };
+  }
+
+  /**
+   * Stream a chat message through the specified provider.
+   * Returns an EventEmitter that emits `data`, `tool_call`, `tool_result`,
+   * `thinking`, `error`, and `end` events, matching the interface expected
+   * by the `chat:stream` IPC handler.
+   */
+  async stream(
+    providerId: string,
+    model: string,
+    messages: any[],
+    message: string,
+    options: any
+  ): Promise<EventEmitter> {
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new ProviderError(
+        `Provider not found: ${providerId}`,
+        ProviderErrorType.CONFIGURATION,
+        providerId
+      );
+    }
+
+    const sessionId: string = options?.sessionId || `stream_${Date.now()}`;
+    const abortController = new AbortController();
+    this.activeStreams.set(sessionId, abortController);
+
+    const emitter = new EventEmitter();
+
+    const chatMessages: Message[] = [
+      ...(messages || []).map((m: any) => ({
+        role: m.role || 'user',
+        content: m.content || '',
+        toolCalls: m.toolCalls,
+        toolCallId: m.toolCallId,
+        metadata: m.metadata,
+      })),
+      { role: 'user' as const, content: message },
+    ];
+
+    const request: ChatRequest = {
+      messages: chatMessages,
+      model,
+      maxTokens: options?.maxTokens,
+      temperature: options?.temperature,
+      tools: options?.tools,
+      stream: true,
+    };
+
+    // Process the async generator in the background, forwarding events
+    (async () => {
+      let fullContent = '';
+      try {
+        for await (const chunk of provider.chatStream(request)) {
+          // Check if stream was cancelled
+          if (abortController.signal.aborted) {
+            return;
+          }
+
+          switch (chunk.type) {
+            case 'content':
+              fullContent += chunk.content || '';
+              emitter.emit('data', chunk.content || '');
+              break;
+            case 'thinking':
+              emitter.emit('thinking', chunk.content || '');
+              break;
+            case 'tool_call':
+              emitter.emit('tool_call', chunk.toolCall);
+              break;
+            case 'tool_result':
+              emitter.emit('tool_result', chunk.toolCall);
+              break;
+            case 'usage':
+              // Usage info — no separate event, will be included in end
+              break;
+            case 'done':
+              break;
+          }
+        }
+
+        if (!abortController.signal.aborted) {
+          emitter.emit('end', fullContent);
+        }
+      } catch (error) {
+        if (!abortController.signal.aborted) {
+          emitter.emit('error', error instanceof Error ? error : new Error(String(error)));
+        }
+      } finally {
+        this.activeStreams.delete(sessionId);
+      }
+    })();
+
+    return emitter;
+  }
+
+  /**
+   * Cancel any ongoing streaming for a session.
+   * Used by the `chat:cancel` IPC handler.
+   */
+  async cancelStream(sessionId: string): Promise<void> {
+    const controller = this.activeStreams.get(sessionId);
+    if (controller) {
+      controller.abort();
+      this.activeStreams.delete(sessionId);
+    }
   }
 
   // ─── Default Provider ───────────────────────────────────────────────────────
@@ -1337,7 +1542,7 @@ export class ProviderManager {
       { type: ProviderType.ollama, host: 'http://localhost:11434', checkPath: '/api/tags' },
       { type: ProviderType.lm_studio, host: 'http://localhost:1234', checkPath: '/v1/models' },
       { type: ProviderType.docker_model_runner, host: 'http://localhost:12434', checkPath: '/engines/llama.cpp/v1/models' },
-      { type: ProviderType.opencode, host: 'http://localhost:13284', checkPath: '/api/v1/health' },
+      { type: ProviderType.opencode, host: 'http://localhost:4096', checkPath: '/session' },
     ];
 
     for (const local of localProviders) {

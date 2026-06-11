@@ -77,6 +77,78 @@ export enum ExtensionType {
   Vercel = 'vercel',
   VMwareAiops = 'vmware_aiops',
   YouTubeTranscript = 'youtube_transcript',
+
+  // ── Development Tools ────────────────────────────────────────────────────
+  Filesystem = 'filesystem',
+  GitLab = 'gitlab',
+  Postgres = 'postgres',
+  MySQL = 'mysql',
+  SQLite = 'sqlite',
+  Redis = 'redis',
+  Elasticsearch = 'elasticsearch',
+  Docker = 'docker',
+
+  // ── AI & Search ──────────────────────────────────────────────────────────
+  BraveSearch = 'brave-search',
+  GoogleSearch = 'google-search',
+  BingSearch = 'bing-search',
+  Serper = 'serper',
+  Perplexity = 'perplexity',
+  JinaReader = 'jina-reader',
+  MojitoSearch = 'mojito-search',
+
+  // ── Cloud & Infrastructure ───────────────────────────────────────────────
+  AWS = 'aws',
+  GCP = 'gcp',
+  Azure = 'azure',
+  Kubernetes = 'kubernetes',
+  Terraform = 'terraform',
+  Pulumi = 'pulumi',
+  Cloudflare = 'cloudflare',
+  DigitalOcean = 'digitalocean',
+
+  // ── Communication ────────────────────────────────────────────────────────
+  Slack = 'slack',
+  Discord = 'discord',
+  Telegram = 'telegram',
+  Email = 'email',
+  Notion = 'notion',
+  Confluence = 'confluence',
+  Jira = 'jira',
+  Linear = 'linear',
+  Trello = 'trello',
+
+  // ── Data & Analytics ────────────────────────────────────────────────────
+  Stripe = 'stripe',
+  Plaid = 'plaid',
+  HubSpot = 'hubspot',
+  Salesforce = 'salesforce',
+  Zendesk = 'zendesk',
+  Intercom = 'intercom',
+  Analytics = 'analytics',
+  Mixpanel = 'mixpanel',
+  Amplitude = 'amplitude',
+  Datadog = 'datadog',
+
+  // ── Productivity ─────────────────────────────────────────────────────────
+  GoogleDrive = 'google-drive',
+  GoogleCalendar = 'google-calendar',
+  GoogleMail = 'google-mail',
+  Microsoft365 = 'microsoft-365',
+  Dropbox = 'dropbox',
+  Airtable = 'airtable',
+  Miro = 'miro',
+  Lark = 'lark',
+  Zoom = 'zoom',
+
+  // ── Specialized ──────────────────────────────────────────────────────────
+  UnrealEngine = 'unreal-engine',
+  HomeAssistant = 'homeassistant',
+  Weather = 'weather',
+  Maps = 'maps',
+  Spotify = 'spotify',
+  Twitter = 'twitter',
+  HackerNews = 'hackernews',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -388,6 +460,7 @@ export interface HealthCheckResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ExtensionMetadata {
+  id: string;
   type: ExtensionType;
   name: string;
   description: string;
@@ -403,6 +476,7 @@ export interface ExtensionMetadata {
   permissions: Permission[];
   builtin: boolean;
   enabledByDefault: boolean;
+  enabled: boolean;
 }
 
 export enum ExtensionCategory {
@@ -434,6 +508,7 @@ export type RegistryEventType =
   | 'extension:enabled'
   | 'extension:disabled'
   | 'extension:installed'
+  | 'extension:configured'
   | 'extension:uninstalled'
   | 'tool:called'
   | 'tool:completed'

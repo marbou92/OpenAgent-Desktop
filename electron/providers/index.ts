@@ -85,7 +85,16 @@ export { OpenRouterProvider, OPENROUTER_MODELS } from './openrouter-provider';
 
 // ─── OpenCode Provider ─────────────────────────────────────────────────────────
 
-export { OpenCodeProvider, OPENCODE_MODELS } from './opencode-provider';
+export {
+  OpenCodeProvider,
+  OPENCODE_MODELS,
+  OpenCodeSession,
+  OpenCodeMessage,
+  OpenCodeMessageBody,
+  OpenCodeQuestion,
+  OpenCodePermission,
+  OpenCodeAppInfo,
+} from './opencode-provider';
 
 // ─── GitHub Copilot Provider ───────────────────────────────────────────────────
 

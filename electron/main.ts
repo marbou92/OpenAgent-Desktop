@@ -334,8 +334,7 @@ function handleDeepLink(url: string): void {
       case "install-extension": {
         const extensionUrl = params.url;
         if (extensionUrl) {
-          // TODO: Implement installFromUrl on ExtensionRegistry
-          (extensionRegistry as any).installFromUrl(extensionUrl).then((ext: any) => {
+          extensionRegistry.installFromUrl(extensionUrl).then((ext) => {
             mainWindow?.webContents.send("extension:installed", ext);
           }).catch((err: any) => {
             mainWindow?.webContents.send("extension:install-error", {
@@ -579,7 +578,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("provider:list", async () => {
     try {
-      return { success: true, data: await (providerManager as any).list() };
+      return { success: true, data: await providerManager.list() };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -589,7 +588,7 @@ function registerIpcHandlers(): void {
     "provider:add",
     async (_event, providerConfig: Record<string, unknown>) => {
       try {
-        const provider = await (providerManager as any).add(providerConfig);
+        const provider = await providerManager.add(providerConfig);
         return { success: true, data: provider };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -599,7 +598,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("provider:remove", async (_event, providerId: string) => {
     try {
-      await (providerManager as any).remove(providerId);
+      await providerManager.remove(providerId);
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -634,7 +633,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("extension:list", async () => {
     try {
-      return { success: true, data: await (extensionRegistry as any).list() };
+      return { success: true, data: await extensionRegistry.list() };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -644,7 +643,7 @@ function registerIpcHandlers(): void {
     "extension:enable",
     async (_event, extensionId: string) => {
       try {
-        await (extensionRegistry as any).enable(extensionId);
+        await extensionRegistry.enable(extensionId);
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -656,7 +655,7 @@ function registerIpcHandlers(): void {
     "extension:disable",
     async (_event, extensionId: string) => {
       try {
-        await (extensionRegistry as any).disable(extensionId);
+        await extensionRegistry.disable(extensionId);
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -668,7 +667,7 @@ function registerIpcHandlers(): void {
     "extension:install",
     async (_event, source: string, options?: Record<string, unknown>) => {
       try {
-        const extension = await (extensionRegistry as any).install(source, options);
+        const extension = await extensionRegistry.install(source, options);
         return { success: true, data: extension };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -684,7 +683,7 @@ function registerIpcHandlers(): void {
       config: Record<string, unknown>
     ) => {
       try {
-        await (extensionRegistry as any).configure(extensionId, config);
+        await extensionRegistry.configure(extensionId, config);
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -770,7 +769,7 @@ function registerIpcHandlers(): void {
     "recipe:create",
     async (_event, recipeData: Record<string, unknown>) => {
       try {
-        const recipe = await (recipeEngine as any).create(recipeData);
+        const recipe = await recipeEngine.create(recipeData as any);
         return { success: true, data: recipe };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -868,7 +867,7 @@ function registerIpcHandlers(): void {
     "hooks:add",
     async (_event, hookConfig: Record<string, unknown>) => {
       try {
-        const hook = await (hookManager as any).add(hookConfig);
+        const hook = await hookManager.add(hookConfig as any);
         return { success: true, data: hook };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -968,7 +967,7 @@ function registerIpcHandlers(): void {
         const providerId = session.providerId || appConfig.defaultProviderId;
         const model = session.model || appConfig.defaultModel;
 
-        const response = await (providerManager as any).send(
+        const response = await providerManager.send(
           providerId,
           model,
           session.messages,
@@ -1043,7 +1042,7 @@ function registerIpcHandlers(): void {
         const model = session.model || appConfig.defaultModel;
 
         // Create a streaming response
-        const stream = await (providerManager as any).stream(
+        const stream = await providerManager.stream(
           providerId,
           model,
           session.messages,
@@ -1119,7 +1118,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("chat:cancel", async (_event, sessionId: string) => {
     try {
       // Cancel any ongoing streaming for this session
-      await (providerManager as any).cancelStream(sessionId);
+      await providerManager.cancelStream(sessionId);
       mainWindow?.webContents.send("chat:stream-cancelled", { sessionId });
       return { success: true };
     } catch (err: any) {
@@ -1244,9 +1243,9 @@ function registerIpcHandlers(): void {
           enabled: true,
           type: sandboxManager.getSandboxType(),
         },
-        extensions: (await (extensionRegistry as any).list())
-          .filter((e: any) => e.enabled)
-          .map((e: any) => e.id),
+        extensions: (await extensionRegistry.list())
+          .filter((e) => e.enabled)
+          .map((e) => e.id),
       };
 
       const configPath = path.join(opencodeDir, "config.json");
@@ -1277,10 +1276,10 @@ function registerIpcHandlers(): void {
           config,
           sandboxRunning: sandboxStatus.running,
           sandboxType: sandboxStatus.type,
-          activeExtensions: (await (extensionRegistry as any).list()).filter(
-            (e: any) => e.enabled
+          activeExtensions: (await extensionRegistry.list()).filter(
+            (e) => e.enabled
           ).length,
-          totalExtensions: (await (extensionRegistry as any).list()).length,
+          totalExtensions: (await extensionRegistry.list()).length,
         },
       };
     } catch (err: any) {

@@ -14,9 +14,10 @@ interface MessageBubbleProps {
   message: ChatMessage;
   isLast: boolean;
   onRetry?: () => void;
+  onCopy?: (content: string) => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast, onRetry }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast, onRetry, onCopy }) => {
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -49,7 +50,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast, onRetry 
 
   return (
     <div
-      className={`animate-fade-in flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+      className={`animate-fade-in flex gap-3 group ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
     >
       {/* Avatar */}
       <div
@@ -219,6 +220,44 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast, onRetry 
                   <ToolCallDisplay key={tc.id} toolCall={tc} onCopy={handleCopyCode} copied={copied} />
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Action Buttons for Assistant Messages */}
+        {isAssistant && !message.isStreaming && message.content && (
+          <div className="mt-1.5 flex items-center gap-1.5">
+            {/* Copy button */}
+            <button
+              onClick={() => onCopy?.(message.content) || navigator.clipboard.writeText(message.content)}
+              className="p-1 rounded transition-colors opacity-0 group-hover:opacity-100"
+              style={{ color: 'var(--color-text-muted)' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}
+              title="Copy message"
+              aria-label="Copy message"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            </button>
+            {/* Retry button */}
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="p-1 rounded transition-colors opacity-0 group-hover:opacity-100"
+                style={{ color: 'var(--color-text-muted)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-accent)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}
+                title="Regenerate response"
+                aria-label="Retry"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+              </button>
             )}
           </div>
         )}

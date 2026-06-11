@@ -1,26 +1,19 @@
 /**
  * OpenAgent-Desktop - Chat Input Component
  *
- * Multi-line text input with auto-resize, file attachment,
- * voice input placeholder, send button with loading state,
- * slash command autocomplete, and keyboard shortcuts.
+ * Enhanced multi-line text input with:
+ * - Auto-resize
+ * - File attachment with visual badges
+ * - Voice input placeholder
+ * - Send button with loading state
+ * - Slash command autocomplete
+ * - Keyboard shortcuts
+ * - New Session quick button
+ * - Retry indicator
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { AttachedFile, SlashCommand } from '../../types';
-
-const api = (window as any).openagent;
-
-interface ChatInputProps {
-  onSend: (content: string, files?: AttachedFile[]) => void;
-  onStop: () => void;
-  isStreaming: boolean;
-  attachedFiles: AttachedFile[];
-  onRemoveFile: (index: number) => void;
-  onClearFiles: () => void;
-  disabled?: boolean;
-  streamingThinking?: string;
-}
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/recipe', label: '/recipe', description: 'Run a recipe' },
@@ -35,6 +28,18 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/audit', label: '/audit', description: 'Security audit recipe' },
 ];
 
+interface ChatInputProps {
+  onSend: (content: string, files?: AttachedFile[]) => void;
+  onStop: () => void;
+  isStreaming: boolean;
+  attachedFiles: AttachedFile[];
+  onRemoveFile: (index: number) => void;
+  onClearFiles: () => void;
+  disabled?: boolean;
+  streamingThinking?: string;
+  onNewSession?: () => void;
+}
+
 const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   onStop,
@@ -44,6 +49,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onClearFiles,
   disabled = false,
   streamingThinking,
+  onNewSession,
 }) => {
   const [input, setInput] = useState('');
   const [showSlashCommands, setShowSlashCommands] = useState(false);
@@ -161,11 +167,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   }, []);
 
   const handleFilePick = useCallback(async () => {
-    if (!api?.files?.open) return;
+    if (!(window as any).openagent?.files?.open) return;
     try {
-      // Use the electron file dialog through the API
-      const result = await api.files.open();
-      // If we get file paths back, add them as attached files
+      const result = await (window as any).openagent.files.open();
       if (Array.isArray(result)) {
         // Files are already handled by the drop zone
       }
@@ -310,6 +314,30 @@ const ChatInput: React.FC<ChatInputProps> = ({
             }}
           />
         </div>
+
+        {/* New Session button (only when not streaming) */}
+        {onNewSession && !isStreaming && !disabled && (
+          <button
+            onClick={onNewSession}
+            className="p-2 rounded-lg transition-colors flex-shrink-0"
+            style={{ color: 'var(--color-text-tertiary)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--color-bg-hover)';
+              e.currentTarget.style.color = 'var(--color-accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--color-text-tertiary)';
+            }}
+            title="New session (Ctrl+N)"
+            aria-label="New session"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+        )}
 
         {/* Voice input button (placeholder) */}
         <button
