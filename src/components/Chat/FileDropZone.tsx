@@ -9,7 +9,7 @@ import React from 'react';
 import { useFileDrop } from '../../hooks/useFileDrop';
 
 const FileDropZone: React.FC = () => {
-  const { isDragging, droppedFiles } = useFileDrop();
+  const { isDragging, droppedFiles: _droppedFiles } = useFileDrop();
 
   if (!isDragging) return null;
 

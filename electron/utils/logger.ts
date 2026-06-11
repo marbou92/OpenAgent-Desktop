@@ -33,7 +33,7 @@ export class Logger {
   private maxFileSize: number;
   private maxFiles: number;
   private level: LogLevel;
-  private initialized: boolean = false;
+  private initialized = false;
 
   constructor(options: { logDir: string; level?: LogLevel }) {
     this.logDir = options.logDir;
@@ -108,7 +108,7 @@ export class Logger {
         console.debug(logLine.trimEnd());
         break;
       case 'INFO':
-        console.log(logLine.trimEnd());
+        console.info(logLine.trimEnd());
         break;
       case 'WARN':
         console.warn(logLine.trimEnd());

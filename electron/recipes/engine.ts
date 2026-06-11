@@ -135,7 +135,7 @@ export interface RecipeEngineOptions {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const RECIPE_FILE_EXTENSION = ".recipe.json";
-const COOKBOOK_FILE = "cookbook.json";
+const _COOKBOOK_FILE = "cookbook.json";
 const RUNS_DIR = "runs";
 
 // ─── Built-in Cookbook Recipes ────────────────────────────────────────────────
@@ -588,7 +588,7 @@ export class RecipeEngine extends EventEmitter {
     this.setupScheduledRecipes();
 
     this.initialized = true;
-    console.log(
+    console.info(
       `[RecipeEngine] Initialized with ${this.recipes.size} recipes`
     );
   }
@@ -731,7 +731,7 @@ export class RecipeEngine extends EventEmitter {
    */
   async importFromSource(
     source: string,
-    format?: string
+    _format?: string
   ): Promise<Recipe> {
     this.ensureInitialized();
 
@@ -1395,7 +1395,7 @@ export class RecipeEngine extends EventEmitter {
     try {
       const cronExpr = recipe.schedule.cron;
       const runRecipe = async () => {
-        console.log(`[RecipeEngine] Running scheduled recipe: ${recipe.name}`);
+        console.info(`[RecipeEngine] Running scheduled recipe: ${recipe.name}`);
         try {
           const result = await this.run(
             recipe.id,
@@ -1572,7 +1572,7 @@ export class RecipeEngine extends EventEmitter {
     this.cleanupOldRunRecords(run.recipeId);
   }
 
-  private cleanupOldRunRecords(recipeId: string, maxRecords: number = 100): void {
+  private cleanupOldRunRecords(recipeId: string, maxRecords = 100): void {
     if (!fs.existsSync(this.runsDir)) return;
 
     const files: { file: string; mtime: Date }[] = [];
@@ -1762,7 +1762,7 @@ export class RecipeEngine extends EventEmitter {
 
   async shutdown(): Promise<void> {
     // Cancel all scheduled jobs
-    for (const [recipeId, job] of this.scheduledJobs) {
+    for (const [_recipeId, job] of this.scheduledJobs) {
       job.stop();
     }
     this.scheduledJobs.clear();
@@ -1776,6 +1776,6 @@ export class RecipeEngine extends EventEmitter {
     this.slashCommandMap.clear();
     this.initialized = false;
 
-    console.log("[RecipeEngine] Shut down");
+    console.info("[RecipeEngine] Shut down");
   }
 }

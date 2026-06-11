@@ -9,7 +9,7 @@
  * - File browser for sandbox filesystem
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SandboxStatus, ExecuteResult, Toast } from '../../types';
 
 const api = (window as any).openagent;
@@ -49,13 +49,13 @@ const SandboxView: React.FC<SandboxViewProps> = ({ addToast }) => {
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   // Resource monitoring
-  const [resourceHistory, setResourceHistory] = useState<Array<{ time: number; cpu: number; memory: number }>>([]);
+  const [_resourceHistory, setResourceHistory] = useState<Array<{ time: number; cpu: number; memory: number }>>([]);
 
   // File browser
   const [currentPath, setCurrentPath] = useState('/home/user');
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
-  const [showFileBrowser, setShowFileBrowser] = useState(false);
+  const [_showFileBrowser, _setShowFileBrowser] = useState(false);
 
   // Active tab
   const [activeTab, setActiveTab] = useState<'overview' | 'terminal' | 'files'>('overview');

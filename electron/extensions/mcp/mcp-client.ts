@@ -153,12 +153,12 @@ export class MCPClient extends EventEmitter {
   private config: MCPClientConfig;
   private process: ChildProcess | null = null;
   private pendingRequests: Map<number | string, PendingRequest> = new Map();
-  private buffer: string = '';
-  private nextId: number = 1;
-  private connected: boolean = false;
-  private initialized: boolean = false;
-  private shuttingDown: boolean = false;
-  private reconnectAttempts: number = 0;
+  private buffer = '';
+  private nextId = 1;
+  private connected = false;
+  private initialized = false;
+  private shuttingDown = false;
+  private reconnectAttempts = 0;
 
   // Server info
   private serverCapabilities: MCPServerCapabilities | null = null;
@@ -203,7 +203,7 @@ export class MCPClient extends EventEmitter {
     this.initialized = false;
 
     // Clear pending requests
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [_id, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       pending.reject(new Error('MCP client disconnecting'));
     }

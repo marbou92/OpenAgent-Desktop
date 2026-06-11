@@ -24,7 +24,6 @@ import {
   ChatRequest,
   ChatResponse,
   StreamChunk,
-  ToolCall,
   TokenUsage,
   Message,
   ProviderError,

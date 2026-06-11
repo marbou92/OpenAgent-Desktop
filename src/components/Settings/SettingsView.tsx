@@ -168,7 +168,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       if (Array.isArray(result)) {
         setHooks(result);
       }
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const handleToggleHook = async (hookId: string, currentlyEnabled: boolean) => {

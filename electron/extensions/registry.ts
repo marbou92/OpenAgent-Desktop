@@ -30,7 +30,6 @@ import {
   RegistryEventType,
   CommunityExtensionEntry,
   HealthCheckResult,
-  Permission,
 } from './types';
 import { BaseExtension } from './base-extension';
 import { MCPClient } from './mcp/mcp-client';
@@ -209,8 +208,8 @@ export class ExtensionRegistry extends EventEmitter {
   private mcpRegistry: MCPRegistry;
   private persistPath: string;
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
-  private healthCheckIntervalMs: number = 60000;
-  private initialized: boolean = false;
+  private healthCheckIntervalMs = 60000;
+  private initialized = false;
 
   constructor(persistPath?: string) {
     super();
@@ -609,7 +608,7 @@ export class ExtensionRegistry extends EventEmitter {
 
   /** Install an extension from a source (URL or community name).
    *  For MCP extensions, registers via MCPRegistry. For built-in, just enables. */
-  async install(source: string, options?: Record<string, unknown>): Promise<ExtensionInterface> {
+  async install(source: string, _options?: Record<string, unknown>): Promise<ExtensionInterface> {
     // Check if source matches a built-in or already-installed extension ID
     const existingConfig = this.configs.get(source);
     if (existingConfig) {

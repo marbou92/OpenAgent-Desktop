@@ -14,7 +14,6 @@ import {
   StreamChunk,
   ProviderError,
   ProviderErrorType,
-  ProviderType,
 } from './types';
 import { OpenAIProvider } from './openai-provider';
 

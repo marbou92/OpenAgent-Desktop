@@ -16,10 +16,8 @@ import {
   ToolCall,
   TokenUsage,
   Message,
-  ToolDefinition,
   ProviderError,
   ProviderErrorType,
-  ProviderType,
 } from './types';
 import { BaseProvider } from './base-provider';
 
@@ -60,7 +58,7 @@ interface VertexContent {
   parts: VertexPart[];
 }
 
-interface VertexTool {
+interface _VertexTool {
   functionDeclarations: Array<{
     name: string;
     description: string;
@@ -72,7 +70,7 @@ interface VertexTool {
 
 class GcpAuthTokenManager {
   private accessToken?: string;
-  private expiresAt: number = 0;
+  private expiresAt = 0;
 
   constructor(
     private readonly config: ProviderConfig

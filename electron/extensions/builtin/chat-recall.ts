@@ -13,9 +13,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -62,7 +60,7 @@ export class ChatRecallExtension extends BaseExtension {
   private sessions: Map<string, ChatSession> = new Map();
   private messages: ChatMessage[] = [];
   private searchIndex: Map<string, Set<number>> = new Map(); // token -> message indices
-  private loaded: boolean = false;
+  private loaded = false;
 
   constructor(config: ExtensionConfig) {
     super(config);

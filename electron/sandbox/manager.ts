@@ -20,7 +20,6 @@ import * as child_process from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import * as crypto from "crypto";
 
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
@@ -143,7 +142,7 @@ class WSL2Sandbox implements SandboxInterface {
       if (!fs.existsSync(tarPath)) {
         // Download or create minimal rootfs
         // For now, we'll use the default Ubuntu from WSL
-        console.log("[WSL2] Using default WSL distribution for sandbox");
+        console.info("[WSL2] Using default WSL distribution for sandbox");
       }
 
       try {
@@ -358,7 +357,7 @@ localhostForwarding=true
     }
   }
 
-  private updateHealth(health: "healthy" | "degraded" | "unhealthy"): void {
+  private updateHealth(_health: "healthy" | "degraded" | "unhealthy"): void {
     // Health is reflected in getStatus()
   }
 
@@ -555,7 +554,7 @@ class LimaSandbox implements SandboxInterface {
       for (const allowedPath of config.allowedPaths) {
         // Lima mounts are configured in the YAML config
         // We can add mount points to a running instance via limactl
-        console.log(`[Lima] Allowed path: ${allowedPath}`);
+        console.info(`[Lima] Allowed path: ${allowedPath}`);
       }
     }
 
@@ -750,7 +749,7 @@ ssh:
         if (result.exitCode !== 0) {
           // Attempt auto-restart
           if (this.config.autoRestart !== false) {
-            console.log("[Lima] Sandbox unhealthy, attempting restart...");
+            console.info("[Lima] Sandbox unhealthy, attempting restart...");
             await this.stop();
             await this.start(this.config);
           }
@@ -893,7 +892,7 @@ class DockerSandbox implements SandboxInterface {
     const imageCheck = this.execQuiet(`docker images -q ${imageName}`);
     if (imageCheck.stdout.trim() === "") {
       // Pull a minimal image
-      console.log("[Docker] Pulling sandbox image...");
+      console.info("[Docker] Pulling sandbox image...");
       this.execQuiet("docker pull ubuntu:22.04");
     }
 
@@ -1163,7 +1162,7 @@ class DockerSandbox implements SandboxInterface {
 
         if (inspectResult.stdout.trim() !== "true") {
           if (this.config.autoRestart !== false) {
-            console.log("[Docker] Container stopped, attempting restart...");
+            console.info("[Docker] Container stopped, attempting restart...");
             await this.stop();
             await this.start(this.config);
           }
@@ -1670,7 +1669,7 @@ export class SandboxManager extends EventEmitter {
       metadata: { command, options, sandboxType: this.sandboxType },
     });
 
-    const startTime = Date.now();
+    const _startTime = Date.now();
 
     try {
       const result = await this.sandbox.execute(command, options);

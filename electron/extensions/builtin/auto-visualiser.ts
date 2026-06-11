@@ -13,9 +13,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -330,7 +328,7 @@ export class AutoVisualiserExtension extends BaseExtension {
     options: Record<string, unknown>,
   ): string {
     const direction = (options.direction as string) || 'TD';
-    const theme = (options.theme as string) || 'default';
+    const _theme = (options.theme as string) || 'default';
 
     // If content is already in Mermaid format, use it directly
     if (content.trim().startsWith(type) || content.trim().startsWith('graph') || content.trim().startsWith('sequenceDiagram')) {
@@ -372,7 +370,7 @@ export class AutoVisualiserExtension extends BaseExtension {
     }
   }
 
-  private indentContent(content: string, spaces: number = 2): string {
+  private indentContent(content: string, spaces = 2): string {
     const indent = ' '.repeat(spaces);
     return content
       .split('\n')

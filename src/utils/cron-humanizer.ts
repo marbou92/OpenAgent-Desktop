@@ -21,7 +21,7 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-function formatHour(hour: number): string {
+function _formatHour(hour: number): string {
   if (hour === 0) return '12:00 AM';
   if (hour === 12) return '12:00 PM';
   if (hour < 12) return `${hour}:00 AM`;

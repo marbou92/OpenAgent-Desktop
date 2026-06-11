@@ -14,9 +14,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -40,7 +38,7 @@ interface ExecutionResult {
 export class CodeModeExtension extends BaseExtension {
   private tempDir: string;
   private pythonAvailable: boolean | null = null;
-  private maxExecutionTime: number = 30000;
+  private maxExecutionTime = 30000;
 
   constructor(config: ExtensionConfig) {
     super(config);

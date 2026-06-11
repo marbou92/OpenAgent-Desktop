@@ -148,7 +148,7 @@ export class SessionManager extends EventEmitter {
     }, this.autoSaveIntervalMs);
 
     this.initialized = true;
-    console.log("[SessionManager] Initialized");
+    console.info("[SessionManager] Initialized");
   }
 
   // ─── CRUD Operations ─────────────────────────────────────────────────────
@@ -901,7 +901,7 @@ export class SessionManager extends EventEmitter {
     this.dirtySessions.clear();
 
     this.initialized = false;
-    console.log("[SessionManager] Shut down");
+    console.info("[SessionManager] Shut down");
   }
 
   // ─── Statistics ──────────────────────────────────────────────────────────

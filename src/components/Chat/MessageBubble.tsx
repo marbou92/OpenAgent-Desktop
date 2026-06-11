@@ -17,7 +17,7 @@ interface MessageBubbleProps {
   onCopy?: (content: string) => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast, onRetry, onCopy }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy }) => {
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);

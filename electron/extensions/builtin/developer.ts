@@ -19,11 +19,8 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
-  JSONSchema,
 } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +40,7 @@ interface FileEditRecord {
 
 export class DeveloperExtension extends BaseExtension {
   private editHistory: FileEditRecord[] = [];
-  private maxEditHistory: number = 100;
+  private maxEditHistory = 100;
   private allowedDirectories: string[] = [];
   private blockedCommands: string[] = [
     'rm -rf /',
@@ -887,7 +884,7 @@ export class DeveloperExtension extends BaseExtension {
   private async executeScreenCapture(args: Record<string, unknown>): Promise<ToolResult> {
     try {
       const platform = process.platform;
-      const display = args.display as number | undefined;
+      const _display = args.display as number | undefined;
       let command: string;
 
       // Use native system screenshot commands instead of screenshot-desktop npm package
@@ -1150,7 +1147,7 @@ export class DeveloperExtension extends BaseExtension {
     operation: string,
   ): Promise<ToolResult> {
     return new Promise((resolve) => {
-      exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+      exec(command, { timeout: 30000 }, (error, _stdout, _stderr) => {
         if (error) {
           resolve(
             this.error(

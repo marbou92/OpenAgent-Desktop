@@ -20,9 +20,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -556,7 +554,7 @@ function buildContentSlideXml(title: string, content: string, bgColor?: string):
 </p:sld>`;
 }
 
-function buildNotesSlideXml(notes: string, slideIndex: number): string {
+function buildNotesSlideXml(notes: string, _slideIndex: number): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:cSld>

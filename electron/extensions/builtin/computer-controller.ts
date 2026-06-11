@@ -16,14 +16,11 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
-import * as path from 'path';
 import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 

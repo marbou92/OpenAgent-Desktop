@@ -20,7 +20,6 @@ import {
   ToolDefinition,
   ProviderError,
   ProviderErrorType,
-  ProviderType,
 } from './types';
 import { BaseProvider } from './base-provider';
 

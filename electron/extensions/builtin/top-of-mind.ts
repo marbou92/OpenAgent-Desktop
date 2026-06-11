@@ -14,9 +14,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -41,9 +39,9 @@ interface PersistentInstruction {
 export class TopOfMindExtension extends BaseExtension {
   private storePath: string;
   private instructions: Map<string, PersistentInstruction> = new Map();
-  private dirty: boolean = false;
+  private dirty = false;
   private flushInterval: ReturnType<typeof setInterval> | null = null;
-  private instructionCounter: number = 0;
+  private instructionCounter = 0;
 
   constructor(config: ExtensionConfig) {
     super(config);

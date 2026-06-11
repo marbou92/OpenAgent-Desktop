@@ -19,7 +19,7 @@ import { useFileDrop } from '../../hooks/useFileDrop';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 
-const api = (window as any).openagent;
+const _api = (window as any).openagent;
 
 interface ChatViewProps {
   sessionId: string | null;
@@ -37,13 +37,13 @@ interface ChatViewProps {
 
 const ChatView: React.FC<ChatViewProps> = ({
   sessionId,
-  session,
+  session: _session,
   providers,
-  messages: externalMessages,
-  isStreaming: externalIsStreaming,
+  messages: _externalMessages,
+  isStreaming: _externalIsStreaming,
   onMessagesUpdate,
-  onNewSession,
-  onLoadSession,
+  onNewSession: _onNewSession,
+  onLoadSession: _onLoadSession,
   settings,
   addToast,
   addTraceEntry,
@@ -70,7 +70,7 @@ const ChatView: React.FC<ChatViewProps> = ({
     activeToolCalls,
     sendMessage,
     stopStreaming,
-    clearMessages,
+    clearMessages: _clearMessages,
     retryLastMessage,
   } = useChat({
     sessionId,
@@ -84,7 +84,7 @@ const ChatView: React.FC<ChatViewProps> = ({
   });
 
   // File drop support
-  const { droppedFiles, removeFile, clearFiles, addFiles, fileError } = useFileDrop({
+  const { droppedFiles: _droppedFiles, removeFile, clearFiles, addFiles: _addFiles, fileError } = useFileDrop({
     onFilesDropped: (files) => {
       addToast({ type: 'info', title: `${files.length} file(s) attached` });
     },
@@ -598,7 +598,7 @@ const WelcomeScreen: React.FC<{ onNewSession: () => void }> = ({ onNewSession })
 
 // ─── Empty Chat State ──────────────────────────────────────────────────────────
 
-const EmptyChatState: React.FC<{ onNewSession: () => void }> = ({ onNewSession }) => (
+const EmptyChatState: React.FC<{ onNewSession: () => void }> = ({ onNewSession: _onNewSession }) => (
   <div className="flex flex-col items-center justify-center py-20">
     <div
       className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"

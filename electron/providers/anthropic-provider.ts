@@ -21,7 +21,6 @@ import {
   ToolDefinition,
   ProviderError,
   ProviderErrorType,
-  ProviderType,
 } from './types';
 import { BaseProvider } from './base-provider';
 
@@ -373,12 +372,12 @@ export class AnthropicProvider extends BaseProvider {
     const body = this.buildRequestBody({ ...request, stream: true });
     const url = `${this.getBaseUrl()}/messages`;
 
-    let fullContent = '';
-    let thinkingContent = '';
+    let _fullContent = '';
+    let _thinkingContent = '';
     let currentToolCall: Partial<ToolCall> | null = null;
     let currentToolCallInput = '';
     let usage: TokenUsage | undefined;
-    let responseId = '';
+    let _responseId = '';
 
     try {
       const response = await this.withRetry(async () => {
@@ -404,7 +403,7 @@ export class AnthropicProvider extends BaseProvider {
 
         switch (event.event || parsed.type) {
           case 'message_start': {
-            responseId = parsed.message?.id || this.generateId();
+            _responseId = parsed.message?.id || this.generateId();
             if (parsed.message?.usage) {
               usage = {
                 promptTokens: parsed.message.usage.input_tokens || 0,
@@ -432,13 +431,13 @@ export class AnthropicProvider extends BaseProvider {
           case 'content_block_delta': {
             const delta = parsed.delta;
             if (delta?.type === 'thinking_delta') {
-              thinkingContent += delta.thinking || '';
+              _thinkingContent += delta.thinking || '';
               yield {
                 type: 'thinking',
                 content: delta.thinking,
               };
             } else if (delta?.type === 'text_delta') {
-              fullContent += delta.text || '';
+              _fullContent += delta.text || '';
               yield {
                 type: 'content',
                 content: delta.text,

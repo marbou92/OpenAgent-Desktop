@@ -7,10 +7,10 @@
  * Phase 4 addition.
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { HookInfo, HookType, HookConditions } from '../../types';
 
-const api = (window as any).openagent;
+const _api = (window as any).openagent;
 
 // ─── Hook Editor ───────────────────────────────────────────────────────────────
 
@@ -284,7 +284,7 @@ interface HookLogViewProps {
 export function HookLogView({ entries, maxEntries = 50 }: HookLogViewProps) {
   const logEntries = (entries || SAMPLE_LOG_ENTRIES).slice(0, maxEntries);
 
-  const formatTime = (timestamp: string) => {
+  const _formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };

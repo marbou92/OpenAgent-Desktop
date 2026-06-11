@@ -16,7 +16,6 @@ import {
   ChatRequest,
   ChatResponse,
   StreamChunk,
-  ToolCall,
   TokenUsage,
   Message,
   ProviderError,
@@ -98,7 +97,7 @@ class RateLimiter {
 
 class RequestLogger {
   private logs: RequestLogEntry[] = [];
-  private maxLogs: number = 1000;
+  private maxLogs = 1000;
 
   log(entry: Omit<RequestLogEntry, 'id' | 'timestamp'>): RequestLogEntry {
     const full: RequestLogEntry = {
@@ -113,11 +112,11 @@ class RequestLogger {
     return full;
   }
 
-  getRecent(count: number = 50): RequestLogEntry[] {
+  getRecent(count = 50): RequestLogEntry[] {
     return this.logs.slice(-count);
   }
 
-  getByProvider(providerId: string, count: number = 50): RequestLogEntry[] {
+  getByProvider(providerId: string, count = 50): RequestLogEntry[] {
     return this.logs
       .filter((l) => l.providerId === providerId)
       .slice(-count);
@@ -439,7 +438,7 @@ export abstract class BaseProvider implements ProviderInterface {
   protected async makeRequest(
     url: string,
     options: RequestInit,
-    timeoutMs: number = 120000
+    timeoutMs = 120000
   ): Promise<Response> {
     await this.acquireRateLimit();
 
@@ -647,7 +646,7 @@ export abstract class BaseProvider implements ProviderInterface {
     return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  protected truncateForLog(text: string, maxLength: number = 500): string {
+  protected truncateForLog(text: string, maxLength = 500): string {
     if (text.length <= maxLength) return text;
     return text.slice(0, maxLength) + '...[truncated]';
   }

@@ -273,6 +273,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const toggleMode = useCallback(() => {
     setMode(mode === 'dark' ? 'light' : mode === 'light' ? 'dark' : 'dark');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   const setPalette = useCallback((id: string) => {

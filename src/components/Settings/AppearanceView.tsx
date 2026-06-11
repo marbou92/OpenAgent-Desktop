@@ -12,7 +12,7 @@
 import React, { useState, useMemo } from 'react';
 import { useTheme, ThemeMode, InterfaceDensity } from '../Theme/ThemeProvider';
 import { BUILT_IN_PALETTES } from '../Theme/palettes';
-import { generatePalette, meetsWCAGAA, getContrastRatio } from '../Theme/palette-generator';
+import { generatePalette, meetsWCAGAA } from '../Theme/palette-generator';
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 

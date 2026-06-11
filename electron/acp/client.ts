@@ -209,7 +209,7 @@ export class ACPClient extends EventEmitter {
     this.registerBuiltInTools();
 
     this.initialized = true;
-    console.log("[ACPClient] Initialized");
+    console.info("[ACPClient] Initialized");
   }
 
   // ─── Connection Management ───────────────────────────────────────────────
@@ -285,7 +285,7 @@ export class ACPClient extends EventEmitter {
     }
 
     // Close all sessions
-    for (const [sessionId, session] of this.sessions) {
+    for (const [sessionId, _session] of this.sessions) {
       try {
         await this.closeACPSession(sessionId);
       } catch {
@@ -305,7 +305,7 @@ export class ACPClient extends EventEmitter {
     }
 
     // Cancel pending requests
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [_id, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
       pending.reject(new Error("Connection closed"));
     }
@@ -863,7 +863,7 @@ export class ACPClient extends EventEmitter {
         });
 
         this.ws.on("open", () => {
-          console.log("[ACPClient] WebSocket connected");
+          console.info("[ACPClient] WebSocket connected");
           resolve();
         });
 
@@ -872,7 +872,7 @@ export class ACPClient extends EventEmitter {
         });
 
         this.ws.on("close", (code: number, reason: Buffer) => {
-          console.log(`[ACPClient] WebSocket closed: ${code} ${reason.toString()}`);
+          console.info(`[ACPClient] WebSocket closed: ${code} ${reason.toString()}`);
           this.handleWebSocketClose(code, reason.toString());
         });
 
@@ -958,7 +958,7 @@ export class ACPClient extends EventEmitter {
     this.connected = false;
 
     // Cancel all pending requests
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [_id, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
       pending.reject(new Error(`Connection closed: ${reason}`));
     }
@@ -967,7 +967,7 @@ export class ACPClient extends EventEmitter {
     // Attempt reconnection
     if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      console.log(
+      console.info(
         `[ACPClient] Attempting reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
       );
 
@@ -1277,6 +1277,6 @@ export class ACPClient extends EventEmitter {
     await this.disconnect();
     this.localTools.clear();
     this.initialized = false;
-    console.log("[ACPClient] Shut down");
+    console.info("[ACPClient] Shut down");
   }
 }

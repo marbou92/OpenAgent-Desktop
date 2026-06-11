@@ -15,9 +15,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -47,9 +45,9 @@ interface MemoryStore {
 export class MemoryExtension extends BaseExtension {
   private storePath: string;
   private store: MemoryStore;
-  private dirty: boolean = false;
+  private dirty = false;
   private flushInterval: ReturnType<typeof setInterval> | null = null;
-  private flushIntervalMs: number = 5000;
+  private flushIntervalMs = 5000;
 
   constructor(config: ExtensionConfig) {
     super(config);

@@ -36,7 +36,6 @@ import {
   CommunityExtensionEntry,
   MalwareCheckResult,
   MalwareFlag,
-  Permission,
   PermissionLevel,
 } from '../types';
 

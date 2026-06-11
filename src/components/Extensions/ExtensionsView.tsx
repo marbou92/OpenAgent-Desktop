@@ -258,7 +258,7 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
     }
   };
 
-  const handleUninstall = async (extensionId: string) => {
+  const handleUninstall = async (_extensionId: string) => {
     if (!confirm('Uninstall this extension?')) return;
     addToast({ type: 'info', title: 'Uninstall not yet supported via API' });
   };

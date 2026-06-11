@@ -141,7 +141,7 @@ export class TraceCollector extends EventEmitter {
     await this.rotateOldFiles();
 
     this.initialized = true;
-    console.log("[TraceCollector] Initialized");
+    console.info("[TraceCollector] Initialized");
   }
 
   // ─── Session Management ──────────────────────────────────────────────────
@@ -484,7 +484,7 @@ export class TraceCollector extends EventEmitter {
 
         fs.unlinkSync(filePath);
         rotatedCount++;
-        console.log(`[TraceCollector] Rotated old trace file: ${file}`);
+        console.info(`[TraceCollector] Rotated old trace file: ${file}`);
         continue;
       }
 
@@ -502,7 +502,7 @@ export class TraceCollector extends EventEmitter {
 
         fs.renameSync(filePath, archivePath);
         rotatedCount++;
-        console.log(`[TraceCollector] Archived large trace file: ${file}`);
+        console.info(`[TraceCollector] Archived large trace file: ${file}`);
       }
     }
 
@@ -728,7 +728,7 @@ export class TraceCollector extends EventEmitter {
     }
 
     this.initialized = false;
-    console.log("[TraceCollector] Shut down");
+    console.info("[TraceCollector] Shut down");
   }
 
   // ─── Utility Methods ─────────────────────────────────────────────────────

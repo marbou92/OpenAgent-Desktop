@@ -35,7 +35,7 @@ const BASE_DELAY_MS = 100;
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 16;
-const AUTH_TAG_LENGTH = 16;
+const _AUTH_TAG_LENGTH = 16;
 const SALT = 'openagent-desktop-provider-storage-v1';
 
 // Keys that contain sensitive data and should be encrypted when encryptKeys is enabled
@@ -190,7 +190,7 @@ export class FileStorageAdapter implements StorageAdapter {
   private store: Map<string, any> = new Map();
   private encryptKeys: boolean;
   private encryptionKey: Buffer | null = null;
-  private dirty: boolean = false;
+  private dirty = false;
 
   constructor(filePath: string, options?: { encryptKeys?: boolean }) {
     this.filePath = filePath;

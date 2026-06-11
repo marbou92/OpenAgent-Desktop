@@ -15,9 +15,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -53,7 +51,7 @@ export class AppsExtension extends BaseExtension {
   private storePath: string;
   private appsDir: string;
   private store: AppStore;
-  private dirty: boolean = false;
+  private dirty = false;
   private openWindows: Map<string, number> = new Map(); // appId -> windowId
 
   constructor(config: ExtensionConfig) {
@@ -170,7 +168,7 @@ export class AppsExtension extends BaseExtension {
 
   protected async onShutdown(): Promise<void> {
     // Close all open windows
-    for (const [appId, windowId] of this.openWindows) {
+    for (const [appId, _windowId] of this.openWindows) {
       try {
         // In Electron, this would call BrowserWindow.fromId(windowId).close()
         this.logger.debug(`Closing window for app ${appId}`);

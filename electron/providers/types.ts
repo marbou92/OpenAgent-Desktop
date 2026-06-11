@@ -165,7 +165,7 @@ export class ProviderError extends Error {
     public readonly type: ProviderErrorType,
     public readonly providerId: string,
     public readonly statusCode?: number,
-    public readonly retryable: boolean = false,
+    public readonly retryable = false,
     public readonly cause?: Error
   ) {
     super(message);

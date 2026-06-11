@@ -16,9 +16,7 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
@@ -57,7 +55,7 @@ interface TodoStore {
 export class TodoExtension extends BaseExtension {
   private storePath: string;
   private store: TodoStore;
-  private dirty: boolean = false;
+  private dirty = false;
   private flushInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: ExtensionConfig) {

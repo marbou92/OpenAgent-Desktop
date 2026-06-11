@@ -96,7 +96,7 @@ interface AppStore {
   setVersion: (version: string) => void;
 }
 
-export const useAppStore = create<AppStore>((set, get) => ({
+export const useAppStore = create<AppStore>((set, _get) => ({
   // Navigation
   currentView: 'chat',
   sidebarCollapsed: false,
@@ -183,6 +183,7 @@ const App: React.FC = () => {
     if (initializedRef.current) return;
     initializedRef.current = true;
     initializeApp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const initializeApp = async () => {
@@ -282,6 +283,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       store.addToast({ type: 'error', title: 'Failed to create session', message: err.message });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.providers, store.sessions, store.settings.defaultModel]);
 
   // ─── Load session ──────────────────────────────────────────────────────────
@@ -309,6 +311,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       store.addToast({ type: 'error', title: 'Failed to load session', message: err.message });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── Delete session ────────────────────────────────────────────────────────
@@ -329,6 +332,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       store.addToast({ type: 'error', title: 'Failed to delete session', message: err.message });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.currentSessionId]);
 
   // ─── Import recipe ─────────────────────────────────────────────────────────
@@ -345,6 +349,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       store.addToast({ type: 'error', title: 'Failed to import recipe', message: err.message });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -401,6 +406,7 @@ const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleNewSession, store.modals, store.tracePanelOpen]);
 
   // ─── Render ────────────────────────────────────────────────────────────────

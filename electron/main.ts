@@ -15,13 +15,10 @@ import {
   nativeImage,
   shell,
   dialog,
-  protocol,
-  net,
 } from "electron";
 import { autoUpdater } from "electron-updater";
 import * as path from "path";
 import * as fs from "fs";
-import * as crypto from "crypto";
 
 // ─── Subsystem Imports ────────────────────────────────────────────────────────
 import { SandboxManager } from "./sandbox/manager";
@@ -32,12 +29,9 @@ import { SessionManager } from "./session/manager";
 import { RecipeEngine } from "./recipes/engine";
 import { HookManager, HookType } from "./hooks/manager";
 import { ACPClient } from "./acp/client";
-import { FileStorageAdapter } from "./providers/file-storage";
 import { createBackup, recoverFromBackup, atomicWriteJSON } from "./utils/config-backup";
 import { initializeLogger, logger, LogLevel } from "./utils/logger";
-import { createError, ErrorCode, getUserMessage, fromSystemError } from "./utils/structured-errors";
-import { validateAppConfig, validateProviderConfig } from "./utils/config-validator";
-
+import { validateAppConfig } from "./utils/config-validator";
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
 interface AppConfig {
@@ -152,7 +146,7 @@ function loadConfig(): AppConfig {
     if (recovered) {
       try {
         const saved = JSON.parse(recovered);
-        console.log("[Main] Successfully recovered config from backup");
+        console.info("[Main] Successfully recovered config from backup");
         return { ...defaults, ...saved };
       } catch {
         // Backup content was also invalid, fall through to defaults
@@ -252,7 +246,7 @@ function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.webContents.on("did-navigate", (_event, url) => {
-    console.log("[Main] Navigated to:", url);
+    console.info("[Main] Navigated to:", url);
   });
 
   return mainWindow;
@@ -441,7 +435,7 @@ function handleDeepLink(url: string): void {
 
 function setupAutoUpdater(): void {
   if (IS_DEV) {
-    console.log("[Main] Skipping auto-updater in development mode");
+    console.info("[Main] Skipping auto-updater in development mode");
     return;
   }
 
@@ -449,12 +443,12 @@ function setupAutoUpdater(): void {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("checking-for-update", () => {
-    console.log("[Main] Checking for updates...");
+    console.info("[Main] Checking for updates...");
     mainWindow?.webContents.send("updater:checking");
   });
 
   autoUpdater.on("update-available", (info) => {
-    console.log("[Main] Update available:", info.version);
+    console.info("[Main] Update available:", info.version);
     mainWindow?.webContents.send("updater:available", {
       version: info.version,
       releaseNotes: info.releaseNotes,
@@ -476,7 +470,7 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on("update-not-available", () => {
-    console.log("[Main] No updates available");
+    console.info("[Main] No updates available");
     mainWindow?.webContents.send("updater:not-available");
   });
 
@@ -489,7 +483,7 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
-    console.log("[Main] Update downloaded:", info.version);
+    console.info("[Main] Update downloaded:", info.version);
     mainWindow?.webContents.send("updater:downloaded", {
       version: info.version,
     });
@@ -640,7 +634,7 @@ async function initializeSubsystems(): Promise<void> {
   });
   await recipeEngine.initialize();
 
-  console.log("[Main] All subsystems initialized successfully");
+  console.info("[Main] All subsystems initialized successfully");
   logger.info('Main', 'All subsystems initialized successfully');
 }
 
@@ -889,7 +883,7 @@ function registerIpcHandlers(): void {
       _event,
       sessionId: string,
       message: string,
-      options?: Record<string, unknown>
+      _options?: Record<string, unknown>
     ) => {
       try {
         // Run pre-session hooks
@@ -975,7 +969,7 @@ function registerIpcHandlers(): void {
       _event,
       sessionId: string,
       message: string,
-      options?: Record<string, unknown>
+      _options?: Record<string, unknown>
     ) => {
       try {
         // Run pre-session hooks
@@ -1095,7 +1089,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "file:open",
-    wrapIPC(async (_event, filePath: string, options?: Record<string, unknown>) => {
+    wrapIPC(async (_event, filePath: string, _options?: Record<string, unknown>) => {
       const result = await shell.openPath(filePath);
       if (result) {
         return { success: false, error: result };
@@ -1382,7 +1376,7 @@ if (!gotTheLock) {
   // ─── App Lifecycle ──────────────────────────────────────────────────────────
 
   app.on("ready", async () => {
-    console.log(`[Main] ${APP_NAME} v${app.getVersion()} starting...`);
+    console.info(`[Main] ${APP_NAME} v${app.getVersion()} starting...`);
 
     // Initialize logger first — all subsequent code can use it
     initializeLogger(
@@ -1460,7 +1454,7 @@ if (!gotTheLock) {
       });
     }
 
-    console.log("[Main] Application ready");
+    console.info("[Main] Application ready");
     logger.info('Main', 'Application ready');
   });
 

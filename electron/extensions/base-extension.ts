@@ -48,7 +48,7 @@ export interface LogEntry {
 export class ExtensionLogger {
   private extensionId: string;
   private logs: LogEntry[] = [];
-  private maxLogs: number = 1000;
+  private maxLogs = 1000;
   private listeners: Array<(entry: LogEntry) => void> = [];
 
   constructor(extensionId: string) {
@@ -122,12 +122,12 @@ export class MCPTransport extends EventEmitter {
   private process: ChildProcess | null = null;
   private pendingRequests: Map<number | string, PendingRequest> = new Map();
   private buffer: string = '';
-  private nextId: number = 1;
+  private nextId = 1;
   private requestTimeoutMs: number;
-  private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 5;
-  private reconnectDelayMs: number = 1000;
-  private shuttingDown: boolean = false;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelayMs = 1000;
+  private shuttingDown = false;
   private command: string;
   private args: string[];
   private env: Record<string, string>;
@@ -136,7 +136,7 @@ export class MCPTransport extends EventEmitter {
     command: string,
     args: string[],
     env: Record<string, string>,
-    requestTimeoutMs: number = 30000,
+    requestTimeoutMs = 30000,
   ) {
     super();
     this.command = command;
@@ -364,13 +364,13 @@ export abstract class BaseExtension implements ExtensionInterface {
   protected mcpServerInfo: { name: string; version: string } | null = null;
   protected permissions: Permission[] = [];
   protected healthCheckInterval: ReturnType<typeof setInterval> | null = null;
-  protected healthCheckIntervalMs: number = 60000;
+  protected healthCheckIntervalMs = 60000;
   protected lastHealthCheck: HealthCheckResult | null = null;
-  protected autoRestart: boolean = true;
-  protected maxRestartAttempts: number = 3;
-  protected restartAttempts: number = 0;
-  protected initialized: boolean = false;
-  protected shutdownRequested: boolean = false;
+  protected autoRestart = true;
+  protected maxRestartAttempts = 3;
+  protected restartAttempts = 0;
+  protected initialized = false;
+  protected shutdownRequested = false;
 
   constructor(config: ExtensionConfig) {
     this.id = config.id;
@@ -891,7 +891,7 @@ export abstract class BaseExtension implements ExtensionInterface {
       this.mcpServerInfo = null;
 
       // Clear MCP-registered tools (keep built-in ones)
-      for (const [name, definition] of this.tools) {
+      for (const [name, _definition] of this.tools) {
         // If the tool handler was registered by the MCP loader, remove it
         // Built-in tools are registered in registerTools() so they won't be removed
         if (!this.isBuiltinTool(name)) {
@@ -917,7 +917,7 @@ export abstract class BaseExtension implements ExtensionInterface {
   }
 
   /** Check if a tool is a built-in (registered in registerTools) vs MCP-loaded */
-  protected isBuiltinTool(name: string): boolean {
+  protected isBuiltinTool(_name: string): boolean {
     // Subclasses should override this if they have both built-in and MCP tools
     return true;
   }

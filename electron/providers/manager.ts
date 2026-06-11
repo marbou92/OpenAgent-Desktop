@@ -19,7 +19,6 @@ import {
   ProviderConfig,
   ProviderInterface,
   ProviderMetadata,
-  ProviderRegistryEntry,
   ChatRequest,
   ChatResponse,
   StreamChunk,
@@ -967,7 +966,7 @@ export class ProviderManager {
   private healthMonitorInterval?: ReturnType<typeof setInterval>;
   private healthMonitorIdleInterval?: ReturnType<typeof setInterval>;
   private activeStreams: Map<string, AbortController> = new Map();
-  private isInitialized: boolean = false;
+  private isInitialized = false;
   private onHealthUpdate?: (providerId: string, check: HealthCheck) => void;
 
   constructor(storageOrPath?: StorageAdapter | string) {
@@ -1923,7 +1922,7 @@ export class ProviderManager {
 
       // Notify via callback
       if (this.onHealthUpdate) {
-        try { this.onHealthUpdate(providerId, check); } catch {}
+        try { this.onHealthUpdate(providerId, check); } catch { /* intentional */ }
       }
 
       return check;
@@ -1956,7 +1955,7 @@ export class ProviderManager {
 
       // Notify via callback
       if (this.onHealthUpdate) {
-        try { this.onHealthUpdate(providerId, check); } catch {}
+        try { this.onHealthUpdate(providerId, check); } catch { /* intentional */ }
       }
 
       return check;
@@ -2003,7 +2002,7 @@ export class ProviderManager {
       for (const config of enabledConfigs) {
         try {
           await this.performHealthCheck(config.id);
-        } catch {}
+        } catch { /* intentional */ }
       }
     })();
   }
@@ -2089,7 +2088,7 @@ export class ProviderManager {
 
     // Notify via callback
     if (this.onHealthUpdate) {
-      try { this.onHealthUpdate(providerId, check); } catch {}
+      try { this.onHealthUpdate(providerId, check); } catch { /* intentional */ }
     }
   }
 

@@ -12,7 +12,7 @@
  */
 
 import React, { useState } from 'react';
-import { RecipeInfo, RecipeVariable, Toast } from '../../types';
+import { RecipeInfo, Toast } from '../../types';
 import { humanizeCron } from '../../utils/cron-humanizer';
 
 const api = (window as any).openagent;

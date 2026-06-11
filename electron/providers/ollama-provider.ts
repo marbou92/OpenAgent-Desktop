@@ -13,12 +13,10 @@ import {
   ChatRequest,
   ChatResponse,
   StreamChunk,
-  ToolCall,
   TokenUsage,
   Message,
   ProviderError,
   ProviderErrorType,
-  ProviderType,
 } from './types';
 import { BaseProvider } from './base-provider';
 

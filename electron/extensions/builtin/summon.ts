@@ -17,13 +17,11 @@ import { BaseExtension } from '../base-extension';
 import {
   ExtensionConfig,
   ExtensionType,
-  ToolDefinition,
   ToolResult,
-  Permission,
   PermissionLevel,
 } from '../types';
 
-const execAsync = promisify(exec);
+const _execAsync = promisify(exec);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Skill and Recipe types
@@ -88,7 +86,7 @@ export class SummonExtension extends BaseExtension {
   private recipesPath: string;
   private loadedSkills: Map<string, Skill> = new Map();
   private activeSubagents: Map<string, { startTime: number; description: string }> = new Map();
-  private subagentCounter: number = 0;
+  private subagentCounter = 0;
 
   constructor(config: ExtensionConfig) {
     super(config);
@@ -437,7 +435,7 @@ export class SummonExtension extends BaseExtension {
     subagentId: string,
     prompt: string,
     extensions: string[],
-    timeoutMs: number,
+    _timeoutMs: number,
   ): Promise<SubagentResult> {
     // In a full implementation, this would create an actual agent instance
     // with its own LLM session and tool access. For now, we simulate the result.

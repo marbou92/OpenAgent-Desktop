@@ -16,7 +16,6 @@ import {
   ChatRequest,
   ChatResponse,
   StreamChunk,
-  ToolCall,
   TokenUsage,
   Message,
   ToolDefinition,
@@ -360,7 +359,7 @@ export class OpenAIProvider extends BaseProvider {
       headers['OpenAI-Organization'] = this.config.organization;
     }
 
-    let fullContent = '';
+    let _fullContent = '';
     let usage: TokenUsage | undefined;
     const pendingToolCalls: Map<
       number,
@@ -416,7 +415,7 @@ export class OpenAIProvider extends BaseProvider {
         // Content delta
         const delta = choice.delta;
         if (delta?.content) {
-          fullContent += delta.content;
+          _fullContent += delta.content;
           yield {
             type: 'content',
             content: delta.content,

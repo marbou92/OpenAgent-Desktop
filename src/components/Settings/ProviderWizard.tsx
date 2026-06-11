@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { ProviderType, ProviderMetadata, Toast } from '../../types';
+import { ProviderMetadata, Toast } from '../../types';
 
 const api = (window as any).openagent;
 
