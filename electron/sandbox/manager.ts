@@ -1811,7 +1811,7 @@ export class SandboxManager extends EventEmitter {
     }
 
     this.restartAttempts++;
-    console.log(
+    console.info(
       `[SandboxManager] Auto-restart attempt ${this.restartAttempts}/${this.maxRestartAttempts}`
     );
 

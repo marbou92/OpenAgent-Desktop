@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import path from 'path';
+import { resolve } from 'path';
 
 export default defineConfig({
   test: {
@@ -14,8 +14,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@electron': path.resolve(__dirname, 'electron'),
-      '@src': path.resolve(__dirname, 'src'),
+      '@electron': resolve(__dirname, 'electron'),
+      '@src': resolve(__dirname, 'src'),
     },
   },
 });

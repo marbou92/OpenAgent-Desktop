@@ -121,7 +121,7 @@ interface PendingRequest {
 export class MCPTransport extends EventEmitter {
   private process: ChildProcess | null = null;
   private pendingRequests: Map<number | string, PendingRequest> = new Map();
-  private buffer: string = '';
+  private buffer = '';
   private nextId = 1;
   private requestTimeoutMs: number;
   private reconnectAttempts = 0;
@@ -305,7 +305,7 @@ export class MCPTransport extends EventEmitter {
     this.shuttingDown = true;
 
     // Clear all pending requests
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [_id, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       pending.reject(new Error('MCP transport shutting down'));
     }

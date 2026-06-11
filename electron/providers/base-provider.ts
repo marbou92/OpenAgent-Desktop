@@ -122,7 +122,7 @@ class RequestLogger {
       .slice(-count);
   }
 
-  getErrorRate(providerId: string, windowMs: number = 300000): number {
+  getErrorRate(providerId: string, windowMs = 300000): number {
     const cutoff = Date.now() - windowMs;
     const relevant = this.logs.filter(
       (l) => l.providerId === providerId && l.timestamp >= cutoff
