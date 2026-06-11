@@ -2,108 +2,139 @@ name: Build Windows 7
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main, develop]
+    paths:
+      - 'electron/**'
+      - 'src/**'
+      - 'package.json'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build (e.g. 1.0.0)'
-        required: false
-        default: ''
-
-permissions:
-  contents: write
 
 jobs:
   build-win7:
-    name: Build Windows 7 Portable & NSIS
     runs-on: windows-latest
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Override Electron version for Win7 compatibility
-        run: |
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if ($pkg.dependencies.PSObject.Properties['electron']) {
-            $pkg.dependencies.electron = "^22.0.0"
-          }
-          $pkg.devDependencies.electron = "^22.0.0"
-          $pkg | ConvertTo-Json -Depth 100 | Set-Content package.json
-          npm install electron@22 --save-dev
+      - name: Downgrade Electron for Windows 7 compatibility
         shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packageJsonPath = "package.json"
 
-      - name: Rebuild native modules for Electron 22
+          try {
+            # Read and parse package.json
+            Write-Host "Reading package.json..."
+            $packageJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
+
+            # Store original electron version for rollback
+            $originalVersion = $packageJson.devDependencies.electron
+            Write-Host "Original Electron version: $originalVersion"
+
+            # Electron 22.x is the last version supporting Windows 7
+            $targetVersion = "^22.3.27"
+            Write-Host "Downgrading Electron to: $targetVersion"
+
+            # Modify the version
+            $packageJson.devDependencies.electron = $targetVersion
+
+            # Write back to file
+            $packageJson | ConvertTo-Json -Depth 100 | Set-Content -Path $packageJsonPath -Encoding UTF8
+
+            # Validate the JSON was modified correctly
+            Write-Host "Validating modification..."
+            $modifiedJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
+            $modifiedVersion = $modifiedJson.devDependencies.electron
+
+            if ($modifiedVersion -ne $targetVersion) {
+              Write-Error "Validation failed: Expected '$targetVersion' but got '$modifiedVersion'"
+              exit 1
+            }
+
+            Write-Host "Successfully downgraded Electron from $originalVersion to $modifiedVersion"
+
+            # Save original version to environment for potential rollback
+            echo "ORIGINAL_ELECTRON_VERSION=$originalVersion" >> $env:GITHUB_ENV
+
+          } catch {
+            Write-Error "Failed to downgrade Electron: $_"
+
+            # Attempt rollback
+            try {
+              Write-Host "Attempting rollback..."
+              if (Test-Path $packageJsonPath) {
+                $rollbackJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
+                if ($env:ORIGINAL_ELECTRON_VERSION) {
+                  $rollbackJson.devDependencies.electron = $env:ORIGINAL_ELECTRON_VERSION
+                  $rollbackJson | ConvertTo-Json -Depth 100 | Set-Content -Path $packageJsonPath -Encoding UTF8
+                  Write-Host "Rollback successful - restored Electron to $env:ORIGINAL_ELECTRON_VERSION"
+                } else {
+                  Write-Warning "No original version stored, cannot rollback automatically"
+                }
+              }
+            } catch {
+              Write-Warning "Rollback also failed: $_"
+            }
+
+            exit 1
+          }
+
+      - name: Reinstall with downgraded Electron
         run: |
-          npx electron-rebuild -v 22.3.27
+          Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+          npm install
+
+      - name: Verify Electron version
         shell: pwsh
+        run: |
+          $electronVersion = (Get-Content node_modules/electron/package.json | ConvertFrom-Json).version
+          Write-Host "Installed Electron version: $electronVersion"
+          if ($electronVersion -notmatch "^22\.") {
+            Write-Error "Electron version $electronVersion does not start with 22.x - Windows 7 compatibility may be broken"
+            exit 1
+          }
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npx vitest run
 
       - name: Build application
-        run: npm run build
-        env:
-          CI: true
-
-      - name: Determine version
-        id: version
-        shell: pwsh
-        run: |
-          if ("${{ github.event.inputs.version }}" -ne "") {
-            $version = "${{ github.event.inputs.version }}"
-          } elseif ("${{ github.ref_type }}" -eq "tag") {
-            $tag = "${{ github.ref_name }}"
-            $version = $tag.TrimStart('v')
-          } else {
-            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          }
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Build Electron (Win7 NSIS installer)
-        run: npm run electron:build -- --win nsis --config.win.target=nsis
+        run: npm run electron:build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Electron (Win7 Portable)
-        run: npm run electron:build -- --win portable --config.win.target=portable
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Windows 7 build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win7-build
+          path: release/
+          retention-days: 90
 
-      - name: Rename artifacts with Win7 suffix
+      - name: Restore original Electron version
+        if: always()
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.version }}"
-          Get-ChildItem -Path release -Filter "*.exe" | ForEach-Object {
-            $newName = $_.Name -replace '\.exe$', "-Win7.exe"
-            Rename-Item -Path $_.FullName -NewName $newName
+          if ($env:ORIGINAL_ELECTRON_VERSION) {
+            try {
+              $packageJsonPath = "package.json"
+              $packageJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
+              $packageJson.devDependencies.electron = $env:ORIGINAL_ELECTRON_VERSION
+              $packageJson | ConvertTo-Json -Depth 100 | Set-Content -Path $packageJsonPath -Encoding UTF8
+              Write-Host "Restored Electron version to $env:ORIGINAL_ELECTRON_VERSION"
+            } catch {
+              Write-Warning "Failed to restore original Electron version: $_"
+            }
           }
-
-      - name: Upload Win7 NSIS installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: openagent-desktop-win7-nsis
-          path: release/*-Win7.exe
-          retention-days: 30
-
-      - name: Upload Win7 portable
-        uses: actions/upload-artifact@v4
-        with:
-          name: openagent-desktop-win7-portable
-          path: release/*-Win7.exe
-          retention-days: 30
-
-      - name: Upload to release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*-Win7.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

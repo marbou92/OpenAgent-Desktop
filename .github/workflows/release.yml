@@ -5,189 +5,48 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-
 jobs:
-  build-and-release:
-    name: Build & Release (${{ matrix.os }})
+  release:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: package-lock.json
-
+          cache: 'npm'
+      
       - name: Install dependencies
         run: npm ci
-
-      - name: Build application
-        run: npm run build
-        env:
-          CI: true
-
-      - name: Build Electron (macOS)
-        if: runner.os == 'macOS'
-        run: npm run electron:build -- --mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CERT_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          NOTARIZE: true
-
-      - name: Build Electron (Windows)
-        if: runner.os == 'Windows'
-        run: npm run electron:build -- --win
+      
+      - name: Run linter
+        run: npm run lint
+      
+      - name: Run tests
+        run: npx vitest run
+      
+      - name: Build
+        run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Electron (Linux)
-        if: runner.os == 'Linux'
-        run: npm run electron:build -- --linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload macOS artifacts
-        if: runner.os == 'macOS'
+      
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-macos
-          path: |
-            release/*.dmg
-            release/*.zip
-            release/latest-mac.yml
-          retention-days: 5
-
-      - name: Upload Windows artifacts
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+          name: ${{ matrix.os }}-build
+          path: dist/
+          retention-days: 90
+      
+      - name: Create release
+        uses: softprops/action-gh-release@v1
         with:
-          name: release-windows
-          path: |
-            release/*.exe
-            release/*.msi
-            release/latest.yml
-          retention-days: 5
-
-      - name: Upload Linux artifacts
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-linux
-          path: |
-            release/*.AppImage
-            release/*.deb
-            release/*.tar.gz
-            release/latest-linux.yml
-          retention-days: 5
-
-  create-release:
-    name: Create GitHub Release
-    needs: build-and-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: release-macos
-          path: artifacts/macos/
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: release-windows
-          path: artifacts/windows/
-
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: release-linux
-          path: artifacts/linux/
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -z "$PREVIOUS_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%h)" HEAD)
-          else
-            COMMITS=$(git log --pretty=format:"- %s (%h)" "${PREVIOUS_TAG}..HEAD")
-          fi
-          {
-            echo "tag_name=$TAG_NAME"
-            echo "previous_tag=$PREVIOUS_TAG"
-          } >> "$GITHUB_OUTPUT"
-          echo "$COMMITS" > COMMITS.md
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.changelog.outputs.tag_name }}
-          name: OpenAgent-Desktop ${{ steps.changelog.outputs.tag_name }}
-          body_path: COMMITS.md
-          draft: false
-          prerelease: ${{ contains(steps.changelog.outputs.tag_name, '-rc') || contains(steps.changelog.outputs.tag_name, '-beta') || contains(steps.changelog.outputs.tag_name, '-alpha') }}
-          files: |
-            artifacts/macos/*.dmg
-            artifacts/macos/*.zip
-            artifacts/macos/latest-mac.yml
-            artifacts/windows/*.exe
-            artifacts/windows/*.msi
-            artifacts/windows/latest.yml
-            artifacts/linux/*.AppImage
-            artifacts/linux/*.deb
-            artifacts/linux/*.tar.gz
-            artifacts/linux/latest-linux.yml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update auto-update manifest
-        run: |
-          TAG_NAME="${{ steps.changelog.outputs.tag_name }}"
-          VERSION="${TAG_NAME#v}"
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          cat > update-manifest.json << EOF
-          {
-            "version": "${VERSION}",
-            "tag": "${TAG_NAME}",
-            "releaseDate": "${TIMESTAMP}",
-            "platforms": {
-              "macos": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/OpenAgent-Desktop-${VERSION}.dmg",
-                "sha512": ""
-              },
-              "windows": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/OpenAgent-Desktop-Setup-${VERSION}.exe",
-                "sha512": ""
-              },
-              "linux": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/openagent-desktop-${VERSION}.AppImage",
-                "sha512": ""
-              }
-            }
-          }
-          EOF
-
-      - name: Upload auto-update manifest
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.changelog.outputs.tag_name }}
-          files: update-manifest.json
+          files: dist/**/*
+          draft: true
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
