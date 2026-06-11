@@ -50,7 +50,7 @@
     "eqeqeq": ["warn", "always"],
     "curly": ["warn", "multi-line"],
     "no-console": ["warn", {
-      "allow": ["warn", "error", "info"]
+      "allow": ["warn", "error", "info", "debug"]
     }]
   },
   "settings": {
