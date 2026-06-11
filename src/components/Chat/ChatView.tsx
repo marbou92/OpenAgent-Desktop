@@ -37,13 +37,13 @@ interface ChatViewProps {
 
 const ChatView: React.FC<ChatViewProps> = ({
   sessionId,
-  session: _session,
+  session: _session, // eslint-disable-line @typescript-eslint/no-unused-vars
   providers,
-  messages: _externalMessages,
-  isStreaming: _externalIsStreaming,
+  messages: _externalMessages, // eslint-disable-line @typescript-eslint/no-unused-vars
+  isStreaming: _externalIsStreaming, // eslint-disable-line @typescript-eslint/no-unused-vars
   onMessagesUpdate,
-  onNewSession: _onNewSession,
-  onLoadSession: _onLoadSession,
+  onNewSession,
+  onLoadSession: _onLoadSession, // eslint-disable-line @typescript-eslint/no-unused-vars
   settings,
   addToast,
   addTraceEntry,
@@ -70,7 +70,7 @@ const ChatView: React.FC<ChatViewProps> = ({
     activeToolCalls,
     sendMessage,
     stopStreaming,
-    clearMessages: _clearMessages,
+    clearMessages: _clearMessages, // eslint-disable-line @typescript-eslint/no-unused-vars
     retryLastMessage,
   } = useChat({
     sessionId,
@@ -84,7 +84,7 @@ const ChatView: React.FC<ChatViewProps> = ({
   });
 
   // File drop support
-  const { droppedFiles: _droppedFiles, removeFile, clearFiles, addFiles: _addFiles, fileError } = useFileDrop({
+  const { droppedFiles, removeFile, clearFiles, addFiles: _addFiles, fileError } = useFileDrop({
     onFilesDropped: (files) => {
       addToast({ type: 'info', title: `${files.length} file(s) attached` });
     },
