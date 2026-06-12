@@ -123,7 +123,7 @@ const ProviderHealthDashboard: React.FC<ProviderHealthDashboardProps> = ({ provi
     }
   };
 
-  const getProviderName = (providerId: string): string => {
+  const _getProviderName = (providerId: string): string => {
     return providers.find((p) => p.id === providerId)?.name || providerId;
   };
 
