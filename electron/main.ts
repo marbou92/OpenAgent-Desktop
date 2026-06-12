@@ -32,6 +32,10 @@ import { ACPClient } from "./acp/client";
 import { createBackup, recoverFromBackup, atomicWriteJSON } from "./utils/config-backup";
 import { initializeLogger, logger, LogLevel } from "./utils/logger";
 import { validateAppConfig } from "./utils/config-validator";
+import { OpenCodeBridge, getOpenCodeBridge, setOpenCodeBridge } from './opencode/bridge';
+import { ProjectManager } from './projects/manager';
+import { SkillRegistry } from './skills/registry';
+import { ProviderHealthMonitor } from './providers/health-monitor';
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
 interface AppConfig {
@@ -98,6 +102,10 @@ let sessionManager: SessionManager;
 let recipeEngine: RecipeEngine;
 let hookManager: HookManager;
 let acpClient: ACPClient;
+let projectManager: ProjectManager;
+let skillRegistry: SkillRegistry;
+let healthMonitor: ProviderHealthMonitor;
+let openCodeBridge: OpenCodeBridge;
 
 let appConfig: AppConfig;
 let healthCheckInterval: ReturnType<typeof setInterval> | undefined;
@@ -536,6 +544,8 @@ async function initializeSubsystems(): Promise<void> {
     "providers",
     "hooks",
     "logs",
+    "projects",
+    "skills",
   ];
   for (const dir of dirs) {
     const dirPath = path.join(userDataPath, dir);
@@ -580,9 +590,59 @@ async function initializeSubsystems(): Promise<void> {
     }
   });
 
+  // Initialize health monitor for providers
+  healthMonitor = new ProviderHealthMonitor(providerManager, {
+    checkIntervalMs: 60000,
+    maxLatencyHistory: 100,
+  });
+
+  // Forward health monitor events to renderer
+  healthMonitor.on('provider:health-update', (snapshot) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('provider:health-update', snapshot);
+    }
+  });
+  healthMonitor.on('provider:status-changed', (data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('provider:status-changed', data);
+    }
+  });
+  await healthMonitor.start();
+
   // Initialize extension registry
   extensionRegistry = new ExtensionRegistry(path.join(userDataPath, "extensions", "extension-configs.json"));
   await extensionRegistry.initialize();
+
+  // Initialize project manager
+  projectManager = new ProjectManager(path.join(userDataPath, "projects"));
+  await projectManager.initialize();
+  projectManager.on('project:created', (project) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('project:created', project);
+    }
+  });
+  projectManager.on('project:activated', (project) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('project:activated', project);
+    }
+  });
+
+  // Initialize skill registry
+  skillRegistry = new SkillRegistry(path.join(userDataPath, "skills"));
+  await skillRegistry.initialize();
+
+  // Initialize OpenCode bridge
+  openCodeBridge = new OpenCodeBridge({
+    host: '127.0.0.1',
+    port: 4096,
+  });
+  setOpenCodeBridge(openCodeBridge);
+  try {
+    await openCodeBridge.connect();
+    logger.info('Main', 'OpenCode bridge connected');
+  } catch {
+    logger.info('Main', 'OpenCode server not available (will retry on demand)');
+  }
 
   // Initialize session manager
   sessionManager = new SessionManager({
@@ -724,6 +784,30 @@ function registerIpcHandlers(): void {
     ) => {
       await extensionRegistry.configure(extensionId, config);
       return { success: true };
+    })
+  );
+
+  ipcMain.handle(
+    "extension:uninstall",
+    wrapIPC(async (_event, extensionId: string) => {
+      await extensionRegistry.uninstall(extensionId);
+      return { success: true };
+    })
+  );
+
+  ipcMain.handle(
+    "extension:search",
+    wrapIPC(async (_event, query?: string, category?: string) => {
+      const results = await extensionRegistry.search(query, category);
+      return { success: true, data: results };
+    })
+  );
+
+  ipcMain.handle(
+    "extension:getTools",
+    wrapIPC(async (_event, extensionId: string) => {
+      const tools = extensionRegistry.getExtensionTools(extensionId);
+      return { success: true, data: tools };
     })
   );
 
@@ -1195,6 +1279,80 @@ function registerIpcHandlers(): void {
     };
   }));
 
+  // ── OpenCode Bridge IPC ──────────────────────────────────────────────────
+
+  ipcMain.handle("opencode:sessions:list", wrapIPC(async () => {
+    const bridge = getOpenCodeBridge();
+    const sessions = await bridge.listSessions();
+    return { success: true, data: sessions };
+  }));
+
+  ipcMain.handle("opencode:sessions:create", wrapIPC(async (_event, options?: Record<string, unknown>) => {
+    const bridge = getOpenCodeBridge();
+    const session = await bridge.createSession(options);
+    return { success: true, data: session };
+  }));
+
+  ipcMain.handle("opencode:sessions:delete", wrapIPC(async (_event, sessionId: string) => {
+    const bridge = getOpenCodeBridge();
+    await bridge.deleteSession(sessionId);
+    return { success: true };
+  }));
+
+  ipcMain.handle("opencode:messages:send", wrapIPC(async (_event, sessionId: string, content: string, options?: Record<string, unknown>) => {
+    const bridge = getOpenCodeBridge();
+    const message = await bridge.sendMessage(sessionId, content, options);
+    return { success: true, data: message };
+  }));
+
+  ipcMain.handle("opencode:messages:list", wrapIPC(async (_event, sessionId: string) => {
+    const bridge = getOpenCodeBridge();
+    const messages = await bridge.listMessages(sessionId);
+    return { success: true, data: messages };
+  }));
+
+  ipcMain.handle("opencode:files:list", wrapIPC(async (_event, dirPath?: string) => {
+    const bridge = getOpenCodeBridge();
+    const files = await bridge.listFiles(dirPath);
+    return { success: true, data: files };
+  }));
+
+  ipcMain.handle("opencode:files:read", wrapIPC(async (_event, filePath: string) => {
+    const bridge = getOpenCodeBridge();
+    const content = await bridge.readFile(filePath);
+    return { success: true, data: content };
+  }));
+
+  ipcMain.handle("opencode:tools:list", wrapIPC(async () => {
+    const bridge = getOpenCodeBridge();
+    const tools = await bridge.listTools();
+    return { success: true, data: tools };
+  }));
+
+  ipcMain.handle("opencode:tools:execute", wrapIPC(async (_event, name: string, args: Record<string, unknown>) => {
+    const bridge = getOpenCodeBridge();
+    const result = await bridge.executeTool(name, args);
+    return { success: true, data: result };
+  }));
+
+  ipcMain.handle("opencode:mcp:list", wrapIPC(async () => {
+    const bridge = getOpenCodeBridge();
+    const servers = await bridge.listMCPServers();
+    return { success: true, data: servers };
+  }));
+
+  ipcMain.handle("opencode:mcp:call", wrapIPC(async (_event, serverName: string, toolName: string, args: Record<string, unknown>) => {
+    const bridge = getOpenCodeBridge();
+    const result = await bridge.callMCPTool(serverName, toolName, args);
+    return { success: true, data: result };
+  }));
+
+  ipcMain.handle("opencode:lsp:diagnostics", wrapIPC(async (_event, filePath?: string) => {
+    const bridge = getOpenCodeBridge();
+    const diagnostics = await bridge.getDiagnostics(filePath);
+    return { success: true, data: diagnostics };
+  }));
+
   // ── Window Control IPC ────────────────────────────────────────────────────
 
   ipcMain.handle("window:minimize", () => {
@@ -1258,6 +1416,77 @@ function registerIpcHandlers(): void {
       return result;
     }
   );
+
+  // ── Project IPC ──────────────────────────────────────────────────────────
+
+  ipcMain.handle("project:list", wrapIPC(async () => {
+    return { success: true, data: projectManager.list() };
+  }));
+
+  ipcMain.handle("project:create", wrapIPC(async (_event, options: Record<string, unknown>) => {
+    const project = await projectManager.create(options as any);
+    return { success: true, data: project };
+  }));
+
+  ipcMain.handle("project:open", wrapIPC(async (_event, projectId: string) => {
+    const project = projectManager.get(projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+    await projectManager.setActive(projectId);
+    return { success: true, data: project };
+  }));
+
+  ipcMain.handle("project:delete", wrapIPC(async (_event, projectId: string) => {
+    await projectManager.delete(projectId);
+    return { success: true };
+  }));
+
+  ipcMain.handle("project:getActive", wrapIPC(async () => {
+    return { success: true, data: projectManager.getActive() };
+  }));
+
+  ipcMain.handle("project:setActive", wrapIPC(async (_event, projectId: string) => {
+    await projectManager.setActive(projectId);
+    return { success: true };
+  }));
+
+  ipcMain.handle("project:templates", wrapIPC(async () => {
+    return { success: true, data: projectManager.getBuiltinTemplates() };
+  }));
+
+  // ── Skill IPC ────────────────────────────────────────────────────────────
+
+  ipcMain.handle("skill:list", wrapIPC(async () => {
+    return { success: true, data: skillRegistry.list() };
+  }));
+
+  ipcMain.handle("skill:get", wrapIPC(async (_event, skillId: string) => {
+    const skill = skillRegistry.get(skillId);
+    if (!skill) return { success: false, error: 'Skill not found' };
+    return { success: true, data: skill };
+  }));
+
+  ipcMain.handle("skill:execute", wrapIPC(async (_event, skillId: string, variables: Record<string, unknown>, context?: Record<string, unknown>) => {
+    const execution = await skillRegistry.execute(skillId, variables, context);
+    return { success: true, data: execution };
+  }));
+
+  // ── Provider Health IPC ──────────────────────────────────────────────────
+
+  ipcMain.handle("provider:health:check", wrapIPC(async (_event, providerId: string) => {
+    const snapshot = await healthMonitor.checkProvider(providerId);
+    return { success: true, data: snapshot };
+  }));
+
+  ipcMain.handle("provider:health:dashboard", wrapIPC(async () => {
+    return { success: true, data: healthMonitor.getDashboardData() };
+  }));
+
+  // ── Platform IPC ─────────────────────────────────────────────────────────
+
+  ipcMain.handle("platform:getEnvVar", wrapIPC(async (_event, varName: string) => {
+    const value = process.env[varName];
+    return { success: true, data: value || null };
+  }));
 }
 
 // ─── Subsystem Event Forwarding ───────────────────────────────────────────────

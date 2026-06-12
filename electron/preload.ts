@@ -41,6 +41,12 @@ interface ExtensionInfo {
   capabilities?: string[];
 }
 
+interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 interface SessionInfo {
   id: string;
   name: string;
@@ -210,6 +216,11 @@ const electronAPI = {
 
     setDefault: (providerId: string, model: string): Promise<void> =>
       invoke<void>("provider:setDefault", providerId, model),
+
+    health: {
+      check: (providerId: string): Promise<any> => invoke("provider:health:check", providerId),
+      dashboard: (): Promise<any> => invoke("provider:health:dashboard"),
+    },
   },
 
   // ── Extensions ─────────────────────────────────────────────────────────────
@@ -226,8 +237,17 @@ const electronAPI = {
     install: (source: string, options?: Record<string, unknown>): Promise<ExtensionInfo> =>
       invoke<ExtensionInfo>("extension:install", source, options),
 
+    uninstall: (extensionId: string): Promise<void> =>
+      invoke<void>("extension:uninstall", extensionId),
+
     configure: (extensionId: string, config: Record<string, unknown>): Promise<void> =>
       invoke<void>("extension:configure", extensionId, config),
+
+    search: (query?: string, category?: string): Promise<ExtensionInfo[]> =>
+      invoke<ExtensionInfo[]>("extension:search", query, category),
+
+    getTools: (extensionId: string): Promise<ToolDefinition[]> =>
+      invoke<ToolDefinition[]>("extension:getTools", extensionId),
   },
 
   // ── Sessions ───────────────────────────────────────────────────────────────
@@ -369,6 +389,59 @@ const electronAPI = {
       activeExtensions?: number;
       totalExtensions?: number;
     }> => invoke("opencode:status"),
+
+    sessions: {
+      list: (): Promise<any[]> => invoke("opencode:sessions:list"),
+      create: (options?: Record<string, unknown>): Promise<any> => invoke("opencode:sessions:create", options),
+      delete: (sessionId: string): Promise<void> => invoke<void>("opencode:sessions:delete", sessionId),
+    },
+
+    messages: {
+      send: (sessionId: string, content: string, options?: Record<string, unknown>): Promise<any> =>
+        invoke("opencode:messages:send", sessionId, content, options),
+      list: (sessionId: string): Promise<any[]> => invoke("opencode:messages:list", sessionId),
+    },
+
+    files: {
+      list: (dirPath?: string): Promise<any[]> => invoke("opencode:files:list", dirPath),
+      read: (filePath: string): Promise<string> => invoke<string>("opencode:files:read", filePath),
+    },
+
+    tools: {
+      list: (): Promise<any[]> => invoke("opencode:tools:list"),
+      execute: (name: string, args: Record<string, unknown>): Promise<unknown> => invoke("opencode:tools:execute", name, args),
+    },
+
+    mcp: {
+      list: (): Promise<any[]> => invoke("opencode:mcp:list"),
+      call: (serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> =>
+        invoke("opencode:mcp:call", serverName, toolName, args),
+    },
+
+    lsp: {
+      diagnostics: (filePath?: string): Promise<any[]> => invoke("opencode:lsp:diagnostics", filePath),
+    },
+  },
+
+  // ── Projects ───────────────────────────────────────────────────────────────
+
+  projects: {
+    list: (): Promise<any[]> => invoke("project:list"),
+    create: (options: Record<string, unknown>): Promise<any> => invoke("project:create", options),
+    open: (projectId: string): Promise<any> => invoke("project:open", projectId),
+    delete: (projectId: string): Promise<void> => invoke<void>("project:delete", projectId),
+    getActive: (): Promise<any | null> => invoke("project:getActive"),
+    setActive: (projectId: string): Promise<void> => invoke<void>("project:setActive", projectId),
+    templates: (): Promise<any[]> => invoke("project:templates"),
+  },
+
+  // ── Skills ─────────────────────────────────────────────────────────────────
+
+  skills: {
+    list: (): Promise<any[]> => invoke("skill:list"),
+    get: (skillId: string): Promise<any> => invoke("skill:get", skillId),
+    execute: (skillId: string, variables: Record<string, unknown>, context?: Record<string, unknown>): Promise<any> =>
+      invoke("skill:execute", skillId, variables, context),
   },
 
   // ── Platform ───────────────────────────────────────────────────────────────
@@ -549,6 +622,32 @@ const electronAPI = {
       return () => ipcRenderer.removeListener("updater:error", handler);
     },
 
+    // Provider health events
+    providerHealthUpdate: (callback: (data: any) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on("provider:health-update", handler);
+      return () => ipcRenderer.removeListener("provider:health-update", handler);
+    },
+
+    providerStatusChanged: (callback: (data: any) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on("provider:status-changed", handler);
+      return () => ipcRenderer.removeListener("provider:status-changed", handler);
+    },
+
+    // Project events
+    projectCreated: (callback: (data: any) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on("project:created", handler);
+      return () => ipcRenderer.removeListener("project:created", handler);
+    },
+
+    projectActivated: (callback: (data: any) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on("project:activated", handler);
+      return () => ipcRenderer.removeListener("project:activated", handler);
+    },
+
     // App error
     appError: (callback: (data: { message: string; stack?: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { message: string; stack?: string }) => callback(data);
@@ -560,7 +659,7 @@ const electronAPI = {
 
 // ─── Expose API to Renderer ───────────────────────────────────────────────────
 
-contextBridge.exposeInMainWorld("electronAPI", electronAPI);
+contextBridge.exposeInMainWorld("openagent", electronAPI);
 
 // Export the type for use in the renderer process
 export type ElectronAPI = typeof electronAPI;

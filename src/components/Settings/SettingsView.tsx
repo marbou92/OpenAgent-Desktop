@@ -9,6 +9,7 @@ import { ProviderInfo, AppSettings, DEFAULT_SETTINGS, Toast, HookInfo } from '..
 import ProviderForm from './ProviderForm';
 import AppearanceView from './AppearanceView';
 import HookEditorView, { HookLogView } from './HookEditorView';
+import ProviderHealthDashboard from './ProviderHealthDashboard';
 
 const api = (window as any).openagent;
 
@@ -117,6 +118,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const [hooks, setHooks] = useState<HookInfo[]>([]);
   const [editingHook, setEditingHook] = useState<HookInfo | null>(null);
   const [showHookEditor, setShowHookEditor] = useState(false);
+  const [showHealthDashboard, setShowHealthDashboard] = useState(false);
 
   const handleTestProvider = async (providerId: string) => {
     if (!api?.providers?.test) return;
@@ -431,6 +433,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 ))}
               </div>
             )}
+
+            {/* Provider Health Dashboard */}
+            <div className="mt-4">
+              <button
+                onClick={() => setShowHealthDashboard(!showHealthDashboard)}
+                className="flex items-center gap-2 text-sm font-medium"
+                style={{ color: 'var(--color-accent)' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {showHealthDashboard ? (
+                    <polyline points="6 9 12 15 18 9" />
+                  ) : (
+                    <polyline points="9 18 15 12 9 6" />
+                  )}
+                </svg>
+                Provider Health Dashboard
+              </button>
+              {showHealthDashboard && (
+                <div className="mt-2">
+                  <ProviderHealthDashboard providers={providers} addToast={addToast} />
+                </div>
+              )}
+            </div>
 
             {/* Provider Form Modal */}
             {showProviderForm && (

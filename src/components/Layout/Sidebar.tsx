@@ -94,6 +94,16 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    view: 'projects',
+    label: 'Projects',
+    icon: <span style={{ fontSize: '18px', lineHeight: 1 }}>📁</span>,
+  },
+  {
+    view: 'skills',
+    label: 'Skills',
+    icon: <span style={{ fontSize: '18px', lineHeight: 1 }}>⚡</span>,
+  },
+  {
     view: 'settings',
     label: 'Settings',
     icon: (

@@ -30,6 +30,8 @@ import {
   RegistryEventType,
   CommunityExtensionEntry,
   HealthCheckResult,
+  Permission,
+  PermissionLevel,
 } from './types';
 import { BaseExtension } from './base-extension';
 import { MCPClient } from './mcp/mcp-client';
@@ -658,6 +660,163 @@ export class ExtensionRegistry extends EventEmitter {
 
     await this.saveConfigs();
     this.emitEvent('extension:configured', extensionId, { config });
+  }
+
+  /** Uninstall an extension by ID — IPC-facing method */
+  async uninstall(extensionId: string): Promise<void> {
+    const ext = this.extensions.get(extensionId);
+    const config = this.configs.get(extensionId);
+
+    if (!ext && !config) {
+      throw new Error(`Extension "${extensionId}" not found`);
+    }
+
+    // Shut down if running
+    if (ext) {
+      try {
+        await ext.shutdown();
+      } catch {
+        // Continue with uninstall even if shutdown fails
+      }
+
+      // Remove tool routing
+      for (const tool of ext.listTools()) {
+        if (this.toolToExtension.get(tool.name) === extensionId) {
+          this.toolToExtension.delete(tool.name);
+        }
+      }
+    }
+
+    // Remove from registry
+    this.extensions.delete(extensionId);
+    this.configs.delete(extensionId);
+
+    // Remove individual config file from disk if it exists
+    const configDir = path.dirname(this.persistPath);
+    const individualConfigPath = path.join(configDir, `${extensionId}.json`);
+    try {
+      await fs.unlink(individualConfigPath);
+    } catch {
+      // File may not exist — that's fine
+    }
+
+    // Save updated configs
+    await this.saveConfigs();
+
+    // Emit registry event
+    this.emitEvent('extension:uninstalled', extensionId, { name: config?.name });
+
+    // Emit plain event for main.ts IPC listener
+    this.emit('uninstalled', extensionId);
+  }
+
+  /** Search for available extensions — returns uninstalled community and placeholder extensions */
+  async search(query?: string, category?: string): Promise<ExtensionMetadata[]> {
+    const installedIds = new Set(this.configs.keys());
+    const results: ExtensionMetadata[] = [];
+
+    // 1. Get community extensions from MCP registry that aren't installed
+    const allCommunity = this.mcpRegistry.getAllExtensions();
+    for (const entry of allCommunity) {
+      if (installedIds.has(entry.type)) continue;
+
+      const metadata: ExtensionMetadata = {
+        id: entry.type,
+        type: entry.type,
+        name: entry.name,
+        description: entry.description,
+        version: entry.version,
+        author: entry.author,
+        homepage: entry.homepage,
+        icon: entry.icon,
+        category: entry.category,
+        tags: entry.tags,
+        requiredEnvVars: entry.requiredEnvVars,
+        optionalEnvVars: entry.optionalEnvVars,
+        permissions: entry.permissions,
+        builtin: false,
+        enabledByDefault: false,
+        enabled: false,
+      };
+      results.push(metadata);
+    }
+
+    // 2. Add placeholder community extensions to demonstrate the marketplace
+    const placeholders: ExtensionMetadata[] = [
+      {
+        id: 'community_weather',
+        type: ExtensionType.Weather,
+        name: 'Weather',
+        description: 'Get current weather forecasts and historical data for any location worldwide.',
+        version: '1.2.0',
+        author: 'Community',
+        category: ExtensionCategory.Automation,
+        tags: ['weather', 'forecast', 'location'],
+        requiredEnvVars: ['OPENWEATHER_API_KEY'],
+        optionalEnvVars: [],
+        permissions: [{ level: PermissionLevel.Read, reason: 'Fetch weather data via API' }],
+        builtin: false,
+        enabledByDefault: false,
+        enabled: false,
+      },
+      {
+        id: 'community_spotify',
+        type: ExtensionType.Spotify,
+        name: 'Spotify',
+        description: 'Control Spotify playback, search for music, and manage playlists.',
+        version: '0.9.0',
+        author: 'Community',
+        category: ExtensionCategory.Media,
+        tags: ['music', 'spotify', 'playback', 'playlists'],
+        requiredEnvVars: ['SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET'],
+        optionalEnvVars: ['SPOTIFY_REDIRECT_URI'],
+        permissions: [{ level: PermissionLevel.Read, reason: 'Access Spotify API' }],
+        builtin: false,
+        enabledByDefault: false,
+        enabled: false,
+      },
+      {
+        id: 'community_twitter',
+        type: ExtensionType.Twitter,
+        name: 'Twitter / X',
+        description: 'Post tweets, search timelines, and interact with the Twitter/X API.',
+        version: '1.0.0',
+        author: 'Community',
+        category: ExtensionCategory.Communication,
+        tags: ['twitter', 'social', 'tweets'],
+        requiredEnvVars: ['TWITTER_API_KEY', 'TWITTER_API_SECRET'],
+        optionalEnvVars: [],
+        permissions: [{ level: PermissionLevel.Write, reason: 'Post and read tweets' }],
+        builtin: false,
+        enabledByDefault: false,
+        enabled: false,
+      },
+    ];
+
+    for (const ph of placeholders) {
+      if (!installedIds.has(ph.id)) {
+        results.push(ph);
+      }
+    }
+
+    // 3. Filter by query
+    let filtered = results;
+    if (query) {
+      const q = query.toLowerCase();
+      filtered = filtered.filter(
+        (ext) =>
+          ext.name.toLowerCase().includes(q) ||
+          ext.description.toLowerCase().includes(q) ||
+          ext.tags.some((t) => t.toLowerCase().includes(q)),
+      );
+    }
+
+    // 4. Filter by category
+    if (category) {
+      filtered = filtered.filter((ext) => ext.category === category);
+    }
+
+    return filtered;
   }
 
   /** Install an extension from a URL (download and register) */

@@ -3,6 +3,12 @@
  *
  * Dynamic form based on provider type, with test connection,
  * model selector, API key show/hide, and import from env vars.
+ *
+ * Key fixes:
+ * - Test Connection now saves new providers first before testing
+ * - handleSave returns the saved ProviderInfo and tracks the saved ID
+ * - "Set as default" checkbox wired to api.providers.setDefault()
+ * - "Import from env" reads actual env vars via IPC
  */
 
 import React, { useState, useMemo } from 'react';
@@ -76,6 +82,7 @@ const ProviderForm: React.FC<ProviderFormProps> = ({ provider, onClose, onSave, 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ working: boolean; latency: number; models: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savedProviderId, setSavedProviderId] = useState<string | null>(provider?.id || null);
 
   const visibleFields = useMemo(
     () => FIELD_CONFIGS.filter((f) => !f.showForTypes || f.showForTypes.includes(formState.type)),
@@ -91,10 +98,7 @@ const ProviderForm: React.FC<ProviderFormProps> = ({ provider, onClose, onSave, 
     setFormState((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleImportEnv = () => {
-    const providerType = PROVIDER_TYPES.find((p) => p.value === formState.type);
-    if (!providerType) return;
-
+  const handleImportEnv = async () => {
     const envVarMap: Record<string, string> = {
       openai: 'OPENAI_API_KEY',
       anthropic: 'ANTHROPIC_API_KEY',
@@ -104,48 +108,34 @@ const ProviderForm: React.FC<ProviderFormProps> = ({ provider, onClose, onSave, 
       mistral: 'MISTRAL_API_KEY',
       xai: 'XAI_API_KEY',
       perplexity: 'PERPLEXITY_API_KEY',
+      ollama: 'OLLAMA_HOST',
+      opencode: 'OPENCODE_SERVER_PASSWORD',
     };
 
     const envVar = envVarMap[formState.type];
     if (envVar) {
-      addToast({
-        type: 'info',
-        title: `Looking for ${envVar}`,
-        message: 'Check your environment variables for the API key',
-      });
+      try {
+        // Try to read the env var from the main process
+        const value = await (window as any).openagent?.platform?.getEnvVar?.(envVar);
+        if (value) {
+          handleChange('apiKey', value);
+          addToast({ type: 'success', title: `Imported ${envVar}` });
+        } else {
+          addToast({ type: 'info', title: `${envVar} not found in environment` });
+        }
+      } catch {
+        addToast({ type: 'info', title: `Check your environment for ${envVar}` });
+      }
     } else {
       addToast({ type: 'warning', title: 'No known environment variable for this provider' });
     }
   };
 
-  const handleTest = async () => {
-    if (!api?.providers?.test) return;
-    setTesting(true);
-    setTestResult(null);
-    try {
-      // First save the provider if it's new
-      if (!isEditing) {
-        await handleSave(true);
-      }
-      const result = await api.providers.test(provider?.id || 'new');
-      setTestResult(result);
-      if (result.working) {
-        addToast({ type: 'success', title: 'Connection successful', message: `Latency: ${result.latency}ms, Models: ${result.models.length}` });
-      } else {
-        addToast({ type: 'error', title: 'Connection failed' });
-      }
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Test failed', message: err.message });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleSave = async (silent = false) => {
-    if (!api?.providers?.add) return;
+  const handleSave = async (silent = false): Promise<ProviderInfo | null> => {
+    if (!api?.providers?.add) return null;
     if (!formState.name.trim()) {
       addToast({ type: 'error', title: 'Provider name is required' });
-      return;
+      return null;
     }
 
     setSaving(true);
@@ -170,15 +160,59 @@ const ProviderForm: React.FC<ProviderFormProps> = ({ provider, onClose, onSave, 
         }
       }
 
-      await api.providers.add(config);
+      const saved = await api.providers.add(config);
+      setSavedProviderId(saved.id);
+
+      // Set as default if checked
+      if (formState.setAsDefault) {
+        try {
+          await api.providers.setDefault(saved.id, formState.type);
+        } catch {
+          // Non-fatal
+        }
+      }
+
       if (!silent) {
         addToast({ type: 'success', title: 'Provider saved' });
         await onSave();
       }
+      return saved;
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to save provider', message: err.message });
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!api?.providers?.test) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      let testId = savedProviderId;
+      // Must save first if provider is new
+      if (!testId) {
+        const saved = await handleSave(true);
+        testId = saved?.id || null;
+        if (!testId) {
+          addToast({ type: 'error', title: 'Save provider first before testing' });
+          setTesting(false);
+          return;
+        }
+        setSavedProviderId(testId);
+      }
+      const result = await api.providers.test(testId);
+      setTestResult(result);
+      if (result.working) {
+        addToast({ type: 'success', title: 'Connection successful', message: `Latency: ${result.latency}ms, Models: ${result.models.length}` });
+      } else {
+        addToast({ type: 'error', title: 'Connection failed' });
+      }
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Test failed', message: err.message });
+    } finally {
+      setTesting(false);
     }
   };
 

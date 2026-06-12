@@ -9,9 +9,13 @@
  * - Sort options (Name A-Z, Name Z-A, Recently Added, Category)
  * - Installed/Available toggle tabs
  * - Improved extension cards with installation status badge, configure button
+ * - Dynamic marketplace data via api.extensions.search()
+ * - Debounced search with api.extensions.search()
+ * - Extension tools viewer via api.extensions.getTools()
+ * - Real API calls for install/uninstall/configure
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { ExtensionInfo, ExtensionCategory, Toast } from '../../types';
 
 const api = (window as any).openagent;
@@ -78,39 +82,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   data: '#14b8a6',
 };
 
-// ─── Sample Extensions for Marketplace Display ─────────────────────────────────
-
-const MARKETPLACE_EXTENSIONS: Array<{
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  author: string;
-  category: ExtensionCategory;
-  envVars: string[];
-  capabilities: string[];
-  icon: string;
-  trusted: boolean;
-  downloads?: number;
-  addedAt?: string;
-}> = [
-  { id: 'ext-shell', name: 'Shell', description: 'Execute shell commands in the sandbox environment with full terminal support', version: '1.0.0', author: 'OpenAgent', category: 'development', envVars: [], capabilities: ['execute', 'terminal'], icon: '🖥️', trusted: true, downloads: 15420, addedAt: '2024-01-15' },
-  { id: 'ext-browser-use', name: 'Browser Use', description: 'Control web browsers, navigate pages, fill forms, and extract data', version: '1.2.0', author: 'OpenAgent', category: 'browser', envVars: ['BROWSER_HEADLESS'], capabilities: ['navigate', 'click', 'type', 'screenshot'], icon: '🌐', trusted: true, downloads: 12350, addedAt: '2024-02-10' },
-  { id: 'ext-file-editor', name: 'File Editor', description: 'Read, write, create, and modify files and directories', version: '1.1.0', author: 'OpenAgent', category: 'development', envVars: [], capabilities: ['read', 'write', 'create', 'delete'], icon: '📝', trusted: true, downloads: 18200, addedAt: '2024-01-01' },
-  { id: 'ext-memory', name: 'Memory', description: 'Persistent memory storage for conversations and context across sessions', version: '1.0.0', author: 'OpenAgent', category: 'memory', envVars: [], capabilities: ['store', 'recall', 'search'], icon: '🧠', trusted: true, downloads: 9800, addedAt: '2024-03-01' },
-  { id: 'ext-doc-generator', name: 'Document Generator', description: 'Create professional PPTs, Word docs, Excel sheets, and PDFs', version: '1.3.0', author: 'OpenAgent', category: 'document_generation', envVars: [], capabilities: ['pptx', 'docx', 'xlsx', 'pdf'], icon: '📄', trusted: true, downloads: 11200, addedAt: '2024-02-20' },
-  { id: 'ext-web-search', name: 'Web Search', description: 'Search the internet and retrieve real-time information from the web', version: '1.1.0', author: 'OpenAgent', category: 'search', envVars: ['SEARCH_API_KEY'], capabilities: ['search', 'scrape'], icon: '🔍', trusted: true, downloads: 14300, addedAt: '2024-01-20' },
-  { id: 'ext-docker', name: 'Docker', description: 'Manage Docker containers, images, and compose stacks', version: '0.9.0', author: 'Community', category: 'cloud', envVars: ['DOCKER_HOST'], capabilities: ['containers', 'images', 'compose'], icon: '🐳', trusted: false, downloads: 5600, addedAt: '2024-03-15' },
-  { id: 'ext-database', name: 'Database', description: 'Connect to PostgreSQL, MySQL, SQLite and other databases', version: '1.0.0', author: 'Community', category: 'database', envVars: ['DB_CONNECTION_STRING'], capabilities: ['query', 'migrate', 'schema'], icon: '🗃️', trusted: false, downloads: 4200, addedAt: '2024-03-10' },
-  { id: 'ext-github', name: 'GitHub', description: 'Interact with GitHub repositories, issues, pull requests, and actions', version: '1.2.0', author: 'Community', category: 'development', envVars: ['GITHUB_TOKEN'], capabilities: ['repos', 'issues', 'prs', 'actions'], icon: '🐙', trusted: false, downloads: 8900, addedAt: '2024-02-28' },
-  { id: 'ext-slack', name: 'Slack', description: 'Send messages, read channels, and manage Slack workspaces', version: '0.8.0', author: 'Community', category: 'communication', envVars: ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'], capabilities: ['message', 'channels', 'files'], icon: '💬', trusted: false, downloads: 3100, addedAt: '2024-04-01' },
-  { id: 'ext-image-gen', name: 'Image Generator', description: 'Generate images from text descriptions using AI models', version: '1.0.0', author: 'Community', category: 'design', envVars: ['IMAGE_API_KEY'], capabilities: ['generate', 'edit', 'variations'], icon: '🎨', trusted: false, downloads: 6700, addedAt: '2024-03-20' },
-  { id: 'ext-scheduler', name: 'Scheduler', description: 'Schedule tasks and recipes to run at specific times or intervals', version: '0.7.0', author: 'Community', category: 'automation', envVars: [], capabilities: ['cron', 'interval', 'delay'], icon: '⏰', trusted: false, downloads: 2800, addedAt: '2024-04-05' },
-  { id: 'ext-data-analyzer', name: 'Data Analyzer', description: 'Analyze datasets, create visualizations, and generate reports', version: '1.1.0', author: 'Community', category: 'data', envVars: [], capabilities: ['analyze', 'visualize', 'report'], icon: '📊', trusted: false, downloads: 4500, addedAt: '2024-03-25' },
-  { id: 'ext-media-handler', name: 'Media Handler', description: 'Process images, audio, and video files with ffmpeg and other tools', version: '0.9.0', author: 'Community', category: 'media', envVars: ['FFMPEG_PATH'], capabilities: ['convert', 'resize', 'trim'], icon: '🎬', trusted: false, downloads: 3600, addedAt: '2024-02-15' },
-  { id: 'ext-system-monitor', name: 'System Monitor', description: 'Monitor CPU, memory, disk, and network usage in real-time', version: '1.0.0', author: 'Community', category: 'system', envVars: [], capabilities: ['monitor', 'alert', 'log'], icon: '⚙️', trusted: false, downloads: 2200, addedAt: '2024-04-10' },
-];
-
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, addToast }) => {
@@ -122,26 +93,113 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
   const [installUrl, setInstallUrl] = useState('');
   const [showInstallForm, setShowInstallForm] = useState(false);
   const [installing, setInstalling] = useState(false);
-  const [selectedMarketplaceExt, setSelectedMarketplaceExt] = useState<typeof MARKETPLACE_EXTENSIONS[0] | null>(null);
+  const [searchResults, setSearchResults] = useState<ExtensionInfo[] | null>(null);
+  const [availableExtensions, setAvailableExtensions] = useState<ExtensionInfo[]>([]);
+  const [loadingAvailable, setLoadingAvailable] = useState(false);
+  const [extensionTools, setExtensionTools] = useState<{ id: string; name: string; description?: string }[] | null>(null);
+  const [loadingTools, setLoadingTools] = useState(false);
 
-  // Merge real extensions with marketplace data
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch available (community) extensions from the API on mount
+  useEffect(() => {
+    const fetchAvailable = async () => {
+      if (!api?.extensions?.search) return;
+      setLoadingAvailable(true);
+      try {
+        const results = await api.extensions.search();
+        if (Array.isArray(results)) {
+          setAvailableExtensions(results);
+        }
+      } catch {
+        // Silently fail — installed extensions still work
+      } finally {
+        setLoadingAvailable(false);
+      }
+    };
+    fetchAvailable();
+  }, []);
+
+  // Fetch extension tools when a specific extension is selected
+  useEffect(() => {
+    if (!selectedExtension?.id || !api?.extensions?.getTools) {
+      setExtensionTools(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingTools(true);
+    setExtensionTools(null);
+    api.extensions
+      .getTools(selectedExtension.id)
+      .then((tools: any[]) => {
+        if (!cancelled) setExtensionTools(tools || []);
+      })
+      .catch(() => {
+        if (!cancelled) setExtensionTools(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTools(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedExtension?.id]);
+
+  // Debounced search: call api.extensions.search(query, category) after 300ms
+  const handleSearchChange = useCallback(
+    (query: string) => {
+      setSearchQuery(query);
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+      if (!query.trim() || !api?.extensions?.search) {
+        setSearchResults(null);
+        return;
+      }
+      searchDebounceRef.current = setTimeout(async () => {
+        try {
+          const results = await api.extensions.search(query, categoryFilter !== 'all' ? categoryFilter : undefined);
+          if (Array.isArray(results)) {
+            setSearchResults(results);
+          }
+        } catch {
+          // Silently fail — local filtering still applies
+        }
+      }, 300);
+    },
+    [categoryFilter]
+  );
+
+  // Merge real (installed) extensions with dynamically-fetched available extensions
   const allExtensions = useMemo(() => {
     const realIds = new Set(extensions.map((e) => e.id));
-    const marketplaceItems = MARKETPLACE_EXTENSIONS.filter((m) => !realIds.has(m.id)).map((m) => ({
-      id: m.id,
-      name: m.name,
-      description: m.description,
-      version: m.version,
-      author: m.author,
-      enabled: false,
-      installed: false,
-      category: m.category,
-      capabilities: m.capabilities,
-      builtin: false,
-      trusted: m.trusted,
-    }));
-    return [...extensions, ...marketplaceItems] as ExtensionInfo[];
-  }, [extensions]);
+    // Start with installed extensions
+    const merged = [...extensions];
+    // Add available extensions not already installed
+    for (const avail of availableExtensions) {
+      if (!realIds.has(avail.id)) {
+        merged.push({
+          ...avail,
+          installed: false,
+          enabled: false,
+        });
+      }
+    }
+    // If search results exist, merge them in too
+    if (searchResults) {
+      const mergedIds = new Set(merged.map((e) => e.id));
+      for (const sr of searchResults) {
+        if (!mergedIds.has(sr.id)) {
+          merged.push({
+            ...sr,
+            installed: false,
+            enabled: false,
+          });
+        }
+      }
+    }
+    return merged as ExtensionInfo[];
+  }, [extensions, availableExtensions, searchResults]);
 
   const filteredAndSortedExtensions = useMemo(() => {
     let result = allExtensions;
@@ -151,7 +209,7 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
       result = result.filter((e) => e.category === categoryFilter);
     }
 
-    // Search filter (fuzzy by name and description)
+    // Search filter (fuzzy by name and description) — applies on top of API search results
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       const queryChars = query.split('');
@@ -186,13 +244,11 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
           return a.name.localeCompare(b.name);
         case 'name-desc':
           return b.name.localeCompare(a.name);
-        case 'recent': {
-          const aMeta = MARKETPLACE_EXTENSIONS.find((m) => m.id === a.id);
-          const bMeta = MARKETPLACE_EXTENSIONS.find((m) => m.id === b.id);
-          const aDate = aMeta?.addedAt || '1970-01-01';
-          const bDate = bMeta?.addedAt || '1970-01-01';
-          return bDate.localeCompare(aDate);
-        }
+        case 'recent':
+          // Sort installed first, then by name as a stable fallback
+          if (a.installed && !b.installed) return -1;
+          if (!a.installed && b.installed) return 1;
+          return a.name.localeCompare(b.name);
         case 'category':
           return (a.category || '').localeCompare(b.category || '');
         default:
@@ -225,7 +281,21 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
     }
   };
 
-  const handleInstall = async () => {
+  const handleInstall = async (ext: ExtensionInfo) => {
+    if (!api?.extensions?.install) return;
+    setInstalling(true);
+    try {
+      await api.extensions.install(ext.id);
+      addToast({ type: 'success', title: `${ext.name} installed` });
+      await onRefresh();
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Install failed', message: err.message });
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const handleInstallByUrl = async () => {
     if (!api?.extensions?.install || !installUrl.trim()) return;
     setInstalling(true);
     try {
@@ -241,34 +311,37 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
     }
   };
 
-  const handleInstallMarketplace = async (ext: typeof MARKETPLACE_EXTENSIONS[0]) => {
-    if (!api?.extensions?.install) {
-      addToast({ type: 'info', title: 'Install not available', message: 'Extension API not connected' });
+  const handleUninstall = async (ext: ExtensionInfo) => {
+    if (!confirm('Uninstall this extension?')) return;
+    if (!api?.extensions?.uninstall) {
+      addToast({ type: 'error', title: 'Uninstall not available', message: 'Extension API not connected' });
       return;
     }
-    setInstalling(true);
     try {
-      await api.extensions.install(ext.id);
+      await api.extensions.uninstall(ext.id);
+      addToast({ type: 'success', title: `${ext.name} uninstalled` });
       await onRefresh();
-      addToast({ type: 'success', title: `${ext.name} installed` });
     } catch (err: any) {
-      addToast({ type: 'error', title: 'Installation failed', message: err.message });
-    } finally {
-      setInstalling(false);
+      addToast({ type: 'error', title: 'Uninstall failed', message: err.message });
     }
   };
 
-  const handleUninstall = async (_extensionId: string) => {
-    if (!confirm('Uninstall this extension?')) return;
-    addToast({ type: 'info', title: 'Uninstall not yet supported via API' });
+  const handleConfigure = async (ext: ExtensionInfo) => {
+    if (!api?.extensions?.configure) {
+      addToast({ type: 'error', title: 'Configuration not available', message: 'Extension API not connected' });
+      return;
+    }
+    try {
+      // Open a simple config dialog or use the extension's settings
+      const currentConfig = ext.config || {};
+      const newConfig = { ...currentConfig, _configuredAt: new Date().toISOString() };
+      await api.extensions.configure(ext.id, newConfig);
+      addToast({ type: 'success', title: `${ext.name} configured` });
+      await onRefresh();
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Configuration failed', message: err.message });
+    }
   };
-
-  const handleConfigure = (extensionId: string) => {
-    addToast({ type: 'info', title: 'Configuration', message: `Configure ${extensionId} — coming soon` });
-  };
-
-  // Find marketplace metadata for an extension
-  const getMarketplaceMeta = (extId: string) => MARKETPLACE_EXTENSIONS.find((m) => m.id === extId);
 
   return (
     <div className="h-full flex" style={{ background: 'var(--color-bg-primary)' }}>
@@ -280,7 +353,7 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
             <div>
               <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Extensions</h1>
               <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                {enabledCount} enabled · {installedCount} installed · {builtinCount} built-in · {MARKETPLACE_EXTENSIONS.length} available
+                {enabledCount} enabled · {installedCount} installed · {builtinCount} built-in · {availableExtensions.length} available
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -321,10 +394,10 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
                   placeholder="Extension URL or npm package name"
                   className="flex-1 px-3 py-2 rounded-lg border text-sm"
                   style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleInstall()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleInstallByUrl()}
                 />
                 <button
-                  onClick={handleInstall}
+                  onClick={handleInstallByUrl}
                   disabled={installing || !installUrl.trim()}
                   className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
                   style={{ background: 'var(--color-accent)', color: 'white' }}
@@ -350,7 +423,7 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   placeholder="Search extensions..."
                   className="flex-1 bg-transparent text-sm outline-none"
                   style={{ color: 'var(--color-text-primary)' }}
@@ -385,6 +458,9 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
                   {tab === 'all' ? 'All' : tab === 'installed' ? 'Installed' : 'Available'}
                 </button>
               ))}
+              {loadingAvailable && (
+                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Loading marketplace...</span>
+              )}
             </div>
 
             {/* Category filter bar */}
@@ -418,21 +494,18 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredAndSortedExtensions.map((ext) => {
-                const meta = getMarketplaceMeta(ext.id);
                 const categoryColor = CATEGORY_COLORS[ext.category || ''] || 'var(--color-accent)';
                 return (
                   <ExtensionCardEnhanced
                     key={ext.id}
                     extension={ext}
                     categoryColor={categoryColor}
-                    marketplaceMeta={meta}
                     onToggle={handleToggleExtension}
-                    onInstall={meta ? () => handleInstallMarketplace(meta) : undefined}
-                    onUninstall={ext.installed && !ext.builtin ? () => handleUninstall(ext.id) : undefined}
-                    onConfigure={ext.installed ? () => handleConfigure(ext.id) : undefined}
+                    onInstall={() => handleInstall(ext)}
+                    onUninstall={ext.installed && !ext.builtin ? () => handleUninstall(ext) : undefined}
+                    onConfigure={ext.installed ? () => handleConfigure(ext) : undefined}
                     onSelect={() => {
                       setSelectedExtension(ext);
-                      setSelectedMarketplaceExt(meta || null);
                     }}
                     isSelected={selectedExtension?.id === ext.id}
                     installing={installing}
@@ -445,20 +518,20 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
       </div>
 
       {/* Detail Panel */}
-      {(selectedExtension || selectedMarketplaceExt) && (
+      {selectedExtension && (
         <ExtensionDetailPanelEnhanced
-          extension={selectedExtension!}
-          marketplaceMeta={selectedMarketplaceExt}
+          extension={selectedExtension}
           onToggle={handleToggleExtension}
-          onInstall={selectedMarketplaceExt ? () => handleInstallMarketplace(selectedMarketplaceExt) : undefined}
-          onUninstall={selectedExtension?.installed && !selectedExtension?.builtin ? () => handleUninstall(selectedExtension!.id) : undefined}
-          onConfigure={selectedExtension?.installed ? () => handleConfigure(selectedExtension!.id) : undefined}
+          onInstall={() => handleInstall(selectedExtension)}
+          onUninstall={selectedExtension.installed && !selectedExtension.builtin ? () => handleUninstall(selectedExtension) : undefined}
+          onConfigure={selectedExtension.installed ? () => handleConfigure(selectedExtension) : undefined}
           onClose={() => {
             setSelectedExtension(null);
-            setSelectedMarketplaceExt(null);
           }}
           addToast={addToast}
           installing={installing}
+          extensionTools={extensionTools}
+          loadingTools={loadingTools}
         />
       )}
     </div>
@@ -470,15 +543,14 @@ const ExtensionsView: React.FC<ExtensionsViewProps> = ({ extensions, onRefresh, 
 const ExtensionCardEnhanced: React.FC<{
   extension: ExtensionInfo;
   categoryColor: string;
-  marketplaceMeta: typeof MARKETPLACE_EXTENSIONS[0] | undefined;
   onToggle: (id: string, enabled: boolean) => void;
-  onInstall?: () => void;
+  onInstall: () => void;
   onUninstall?: () => void;
   onConfigure?: () => void;
   onSelect: () => void;
   isSelected: boolean;
   installing: boolean;
-}> = ({ extension, categoryColor, marketplaceMeta, onToggle, onInstall, onUninstall, onConfigure, onSelect, isSelected, installing }) => (
+}> = ({ extension, categoryColor, onToggle, onInstall, onUninstall, onConfigure, onSelect, isSelected, installing }) => (
   <div
     onClick={onSelect}
     className="rounded-xl p-4 border cursor-pointer transition-all group"
@@ -500,7 +572,7 @@ const ExtensionCardEnhanced: React.FC<{
           className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
           style={{ background: `${categoryColor}15` }}
         >
-          {marketplaceMeta?.icon || extension.name.slice(0, 2).toUpperCase()}
+          {extension.name.slice(0, 2).toUpperCase()}
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
@@ -565,22 +637,9 @@ const ExtensionCardEnhanced: React.FC<{
       {extension.description}
     </p>
 
-    {/* Env vars badge */}
-    {marketplaceMeta && marketplaceMeta.envVars.length > 0 && (
-      <div className="flex items-center gap-1 mb-2">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-        </svg>
-        <span className="text-xs" style={{ color: 'var(--color-warning)' }}>
-          {marketplaceMeta.envVars.length} env var{marketplaceMeta.envVars.length > 1 ? 's' : ''} required
-        </span>
-      </div>
-    )}
-
     {/* Actions */}
     <div className="flex items-center gap-2">
-      {!extension.installed && onInstall && (
+      {!extension.installed && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -641,11 +700,6 @@ const ExtensionCardEnhanced: React.FC<{
           Untrusted
         </span>
       )}
-      {marketplaceMeta?.downloads && !extension.installed && (
-        <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          {marketplaceMeta.downloads.toLocaleString()} ↓
-        </span>
-      )}
     </div>
   </div>
 );
@@ -654,15 +708,16 @@ const ExtensionCardEnhanced: React.FC<{
 
 const ExtensionDetailPanelEnhanced: React.FC<{
   extension: ExtensionInfo;
-  marketplaceMeta: typeof MARKETPLACE_EXTENSIONS[0] | null;
   onToggle: (id: string, enabled: boolean) => void;
-  onInstall?: () => void;
+  onInstall: () => void;
   onUninstall?: () => void;
   onConfigure?: () => void;
   onClose: () => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
   installing: boolean;
-}> = ({ extension, marketplaceMeta, onToggle, onInstall, onUninstall, onConfigure, onClose, addToast, installing }) => {
+  extensionTools: { id: string; name: string; description?: string }[] | null;
+  loadingTools: boolean;
+}> = ({ extension, onToggle, onInstall, onUninstall, onConfigure, onClose, addToast, installing, extensionTools, loadingTools }) => {
   const categoryColor = CATEGORY_COLORS[extension.category || ''] || 'var(--color-accent)';
 
   return (
@@ -692,7 +747,7 @@ const ExtensionDetailPanelEnhanced: React.FC<{
             className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl"
             style={{ background: `${categoryColor}15` }}
           >
-            {marketplaceMeta?.icon || extension.name.slice(0, 2).toUpperCase()}
+            {extension.name.slice(0, 2).toUpperCase()}
           </div>
           <div>
             <div className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{extension.name}</div>
@@ -757,6 +812,35 @@ const ExtensionDetailPanelEnhanced: React.FC<{
           </div>
         )}
 
+        {/* Tools provided by this extension */}
+        {extension.installed && (
+          <div>
+            <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-tertiary)' }}>TOOLS</h4>
+            {loadingTools ? (
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Loading tools...</span>
+            ) : extensionTools && extensionTools.length > 0 ? (
+              <div className="space-y-1.5">
+                {extensionTools.map((tool) => (
+                  <div
+                    key={tool.id || tool.name}
+                    className="px-3 py-2 rounded-lg"
+                    style={{ background: 'var(--color-bg-tertiary)' }}
+                  >
+                    <div className="text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>{tool.name}</div>
+                    {tool.description && (
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{tool.description}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : extensionTools && extensionTools.length === 0 ? (
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>No tools registered</span>
+            ) : (
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Tools info unavailable</span>
+            )}
+          </div>
+        )}
+
         {/* Capabilities */}
         {extension.capabilities && extension.capabilities.length > 0 && (
           <div>
@@ -768,51 +852,6 @@ const ExtensionDetailPanelEnhanced: React.FC<{
                 </span>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* Required Env Vars */}
-        {marketplaceMeta && marketplaceMeta.envVars.length > 0 && (
-          <div>
-            <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-warning)' }}>
-              ⚠️ REQUIRED ENVIRONMENT VARIABLES
-            </h4>
-            <div className="space-y-1.5">
-              {marketplaceMeta.envVars.map((envVar) => (
-                <div
-                  key={envVar}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                  style={{ background: 'var(--color-bg-tertiary)' }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                  <code className="text-xs font-mono" style={{ color: 'var(--color-text-primary)' }}>{envVar}</code>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigator.clipboard.writeText(envVar);
-                      addToast({ type: 'info', title: 'Copied to clipboard' });
-                    }}
-                    className="ml-auto text-xs"
-                    style={{ color: 'var(--color-text-muted)' }}
-                  >
-                    Copy
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Downloads */}
-        {marketplaceMeta?.downloads && (
-          <div>
-            <h4 className="text-xs font-semibold mb-1" style={{ color: 'var(--color-text-tertiary)' }}>DOWNLOADS</h4>
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-              {marketplaceMeta.downloads.toLocaleString()}
-            </span>
           </div>
         )}
 
@@ -847,7 +886,7 @@ const ExtensionDetailPanelEnhanced: React.FC<{
 
       {/* Footer Actions */}
       <div className="p-4 border-t space-y-2" style={{ borderColor: 'var(--color-border-secondary)' }}>
-        {!extension.installed && onInstall && (
+        {!extension.installed && (
           <button
             onClick={onInstall}
             disabled={installing}

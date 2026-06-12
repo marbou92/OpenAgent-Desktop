@@ -31,6 +31,8 @@ import RecipesView from './components/Recipes/RecipesView';
 import SessionsView from './components/Session/SessionsView';
 import SettingsView from './components/Settings/SettingsView';
 import SandboxView from './components/Sandbox/SandboxView';
+import ProjectsView from './components/Projects/ProjectsView';
+import SkillsView from './components/Skills/SkillsView';
 import FileDropZone from './components/Chat/FileDropZone';
 import ThinkingTrace from './components/Chat/ThinkingTrace';
 
@@ -497,6 +499,18 @@ const App: React.FC = () => {
       case 'sandbox':
         return (
           <SandboxView
+            addToast={store.addToast}
+          />
+        );
+      case 'projects':
+        return (
+          <ProjectsView
+            addToast={store.addToast}
+          />
+        );
+      case 'skills':
+        return (
+          <SkillsView
             addToast={store.addToast}
           />
         );

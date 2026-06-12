@@ -384,7 +384,9 @@ export type ViewType =
   | 'sessions'
   | 'settings'
   | 'hooks'
-  | 'sandbox';
+  | 'sandbox'
+  | 'projects'
+  | 'skills';
 
 export interface Toast {
   id: string;
@@ -396,6 +398,104 @@ export interface Toast {
     label: string;
     onClick: () => void;
   };
+}
+
+export interface ProjectConfig {
+  id: string;
+  name: string;
+  description?: string;
+  directory: string;
+  providerId?: string;
+  model?: string;
+  extensions: string[];
+  skills: string[];
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  description: string;
+  defaultExtensions: string[];
+  defaultSkills: string[];
+  providerType?: string;
+}
+
+export interface SkillDefinition {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  version: string;
+  author: string;
+  icon?: string;
+  steps: SkillStep[];
+  variables: SkillVariable[];
+  requiredExtensions: string[];
+  tags: string[];
+  isBuiltin: boolean;
+}
+
+export interface SkillStep {
+  id: string;
+  name: string;
+  type: 'prompt' | 'tool' | 'conditional' | 'loop' | 'parallel';
+  config: Record<string, unknown>;
+}
+
+export interface SkillVariable {
+  name: string;
+  description: string;
+  type: 'string' | 'number' | 'boolean' | 'file' | 'select';
+  defaultValue?: unknown;
+  required: boolean;
+  options?: string[];
+}
+
+export interface SkillExecution {
+  id: string;
+  skillId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  currentStepIndex: number;
+  startedAt: string;
+  completedAt?: string;
+  results: SkillStepResult[];
+  error?: string;
+}
+
+export interface SkillStepResult {
+  stepId: string;
+  status: 'completed' | 'failed' | 'skipped';
+  output?: string;
+  error?: string;
+}
+
+export interface ProviderHealthSnapshot {
+  providerId: string;
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  latencyMs: number;
+  lastCheckAt: string;
+  consecutiveFailures: number;
+  totalChecks: number;
+  totalFailures: number;
+  uptimePercent: number;
+  latencyHistory: { timestamp: string; latencyMs: number }[];
+  lastError?: string;
+}
+
+export interface HealthDashboardData {
+  providers: ProviderHealthSnapshot[];
+  summary: {
+    totalProviders: number;
+    healthyCount: number;
+    degradedCount: number;
+    unhealthyCount: number;
+    unknownCount: number;
+    averageLatencyMs: number;
+  };
+  lastUpdated: string;
 }
 
 export interface Modal {
@@ -532,6 +632,10 @@ declare global {
         remove: (providerId: string) => Promise<void>;
         test: (providerId: string) => Promise<ProviderTestResult>;
         setDefault: (providerId: string, model: string) => Promise<void>;
+        health: {
+          check: (providerId: string) => Promise<ProviderHealthSnapshot>;
+          dashboard: () => Promise<HealthDashboardData>;
+        };
       };
       extensions: {
         list: () => Promise<ExtensionInfo[]>;
@@ -539,6 +643,9 @@ declare global {
         disable: (extensionId: string) => Promise<void>;
         install: (source: string, options?: Record<string, unknown>) => Promise<ExtensionInfo>;
         configure: (extensionId: string, config: Record<string, unknown>) => Promise<void>;
+        uninstall: (extensionId: string) => Promise<void>;
+        search: (query?: string, category?: string) => Promise<ExtensionInfo[]>;
+        getTools: (extensionId: string) => Promise<ToolDefinition[]>;
       };
       sessions: {
         list: () => Promise<SessionInfo[]>;
@@ -624,12 +731,51 @@ declare global {
           activeExtensions?: number;
           totalExtensions?: number;
         }>;
+        sessions: {
+          list: () => Promise<any[]>;
+          create: (options?: Record<string, unknown>) => Promise<any>;
+          delete: (sessionId: string) => Promise<void>;
+        };
+        messages: {
+          send: (sessionId: string, content: string, options?: Record<string, unknown>) => Promise<any>;
+          list: (sessionId: string) => Promise<any[]>;
+        };
+        files: {
+          list: (dirPath?: string) => Promise<any[]>;
+          read: (filePath: string) => Promise<string>;
+        };
+        tools: {
+          list: () => Promise<any[]>;
+          execute: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+        };
+        mcp: {
+          list: () => Promise<any[]>;
+          call: (serverName: string, toolName: string, args: Record<string, unknown>) => Promise<unknown>;
+        };
+        lsp: {
+          diagnostics: (filePath?: string) => Promise<any[]>;
+        };
+      };
+      projects: {
+        list: () => Promise<ProjectConfig[]>;
+        create: (options: Record<string, unknown>) => Promise<ProjectConfig>;
+        open: (projectId: string) => Promise<ProjectConfig>;
+        delete: (projectId: string) => Promise<void>;
+        getActive: () => Promise<ProjectConfig | null>;
+        setActive: (projectId: string) => Promise<void>;
+        templates: () => Promise<ProjectTemplate[]>;
+      };
+      skills: {
+        list: () => Promise<SkillDefinition[]>;
+        get: (skillId: string) => Promise<SkillDefinition>;
+        execute: (skillId: string, variables: Record<string, unknown>, context?: Record<string, unknown>) => Promise<SkillExecution>;
       };
       platform: {
         getOS: () => NodeJS.Platform;
         isMac: () => boolean;
         isWindows: () => boolean;
         isLinux: () => boolean;
+        getEnvVar: (varName: string) => Promise<string | null>;
       };
       app: {
         getVersion: () => Promise<string>;
@@ -667,6 +813,10 @@ declare global {
         fileDropped: (callback: (files: DroppedFile[]) => void) => () => void;
         traceEntry: (callback: (entry: TraceEntry) => void) => () => void;
         appError: (callback: (data: { message: string; stack?: string }) => void) => () => void;
+        providerHealthUpdate: (callback: (data: ProviderHealthSnapshot) => void) => () => void;
+        providerStatusChanged: (callback: (data: { providerId: string; oldStatus: string; newStatus: string }) => void) => () => void;
+        projectCreated: (callback: (data: ProjectConfig) => void) => () => void;
+        projectActivated: (callback: (data: ProjectConfig) => void) => () => void;
       };
     };
   }
