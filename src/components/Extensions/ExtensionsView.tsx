@@ -717,7 +717,7 @@ const ExtensionDetailPanelEnhanced: React.FC<{
   installing: boolean;
   extensionTools: { id: string; name: string; description?: string }[] | null;
   loadingTools: boolean;
-}> = ({ extension, onToggle, onInstall, onUninstall, onConfigure, onClose, addToast, installing, extensionTools, loadingTools }) => {
+}> = ({ extension, onToggle, onInstall, onUninstall, onConfigure, onClose, addToast: _addToast, installing, extensionTools, loadingTools }) => {
   const categoryColor = CATEGORY_COLORS[extension.category || ''] || 'var(--color-accent)';
 
   return (
