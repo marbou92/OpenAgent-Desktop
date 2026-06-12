@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Toast, ExtensionInfo } from '../../types';
+import { Toast } from '../../types';
 
 const api = (window as any).openagent;
 
