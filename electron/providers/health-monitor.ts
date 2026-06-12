@@ -130,10 +130,10 @@ export class ProviderHealthMonitor extends EventEmitter {
     }
 
     // Determine effective status (degraded if slow but working)
-    let effectiveStatus = status;
-    if (status === HealthStatus.healthy && latencyMs > 5000) {
-      effectiveStatus = HealthStatus.degraded;
-    }
+    const effectiveStatus: HealthStatus =
+      (status === HealthStatus.healthy && latencyMs > 5000)
+        ? HealthStatus.degraded
+        : status;
 
     const snapshot: ProviderHealthSnapshot = {
       providerId,
