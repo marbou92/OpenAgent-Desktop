@@ -111,7 +111,7 @@ export interface OpenCodeEvent {
 
 export class OpenCodeBridge extends EventEmitter {
   private config: Required<OpenCodeBridgeConfig>;
-  private connected: boolean = false;
+  private connected = false;
   private abortController: AbortController | null = null;
 
   constructor(config: OpenCodeBridgeConfig = {}) {
