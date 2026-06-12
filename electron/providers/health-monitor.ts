@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'events';
 import { ProviderManager } from './manager';
-import { HealthCheck, HealthStatus } from './types';
+import { HealthStatus } from './types';
 
 export interface ProviderHealthSnapshot {
   providerId: string;
@@ -95,30 +95,30 @@ export class ProviderHealthMonitor extends EventEmitter {
 
   async checkProvider(providerId: string): Promise<ProviderHealthSnapshot> {
     const startTime = Date.now();
-    let status: HealthStatus = 'unknown';
+    let status: HealthStatus = HealthStatus.unknown;
     let latencyMs = -1;
     let lastError: string | undefined;
 
     try {
       const working = await this.providerManager.test(providerId);
       latencyMs = Date.now() - startTime;
-      status = working ? 'healthy' : 'unhealthy';
+      status = working ? HealthStatus.healthy : HealthStatus.unhealthy;
       if (!working) {
         lastError = 'Connection test failed';
       }
     } catch (err) {
       latencyMs = Date.now() - startTime;
-      status = 'unhealthy';
+      status = HealthStatus.unhealthy;
       lastError = err instanceof Error ? err.message : String(err);
     }
 
     // Update or create snapshot
     const existing = this.snapshots.get(providerId);
-    const consecutiveFailures = status === 'unhealthy'
+    const consecutiveFailures = status === HealthStatus.unhealthy
       ? (existing?.consecutiveFailures || 0) + 1
       : 0;
     const totalChecks = (existing?.totalChecks || 0) + 1;
-    const totalFailures = (existing?.totalFailures || 0) + (status === 'unhealthy' ? 1 : 0);
+    const totalFailures = (existing?.totalFailures || 0) + (status === HealthStatus.unhealthy ? 1 : 0);
     const uptimePercent = totalChecks > 0 ? ((totalChecks - totalFailures) / totalChecks) * 100 : 100;
 
     const latencyHistory = [...(existing?.latencyHistory || [])];
@@ -131,8 +131,8 @@ export class ProviderHealthMonitor extends EventEmitter {
 
     // Determine effective status (degraded if slow but working)
     let effectiveStatus = status;
-    if (status === 'healthy' && latencyMs > 5000) {
-      effectiveStatus = 'degraded';
+    if (status === HealthStatus.healthy && latencyMs > 5000) {
+      effectiveStatus = HealthStatus.degraded;
     }
 
     const snapshot: ProviderHealthSnapshot = {
@@ -173,10 +173,10 @@ export class ProviderHealthMonitor extends EventEmitter {
 
   getDashboardData(): HealthDashboardData {
     const providers = this.getAllSnapshots();
-    const healthyCount = providers.filter((p) => p.status === 'healthy').length;
-    const degradedCount = providers.filter((p) => p.status === 'degraded').length;
-    const unhealthyCount = providers.filter((p) => p.status === 'unhealthy').length;
-    const unknownCount = providers.filter((p) => p.status === 'unknown').length;
+    const healthyCount = providers.filter((p) => p.status === HealthStatus.healthy).length;
+    const degradedCount = providers.filter((p) => p.status === HealthStatus.degraded).length;
+    const unhealthyCount = providers.filter((p) => p.status === HealthStatus.unhealthy).length;
+    const unknownCount = providers.filter((p) => p.status === HealthStatus.unknown).length;
 
     const latencies = providers
       .filter((p) => p.latencyMs >= 0)
