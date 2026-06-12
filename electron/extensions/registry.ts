@@ -30,7 +30,6 @@ import {
   RegistryEventType,
   CommunityExtensionEntry,
   HealthCheckResult,
-  Permission,
   PermissionLevel,
 } from './types';
 import { BaseExtension } from './base-extension';
