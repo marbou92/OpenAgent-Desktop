@@ -76,6 +76,46 @@ export interface SteerMessage {
   injected: boolean;
 }
 
+// ─── Agentic Loop Types ──────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content?: string;
+  thinking?: string;
+  toolCalls?: ToolCallRequest[];
+  toolCallId?: string;
+  files?: string[];
+  timestamp: string;
+  isStreaming?: boolean;
+  error?: string;
+}
+
+export interface ToolCallRequest {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ToolCallResult {
+  content: string;
+  isError?: boolean;
+}
+
+export interface AgentLoopStep {
+  index: number;
+  message: ChatMessage;
+  timestamp: string;
+}
+
+export interface AgentLoopResult {
+  steps: AgentLoopStep[];
+  status: 'completed' | 'cancelled' | 'max_steps_reached' | 'error';
+  totalTokens: { prompt: number; completion: number };
+  finalMessage?: ChatMessage;
+  error?: string;
+}
+
 // Default permissions per mode
 export const DEFAULT_BUILD_PERMISSIONS: ToolPermissions = {
   '*': 'allow',

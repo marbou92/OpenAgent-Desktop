@@ -7,15 +7,33 @@
  */
 
 import { PermissionLevel, PermissionRule, PermissionCheckResult } from './types';
+import { PermissionPolicyEngine, AgentMode } from './policy-engine';
 
 // ToolPermissions is a simple map of pattern -> permission level
 export type ToolPermissions = Record<string, PermissionLevel>;
 
 export class PermissionEvaluator {
   private rules: PermissionRule[];
+  private policyEngine: PermissionPolicyEngine | null = null;
+  private currentAgentMode: AgentMode = 'smart';
 
   constructor(permissions: ToolPermissions) {
     this.rules = this.parsePermissions(permissions);
+  }
+
+  /**
+   * Set the policy engine to use for evaluation.
+   * When set, policies take precedence over simple rules.
+   */
+  setPolicyEngine(engine: PermissionPolicyEngine): void {
+    this.policyEngine = engine;
+  }
+
+  /**
+   * Set the current agent mode for policy evaluation.
+   */
+  setAgentMode(mode: AgentMode): void {
+    this.currentAgentMode = mode;
   }
 
   private parsePermissions(permissions: ToolPermissions): PermissionRule[] {
@@ -40,6 +58,24 @@ export class PermissionEvaluator {
   }
 
   evaluate(toolName: string, args: Record<string, unknown>): PermissionLevel {
+    // Try policy engine first (if available and has active policy)
+    if (this.policyEngine) {
+      const activePolicy = this.policyEngine.getActivePolicy(this.currentAgentMode);
+      if (activePolicy) {
+        const policyResult = this.policyEngine.evaluate(toolName, args, {
+          customContext: { agentMode: this.currentAgentMode },
+        });
+        if (policyResult.level !== undefined) {
+          return policyResult.level;
+        }
+      }
+    }
+
+    // Fall back to simple rule evaluation
+    return this.evaluateRules(toolName, args);
+  }
+
+  private evaluateRules(toolName: string, args: Record<string, unknown>): PermissionLevel {
     let result: PermissionLevel = 'ask'; // Default
     let matchedPattern: string | undefined;
 
