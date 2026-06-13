@@ -7,14 +7,7 @@
  */
 
 import React from 'react';
-
-export interface PermissionRequest {
-  id: string;
-  toolName: string;
-  args: Record<string, unknown>;
-  matchedPattern?: string;
-  reason?: string;
-}
+import { PermissionRequest } from '../../types';
 
 interface PermissionDialogProps {
   request: PermissionRequest | null;
