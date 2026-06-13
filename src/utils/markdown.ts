@@ -6,6 +6,8 @@
  * lists, links, blockquotes, tables, and horizontal rules.
  */
 
+import DOMPurify from 'dompurify';
+
 interface MarkdownToken {
   type: 'heading' | 'paragraph' | 'code_block' | 'list' | 'blockquote' | 'table' | 'hr' | 'html';
   content: string;
@@ -276,16 +278,24 @@ export function extractCodeBlocks(markdown: string): { language: string; code: s
 }
 
 /**
- * Sanitize HTML content by removing potentially dangerous elements.
- * Basic sanitization for rendered markdown output.
+ * Sanitize HTML content using DOMPurify for robust XSS protection.
+ * Removes dangerous elements, attributes, and JavaScript URIs.
  */
 export function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-    .replace(/on\w+="[^"]*"/gi, '')
-    .replace(/on\w+='[^']*'/gi, '')
-    .replace(/javascript:/gi, '');
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr',
+      'strong', 'em', 'del', 'code', 'pre', 'blockquote',
+      'ul', 'ol', 'li', 'a', 'img', 'table', 'thead', 'tbody',
+      'tr', 'th', 'td', 'div', 'span', 'button',
+    ],
+    ALLOWED_ATTR: [
+      'href', 'src', 'alt', 'class', 'style', 'target', 'rel',
+      'colspan', 'rowspan', 'id', 'title', 'onclick',
+    ],
+    ALLOW_DATA_ATTR: false,
+    ADD_ATTR: ['target'],
+  });
 }
 
 /**
