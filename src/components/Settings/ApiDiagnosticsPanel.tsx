@@ -34,7 +34,7 @@ const STATUS_CONFIG: Record<string, { color: string; icon: string; label: string
 };
 
 const ApiDiagnosticsPanel: React.FC<ApiDiagnosticsPanelProps> = ({
-  _providerId,
+  providerId: _providerId,
   providerName,
   results,
   isRunning,
