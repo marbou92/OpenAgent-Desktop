@@ -316,7 +316,7 @@ const ExtensionLifecycleView: React.FC<ExtensionLifecycleViewProps> = ({
 
   // ─── Get Available Actions for a State ────────────────────────────────────
 
-  const getActions = (state: LifecycleState): { action: string; label: string; color: string }[] => {
+  const _getActions = (state: LifecycleState): { action: string; label: string; color: string }[] => {
     switch (state) {
       case 'configured':
       case 'error':
@@ -702,7 +702,7 @@ const ExtensionLifecycleCard: React.FC<{
                     <span className="flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                       {new Date(transition.timestamp).toLocaleTimeString()}
                     </span>
-                    {transition.duration != null && (
+                    {transition.duration !== null && (
                       <span className="flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                         {transition.duration}ms
                       </span>

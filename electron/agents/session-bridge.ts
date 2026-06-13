@@ -242,10 +242,10 @@ export class AgentSessionBridge extends EventEmitter {
    * Apply a preset to a session — creates an agent from the preset and switches to it.
    */
   applyPreset(sessionId: string, presetAgent: AgentDefinition): void {
-    const state = this.ensureSession(sessionId);
+    const _state = this.ensureSession(sessionId);
 
     // Create or get the agent from the registry
-    let agentId = presetAgent.id;
+    const agentId = presetAgent.id;
     try {
       this.registry.create(presetAgent);
     } catch {

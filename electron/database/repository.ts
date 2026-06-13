@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 import { getDatabase } from './connection';
 
 export class Repository<T> {
-  constructor(private tableName: string, private idColumn: string = 'id') {}
+  constructor(private tableName: string, private idColumn = 'id') {}
 
   protected get db(): Database.Database {
     return getDatabase();

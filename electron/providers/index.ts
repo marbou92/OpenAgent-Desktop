@@ -121,7 +121,6 @@ import {
   MeshRoute,
   FallbackChain,
   AutoDetectResult,
-  Message,
 } from './types';
 import { ProviderRegistry } from './provider-registry';
 import { ProviderRouter } from './provider-router';

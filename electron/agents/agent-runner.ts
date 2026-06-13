@@ -12,7 +12,7 @@ import { AgentDefinition, AgentStep, AgentRunContext, AgentRunResult, SteerMessa
 import { PermissionEvaluator } from '../permissions/evaluator';
 import { PermissionPolicyEngine } from '../permissions/policy-engine';
 import { ProviderManager } from '../providers/manager';
-import { ChatRequest, ChatResponse } from '../providers/types';
+import { ChatResponse } from '../providers/types';
 
 export interface AgentRunnerEvents {
   'step:start': (step: AgentStep) => void;
@@ -254,8 +254,8 @@ export class AgentRunner extends EventEmitter {
   ): Promise<AgentLoopResult> {
     const maxSteps = options.maxSteps ?? this.agent.maxSteps ?? 100;
     const loopSteps: AgentLoopStep[] = [];
-    let currentMessages = [...messages];
-    let totalTokens = { prompt: 0, completion: 0 };
+    const currentMessages = [...messages];
+    const totalTokens = { prompt: 0, completion: 0 };
 
     this.running = true;
     this.aborted = false;

@@ -165,7 +165,7 @@ export class AutoCompactionManager extends EventEmitter {
     }
 
     const effectiveConfig = this.getEffectiveConfig(sessionId);
-    const state = this.getOrCreateSession(sessionId);
+    const _state = this.getOrCreateSession(sessionId);
     const trigger = this.evaluateTriggers(sessionId, usage, messages, effectiveConfig);
 
     if (!trigger) {

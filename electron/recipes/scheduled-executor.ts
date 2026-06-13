@@ -119,7 +119,7 @@ export class ScheduledExecutor extends EventEmitter {
     }
 
     // Clear all timers
-    for (const [jobId, timer] of this.timers) {
+    for (const [_jobId, timer] of this.timers) {
       clearTimeout(timer);
     }
     this.timers.clear();
@@ -281,7 +281,7 @@ export class ScheduledExecutor extends EventEmitter {
   /**
    * Get the next N upcoming scheduled runs
    */
-  getUpcoming(count: number = 5): ScheduledJob[] {
+  getUpcoming(count = 5): ScheduledJob[] {
     const activeJobs = Array.from(this.jobs.values())
       .filter((j) => j.status === "active" && j.nextRunAt)
       .sort((a, b) => new Date(a.nextRunAt!).getTime() - new Date(b.nextRunAt!).getTime());

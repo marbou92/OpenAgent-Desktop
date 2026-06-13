@@ -203,14 +203,14 @@ export class ProviderDiagnostics extends EventEmitter {
     const start = Date.now();
     try {
       const url = new URL(apiHost.startsWith('http') ? apiHost : `https://${apiHost}`);
-      const port = parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80);
+      const _port = parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80);
       
       // Attempt HTTP connection as TCP check
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
       
       try {
-        const response = await fetch(`${url.protocol}//${url.host}`, {
+        const _response = await fetch(`${url.protocol}//${url.host}`, {
           method: 'HEAD',
           signal: controller.signal,
         });

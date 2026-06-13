@@ -123,11 +123,11 @@ interface PersistedShares {
   };
 }
 
-interface PersistedHistory {
+interface _PersistedHistory {
   entries: SessionHistoryEntry[];
 }
 
-interface PersistedTags {
+interface _PersistedTags {
   [sessionId: string]: SessionTag[];
 }
 

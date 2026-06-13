@@ -7,9 +7,6 @@
  */
 
 import {
-  ProviderType,
-  ProviderConfig,
-  ProviderInterface,
   ChatRequest,
   ChatResponse,
   StreamChunk,

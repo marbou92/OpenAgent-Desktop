@@ -133,7 +133,7 @@ export class TFIDFSearch {
   }
 
   /** Search using TF-IDF cosine similarity */
-  search(query: string, limit: number = 10): { id: string; score: number }[] {
+  search(query: string, limit = 10): { id: string; score: number }[] {
     const queryTokens = this.tokenize(query);
     if (queryTokens.length === 0) return [];
 
@@ -304,7 +304,7 @@ export class SemanticSearchEngine extends EventEmitter {
   // ─── Search ─────────────────────────────────────────────────────────────
 
   /** Semantic search over indexed memories */
-  async search(query: string, limit: number = 10): Promise<MemorySearchResult[]> {
+  async search(query: string, limit = 10): Promise<MemorySearchResult[]> {
     if (this.memoryIndex.size === 0) return [];
 
     let results: { id: string; score: number }[];

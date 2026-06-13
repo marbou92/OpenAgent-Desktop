@@ -90,7 +90,7 @@ export class SteerManager extends EventEmitter {
   private sessionToolCallTracker: Map<string, string[]> = new Map(); // sessionId -> recent tool names
   private autoSteerConfig: AutoSteerConfig;
   private configDir: string;
-  private initialized: boolean = false;
+  private initialized = false;
 
   constructor(config?: Partial<AutoSteerConfig>) {
     super();

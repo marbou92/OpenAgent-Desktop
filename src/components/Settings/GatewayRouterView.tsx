@@ -5,10 +5,8 @@
  * Shows provider health, cost/speed badges, and visual routing flow.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Toast } from '../../types';
-
-const api = (window as any).openagent;
 
 // ─── Types ───────────────────────────────────────────────────────────────────────
 

@@ -154,7 +154,7 @@ let contextWindowManager: ContextWindowManager;
 let semanticSearchEngine: SemanticSearchEngine;
 let coreMemoryStore: CoreMemoryStore;
 let experienceMemoryStore: ExperienceMemoryStore;
-let wildcardMatcher: WildcardMatcher;
+let _wildcardMatcher: WildcardMatcher;
 let permissionPolicyEngine: PermissionPolicyEngine;
 let steerManager: SteerManager;
 let injectionScanner: InjectionScanner;
@@ -798,7 +798,7 @@ async function initializeSubsystems(): Promise<void> {
     await semanticSearchEngine.indexMemories(experienceMemoryStore.list());
 
     // Phase 6: Permission & Security
-    wildcardMatcher = new WildcardMatcher();
+    _wildcardMatcher = new WildcardMatcher();
     permissionPolicyEngine = new PermissionPolicyEngine();
     await permissionPolicyEngine.initialize();
     steerManager = new SteerManager();

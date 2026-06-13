@@ -10,9 +10,7 @@ import { EventEmitter } from 'events';
 import * as os from 'os';
 import {
   ExtensionType,
-  ExtensionCategory,
   ExtensionConfig,
-  CommunityExtensionEntry,
   MCPServerConfig,
   PermissionLevel,
 } from './types';
@@ -799,7 +797,7 @@ export class ExtensionMarketplace extends EventEmitter {
 
   // ─── Rate ──────────────────────────────────────────────────────────────────
 
-  rate(extensionId: string, rating: number, userId: string = 'default', comment?: string): void {
+  rate(extensionId: string, rating: number, userId = 'default', comment?: string): void {
     if (rating < 1 || rating > 5) {
       throw new Error('Rating must be between 1 and 5');
     }
@@ -838,7 +836,7 @@ export class ExtensionMarketplace extends EventEmitter {
 
   // ─── Report ────────────────────────────────────────────────────────────────
 
-  report(extensionId: string, reason: string, reporterId: string = 'default', details?: string): void {
+  report(extensionId: string, reason: string, reporterId = 'default', details?: string): void {
     const ext = this.catalog.get(extensionId);
     if (!ext) {
       throw new Error(`Extension not found: ${extensionId}`);

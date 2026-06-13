@@ -281,7 +281,7 @@ const SecurityDashboard: React.FC<SecurityDashboardProps> = ({
   const promptInjectionCount = findings.filter((f) => f.type === 'prompt_injection').length;
   const commandInjectionCount = findings.filter((f) => f.type === 'command_injection').length;
   const criticalCount = findings.filter((f) => f.severity === 'critical').length;
-  const highCount = findings.filter((f) => f.severity === 'high').length;
+  const _highCount = findings.filter((f) => f.severity === 'high').length;
 
   const riskScoreColor = currentRiskScore >= 0.7 ? '#ef4444' : currentRiskScore >= 0.4 ? '#f59e0b' : '#22c55e';
 

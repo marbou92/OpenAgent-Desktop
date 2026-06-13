@@ -71,7 +71,7 @@ export class ExperienceMemoryStore extends EventEmitter {
     return this.experiences.get(id);
   }
 
-  search(query: string, limit: number = 10): MemorySearchResult[] {
+  search(query: string, limit = 10): MemorySearchResult[] {
     const queryLower = query.toLowerCase();
     const queryTerms = queryLower.split(/\s+/).filter(Boolean);
     

@@ -16,7 +16,7 @@
  * - Dark theme
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const api = (window as any).openagent;
 
@@ -100,7 +100,7 @@ const SessionOpsView: React.FC<SessionOpsViewProps> = ({
   currentSessionId,
   messages,
   onLoadSession,
-  onNewSession,
+  _onNewSession,
   addToast,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
@@ -111,7 +111,7 @@ const SessionOpsView: React.FC<SessionOpsViewProps> = ({
   const [shareUrl, setShareUrl] = useState('');
   const [shareToken, setShareToken] = useState('');
   const [shareExpiry, setShareExpiry] = useState(7);
-  const [showCompareDialog, setShowCompareDialog] = useState(false);
+  const [_showCompareDialog, _setShowCompareDialog] = useState(false);
   const [compareSessionId1, setCompareSessionId1] = useState('');
   const [compareSessionId2, setCompareSessionId2] = useState('');
   const [compareResult, setCompareResult] = useState<{
@@ -460,7 +460,7 @@ const SessionOpsView: React.FC<SessionOpsViewProps> = ({
 
   // ─── Render: Branches ─────────────────────────────────────────────────────
 
-  const renderForkTree = (node: ForkTreeNode, depth: number = 0): React.ReactNode => (
+  const renderForkTree = (node: ForkTreeNode, depth = 0): React.ReactNode => (
     <div key={node.sessionId}>
       <div
         className="flex items-center gap-2 py-1.5 px-3 rounded-lg cursor-pointer transition-colors"

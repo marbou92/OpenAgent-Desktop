@@ -6,7 +6,7 @@
  * Accept/Dismiss buttons with animated appearance.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AgentMode } from '../../types';
 
 interface AutoModeIndicatorProps {
@@ -42,20 +42,20 @@ const AutoModeIndicator: React.FC<AutoModeIndicatorProps> = ({
     return () => clearTimeout(timer);
   }, []);
 
+  const handleDismiss = useCallback(() => {
+    setExiting(true);
+    setTimeout(() => {
+      onDismiss();
+    }, 200);
+  }, [onDismiss]);
+
   // Auto-dismiss after 10 seconds
   useEffect(() => {
     const timer = setTimeout(() => {
       handleDismiss();
     }, 10000);
     return () => clearTimeout(timer);
-  }, [onDismiss]);
-
-  const handleDismiss = () => {
-    setExiting(true);
-    setTimeout(() => {
-      onDismiss();
-    }, 200);
-  };
+  }, [handleDismiss]);
 
   const handleAccept = () => {
     setExiting(true);

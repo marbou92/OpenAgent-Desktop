@@ -52,7 +52,7 @@ const KNOWN_CATEGORIES: Record<string, string[]> = {
   system: ['bash', 'exec', 'run'],
 };
 
-const KNOWN_TOOLS = [
+const _KNOWN_TOOLS = [
   'bash', 'read', 'write', 'edit', 'glob', 'grep',
   'fetch', 'list', 'search', 'computer', 'browser',
 ];

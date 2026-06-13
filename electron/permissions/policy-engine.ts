@@ -11,7 +11,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { PermissionLevel, PermissionRule } from './types';
+import { PermissionLevel } from './types';
 import { WildcardMatcher, WildcardPattern } from './wildcard-matcher';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ export class PermissionPolicyEngine extends EventEmitter {
   private activePolicies: Map<AgentMode, string> = new Map();
   private matcher: WildcardMatcher;
   private configDir: string;
-  private initialized: boolean = false;
+  private initialized = false;
 
   constructor() {
     super();
@@ -477,7 +477,7 @@ export class PermissionPolicyEngine extends EventEmitter {
             continue;
           }
 
-          const policy = this.createPolicy({
+          const _policy = this.createPolicy({
             name: policyData.name,
             description: policyData.description || '',
             rules: policyData.rules || [],

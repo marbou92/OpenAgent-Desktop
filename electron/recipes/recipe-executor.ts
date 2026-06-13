@@ -7,7 +7,6 @@
  */
 
 import * as crypto from "crypto";
-import { EventEmitter } from "events";
 import {
   Recipe,
   RecipeSettings,
@@ -15,7 +14,6 @@ import {
   RecipeStep,
   RecipeResult,
   SubRecipeRef,
-  RecipeVariable,
 } from "./recipe-store";
 
 export class RecipeExecutor {

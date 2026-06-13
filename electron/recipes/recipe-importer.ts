@@ -41,7 +41,7 @@ export interface ValidationResult {
 
 // ─── Legacy format types for backward compatibility ───────────────────────────
 
-interface LegacyRecipeV0 {
+interface _LegacyRecipeV0 {
   title?: string;
   body?: string;
   args?: Record<string, { description?: string; default?: string; required?: boolean }>;
@@ -49,7 +49,7 @@ interface LegacyRecipeV0 {
   response?: { model?: string; temperature?: number };
 }
 
-interface LegacyRecipeV1 {
+interface _LegacyRecipeV1 {
   name?: string;
   description?: string;
   prompt?: string;
@@ -438,14 +438,14 @@ export class RecipeImporter {
   /**
    * Process a raw recipe object: validate, migrate, normalize
    */
-  private processRecipeObject(raw: any, index?: number): { recipe?: Recipe; errors: string[]; warnings: string[] } {
+  private processRecipeObject(raw: any, _index?: number): { recipe?: Recipe; errors: string[]; warnings: string[] } {
     const validation = this.validate(raw);
     if (!validation.valid) {
       return { errors: validation.errors, warnings: validation.warnings };
     }
 
     // Attempt migration from legacy formats
-    let migrated = this.migrateRecipe(raw);
+    const migrated = this.migrateRecipe(raw);
 
     // Normalize to current Recipe format
     const recipe = this.normalizeRecipe(migrated);

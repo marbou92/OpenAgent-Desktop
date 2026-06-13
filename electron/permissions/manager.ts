@@ -9,7 +9,7 @@ import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { PermissionLevel, PermissionRule, PermissionSet, PermissionConfirmation, PermissionCheckResult } from './types';
+import { PermissionLevel, PermissionRule, PermissionSet, PermissionConfirmation } from './types';
 import { PermissionEvaluator, ToolPermissions } from './evaluator';
 
 export class PermissionManager extends EventEmitter {
@@ -119,7 +119,7 @@ export class PermissionManager extends EventEmitter {
     return set?.rules || [];
   }
 
-  getConfirmations(limit: number = 50): PermissionConfirmation[] {
+  getConfirmations(limit = 50): PermissionConfirmation[] {
     return this.confirmations.slice(-limit);
   }
 }

@@ -19,10 +19,10 @@
  */
 
 import React, { useState, useCallback, useMemo } from "react";
-import { RecipeVariable, SubRecipeRef, RecipeSchedule, RecipeInfo, Toast } from "../../types";
+import { RecipeVariable, SubRecipeRef, RecipeInfo, Toast } from "../../types";
 import { humanizeCron } from "../../utils/cron-humanizer";
 
-const api = (window as any).openagent;
+
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

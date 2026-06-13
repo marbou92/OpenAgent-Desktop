@@ -107,12 +107,13 @@ export class ContextCompactor extends EventEmitter {
         ({ compacted } = this.compactSummary(messages));
         break;
       case 'hybrid':
-      default:
+      default: {
         // First pass: tool-pair compaction
-        let toolPairResult = this.compactToolPairs(messages);
+        const toolPairResult = this.compactToolPairs(messages);
         // Second pass: summary compaction if still over threshold
         compacted = this.compactSummary(toolPairResult.compacted).compacted;
         break;
+      }
     }
 
     const compactedTokenCount = Math.round(originalTokens * (compacted.length / Math.max(messages.length, 1)));

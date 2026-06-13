@@ -11,7 +11,6 @@
 
 import {
   SandboxInterface,
-  SandboxConfig,
   FileInfo,
 } from './sandbox-strategies';
 

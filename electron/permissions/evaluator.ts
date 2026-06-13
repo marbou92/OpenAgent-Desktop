@@ -77,7 +77,7 @@ export class PermissionEvaluator {
 
   private evaluateRules(toolName: string, args: Record<string, unknown>): PermissionLevel {
     let result: PermissionLevel = 'ask'; // Default
-    let matchedPattern: string | undefined;
+    let _matchedPattern: string | undefined;
 
     // Build the full tool identifier (e.g., "bash:git commit", "edit:src/file.ts")
     const toolId = this.buildToolIdentifier(toolName, args);
@@ -85,7 +85,7 @@ export class PermissionEvaluator {
     for (const rule of this.rules) {
       if (this.matchesPattern(toolId, rule.pattern) || this.matchesPattern(toolName, rule.pattern)) {
         result = rule.level;
-        matchedPattern = rule.pattern;
+        _matchedPattern = rule.pattern;
       }
     }
 
@@ -94,12 +94,12 @@ export class PermissionEvaluator {
 
   check(toolName: string, args: Record<string, unknown>): PermissionCheckResult {
     const level = this.evaluate(toolName, args);
-    let matchedPattern: string | undefined;
+    let _matchedPattern: string | undefined;
     
     const toolId = this.buildToolIdentifier(toolName, args);
     for (const rule of this.rules) {
       if (this.matchesPattern(toolId, rule.pattern) || this.matchesPattern(toolName, rule.pattern)) {
-        matchedPattern = rule.pattern;
+        _matchedPattern = rule.pattern;
       }
     }
 

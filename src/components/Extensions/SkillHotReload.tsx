@@ -5,7 +5,7 @@
  * edit skill configs with auto-reload, and see real-time status.
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Toast } from '../../types';
 
 const api = (window as any).openagent;
@@ -359,7 +359,7 @@ const SkillHotReload: React.FC<SkillHotReloadProps> = ({ addToast }) => {
               const isWatching = watched?.state === 'watching' || watched?.state === 'reloading';
               const skillHistory = reloadHistory.filter((h) => h.skillId === skill.id);
               const isExpanded = expandedSkill === skill.id;
-              const isEditing = editingConfig === skill.id;
+              const _isEditing = editingConfig === skill.id;
               const isShowingHistory = showHistoryFor === skill.id;
 
               return (

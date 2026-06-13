@@ -192,7 +192,7 @@ const App: React.FC = () => {
   const settings = useAppStore(s => s.settings);
   const traceEntries = useAppStore(s => s.traceEntries);
   const tracePanelOpen = useAppStore(s => s.tracePanelOpen);
-  const permissionRequests = useAppStore(s => s.permissionRequests);
+  const _permissionRequests = useAppStore(s => s.permissionRequests);
   const toasts = useAppStore(s => s.toasts);
   const modals = useAppStore(s => s.modals);
   const loading = useAppStore(s => s.loading);
@@ -210,11 +210,11 @@ const App: React.FC = () => {
   const setRecipes = useAppStore(s => s.setRecipes);
   const setHooks = useAppStore(s => s.setHooks);
   const setMessages = useAppStore(s => s.setMessages);
-  const setIsStreaming = useAppStore(s => s.setIsStreaming);
+  const _setIsStreaming = useAppStore(s => s.setIsStreaming);
   const addTraceEntry = useAppStore(s => s.addTraceEntry);
   const toggleTracePanel = useAppStore(s => s.toggleTracePanel);
-  const addPermissionRequest = useAppStore(s => s.addPermissionRequest);
-  const removePermissionRequest = useAppStore(s => s.removePermissionRequest);
+  const _addPermissionRequest = useAppStore(s => s.addPermissionRequest);
+  const _removePermissionRequest = useAppStore(s => s.removePermissionRequest);
   const updateSettings = useAppStore(s => s.updateSettings);
   const addToast = useAppStore(s => s.addToast);
   const removeToast = useAppStore(s => s.removeToast);

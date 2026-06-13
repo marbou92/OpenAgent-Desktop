@@ -25,9 +25,9 @@ export interface SubagentTask {
 export class SubagentHandler extends EventEmitter {
   private tasks: Map<string, SubagentTask> = new Map();
   private maxConcurrentSubagents: number;
-  private runningCount: number = 0;
+  private runningCount = 0;
 
-  constructor(maxConcurrent: number = 3) {
+  constructor(maxConcurrent = 3) {
     super();
     this.maxConcurrentSubagents = maxConcurrent;
   }

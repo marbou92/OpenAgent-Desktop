@@ -41,8 +41,8 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
   customAgents,
   autoDetected = false,
   autoDetectedMode,
-  onAutoAccept,
-  onAutoDismiss,
+  _onAutoAccept,
+  _onAutoDismiss,
 }) => {
   const [hoveredMode, setHoveredMode] = useState<AgentMode | null>(null);
   const [showCustomAgents, setShowCustomAgents] = useState(false);

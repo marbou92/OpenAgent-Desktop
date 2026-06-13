@@ -6,7 +6,7 @@
  * Displayed at the top of the main content area during agent runs.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AgentMode } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────────

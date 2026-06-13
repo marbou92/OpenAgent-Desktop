@@ -222,7 +222,7 @@ const ComputerUseOverlay: React.FC<ComputerUseOverlayProps> = ({
 }) => {
   const [state, setState] = useState<OverlayState>('hidden');
   const [actions, setActions] = useState<ComputerUseAction[]>([]);
-  const [highlights, setHighlights] = useState<HighlightRegion[]>([]);
+  const [highlights, _setHighlights] = useState<HighlightRegion[]>([]);
   const [ripples, setRipples] = useState<Array<{ id: string; x: number; y: number }>>([]);
   const [scrollArrows, setScrollArrows] = useState<Array<{ id: string; direction: 'up' | 'down' | 'left' | 'right'; x: number; y: number }>>([]);
   const [typingDisplays, setTypingDisplays] = useState<Array<{ id: string; text: string; x: number; y: number }>>([]);
@@ -239,48 +239,6 @@ const ComputerUseOverlay: React.FC<ComputerUseOverlayProps> = ({
   const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isVisible = externalVisible !== undefined ? externalVisible : state !== 'hidden';
-
-  // ─── Event listeners ───────────────────────────────────────────────────────
-
-  useEffect(() => {
-    // Listen for overlay events from the main process
-    const handleActionRecorded = (action: ComputerUseAction) => {
-      setActions((prev) => [...prev, action]);
-      visualizeAction(action);
-    };
-
-    const handleActionExecuted = (action: ComputerUseAction) => {
-      visualizeAction(action);
-    };
-
-    const handleConfirmationRequested = (data: { action: ComputerUseAction; check: { reason: string } }) => {
-      setConfirmation({
-        action: data.action,
-        reason: data.check.reason,
-      });
-    };
-
-    const handleStateChanged = (newState: OverlayState) => {
-      setState(newState);
-    };
-
-    // Register listeners
-    if (api?.computerUseOverlay) {
-      api.computerUseOverlay.on?.('action:recorded', handleActionRecorded);
-      api.computerUseOverlay.on?.('action:executed', handleActionExecuted);
-      api.computerUseOverlay.on?.('confirmation:requested', handleConfirmationRequested);
-      api.computerUseOverlay.on?.('state:changed', handleStateChanged);
-    }
-
-    return () => {
-      if (api?.computerUseOverlay) {
-        api.computerUseOverlay.off?.('action:recorded', handleActionRecorded);
-        api.computerUseOverlay.off?.('action:executed', handleActionExecuted);
-        api.computerUseOverlay.off?.('confirmation:requested', handleConfirmationRequested);
-        api.computerUseOverlay.off?.('state:changed', handleStateChanged);
-      }
-    };
-  }, []);
 
   // ─── Visualization ─────────────────────────────────────────────────────────
 
@@ -326,6 +284,48 @@ const ComputerUseOverlay: React.FC<ComputerUseOverlayProps> = ({
         break;
     }
   }, []);
+
+  // ─── Event listeners ───────────────────────────────────────────────────────
+
+  useEffect(() => {
+    // Listen for overlay events from the main process
+    const handleActionRecorded = (action: ComputerUseAction) => {
+      setActions((prev) => [...prev, action]);
+      visualizeAction(action);
+    };
+
+    const handleActionExecuted = (action: ComputerUseAction) => {
+      visualizeAction(action);
+    };
+
+    const handleConfirmationRequested = (data: { action: ComputerUseAction; check: { reason: string } }) => {
+      setConfirmation({
+        action: data.action,
+        reason: data.check.reason,
+      });
+    };
+
+    const handleStateChanged = (newState: OverlayState) => {
+      setState(newState);
+    };
+
+    // Register listeners
+    if (api?.computerUseOverlay) {
+      api.computerUseOverlay.on?.('action:recorded', handleActionRecorded);
+      api.computerUseOverlay.on?.('action:executed', handleActionExecuted);
+      api.computerUseOverlay.on?.('confirmation:requested', handleConfirmationRequested);
+      api.computerUseOverlay.on?.('state:changed', handleStateChanged);
+    }
+
+    return () => {
+      if (api?.computerUseOverlay) {
+        api.computerUseOverlay.off?.('action:recorded', handleActionRecorded);
+        api.computerUseOverlay.off?.('action:executed', handleActionExecuted);
+        api.computerUseOverlay.off?.('confirmation:requested', handleConfirmationRequested);
+        api.computerUseOverlay.off?.('state:changed', handleStateChanged);
+      }
+    };
+  }, [visualizeAction]);
 
   const removeRipple = useCallback((id: string) => {
     setRipples((prev) => prev.filter((r) => r.id !== id));

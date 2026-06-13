@@ -14,7 +14,7 @@ import { buildAgent, planAgent, chatAgent, smartAgent } from './builtin';
 
 export class AgentRegistry extends EventEmitter {
   private agents: Map<string, AgentDefinition> = new Map();
-  private activeAgentId: string = 'build';
+  private activeAgentId = 'build';
   private configDir: string;
   private customAgentsDir: string;
 

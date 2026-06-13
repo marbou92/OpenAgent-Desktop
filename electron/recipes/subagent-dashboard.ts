@@ -92,7 +92,7 @@ export class SubagentDashboard extends EventEmitter {
   private maxMessages: number;
   private taskTimelines: Map<string, { startedAt: number; completedAt?: number }> = new Map();
 
-  constructor(maxMessages: number = 500) {
+  constructor(maxMessages = 500) {
     super();
     this.maxMessages = maxMessages;
   }
@@ -352,8 +352,8 @@ export class SubagentDashboard extends EventEmitter {
   /**
    * Get recent messages
    */
-  getRecentMessages(count: number = 20, taskId?: string): SubagentMessage[] {
-    let msgs = taskId
+  getRecentMessages(count = 20, taskId?: string): SubagentMessage[] {
+    const msgs = taskId
       ? this.messages.filter((m) => m.taskId === taskId)
       : this.messages;
     return msgs.slice(-count);

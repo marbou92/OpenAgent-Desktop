@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { ExtensionInfo, ExtensionCategory, Toast } from '../../types';
+import { ExtensionInfo, Toast } from '../../types';
 
 const api = (window as any).openagent;
 
@@ -169,7 +169,7 @@ const MarketplaceView: React.FC<MarketplaceViewProps> = ({ extensions, onRefresh
       setFeaturedIndex((prev) => (prev + 1) % featured.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, [marketplaceExtensions]);
+  }, [getFeatured, marketplaceExtensions]);
 
   const installedIds = useMemo(() => new Set(extensions.map((e) => e.id)), [extensions]);
 

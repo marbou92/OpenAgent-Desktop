@@ -87,7 +87,7 @@ export class ComputerUseOverlayManager extends EventEmitter {
   private recording: ComputerUseAction[] = [];
   private currentAction: ComputerUseAction | null = null;
   private highlights: HighlightRegion[] = [];
-  private transparency: number = 0.7;
+  private transparency = 0.7;
   private screenshotData: ScreenshotData | null = null;
   private pendingConfirmation: {
     action: ComputerUseAction;
@@ -370,7 +370,7 @@ export class ComputerUseOverlayManager extends EventEmitter {
   /**
    * Convenience: Create and show a scroll action.
    */
-  async scroll(x: number, y: number, direction: 'up' | 'down' | 'left' | 'right', amount: number = 3): Promise<void> {
+  async scroll(x: number, y: number, direction: 'up' | 'down' | 'left' | 'right', amount = 3): Promise<void> {
     const action: ComputerUseAction = {
       id: this.generateActionId(),
       type: 'scroll',
@@ -391,7 +391,7 @@ export class ComputerUseOverlayManager extends EventEmitter {
     fromY: number,
     toX: number,
     toY: number,
-    duration: number = 500,
+    duration = 500,
   ): Promise<void> {
     const action: ComputerUseAction = {
       id: this.generateActionId(),

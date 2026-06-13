@@ -18,7 +18,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Toast } from "../../types";
 
-const api = (window as any).openagent;
+
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

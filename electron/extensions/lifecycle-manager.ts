@@ -10,9 +10,7 @@
 import { EventEmitter } from 'events';
 import {
   ExtensionConfig,
-  ExtensionType,
   HealthCheckResult,
-  PermissionLevel,
 } from './types';
 import { ExtensionSecurityScanner, SecurityScanResult } from './security-scanner';
 import { HotReloadManager, ReloadState } from './hot-reload';
@@ -448,7 +446,7 @@ export class ExtensionLifecycleManager extends EventEmitter {
 
   // ─── Auto-Restart ──────────────────────────────────────────────────────────
 
-  setAutoRestart(extensionId: string, enabled: boolean, maxAttempts: number = 3): void {
+  setAutoRestart(extensionId: string, enabled: boolean, maxAttempts = 3): void {
     const entry = this.entries.get(extensionId);
     if (!entry) return;
     entry.autoRestart = enabled;

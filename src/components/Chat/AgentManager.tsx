@@ -54,7 +54,7 @@ const DEFAULT_PERMISSIONS: Record<AgentMode, Record<string, 'allow' | 'ask' | 'd
   smart: { '*': 'ask', 'read': 'allow', 'glob': 'allow', 'grep': 'allow' },
 };
 
-const TOOL_NAMES = [
+const _TOOL_NAMES = [
   'read', 'write', 'edit', 'bash', 'glob', 'grep',
   'bash:git status', 'bash:git diff', 'bash:git log',
   'bash:ls', 'bash:cat', 'bash:node', 'bash:npm',

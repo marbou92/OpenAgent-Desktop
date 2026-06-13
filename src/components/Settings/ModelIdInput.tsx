@@ -5,7 +5,7 @@
  * alias resolution, variant selection, and config set switching.
  */
 
-import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useCallback } from 'react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────────
 

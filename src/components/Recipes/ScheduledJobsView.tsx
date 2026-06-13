@@ -19,7 +19,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { RecipeInfo, Toast } from "../../types";
 import { humanizeCron } from "../../utils/cron-humanizer";
 
-const api = (window as any).openagent;
+
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

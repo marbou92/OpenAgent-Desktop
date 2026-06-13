@@ -197,7 +197,7 @@ export class InjectionScanner extends EventEmitter {
     return Math.min(0.4 + positionBonus * 0.3 + lengthBonus * 0.3, 1.0);
   }
 
-  private calculateRiskScore(findings: SecurityFinding[], content: string): number {
+  private calculateRiskScore(findings: SecurityFinding[], _content: string): number {
     if (findings.length === 0) return 0;
 
     let maxScore = 0;

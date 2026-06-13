@@ -55,7 +55,7 @@ function getHealthDot(status?: string): string {
 
 // ─── Provider icon by type ────────────────────────────────────────────────────────
 
-function getProviderIcon(type: string): React.ReactNode {
+function getProviderIcon(_type: string): React.ReactNode {
   // Simple icon based on provider type
   const iconColor = 'var(--color-text-secondary)';
   return (
