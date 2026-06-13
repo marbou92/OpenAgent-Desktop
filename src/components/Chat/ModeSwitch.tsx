@@ -7,9 +7,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AgentDefinition } from '../../types';
-
-export type AgentMode = 'build' | 'plan' | 'chat' | 'smart';
+import { AgentDefinition, AgentMode } from '../../types';
 
 interface ModeOption {
   id: AgentMode;
