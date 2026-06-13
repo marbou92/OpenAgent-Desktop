@@ -111,3 +111,51 @@ export {
 // ─── File Storage ──────────────────────────────────────────────────────────────
 
 export { FileStorageAdapter, StorageAdapter } from './file-storage';
+
+// ─── Config Sets ──────────────────────────────────────────────────────────────
+
+export { ConfigSetManager } from './config-sets';
+export type { ProviderConfigSet } from './config-sets';
+
+// ─── Model Variants ──────────────────────────────────────────────────────────
+
+export { ModelVariantManager } from './model-variants';
+export type { ModelVariant } from './model-variants';
+
+// ─── Diagnostics ─────────────────────────────────────────────────────────────
+
+export { ProviderDiagnostics } from './diagnostics';
+export type {
+  DiagnosticStep,
+  DiagnosticStatus,
+  DiagnosticResult,
+  FullDiagnosticReport,
+} from './diagnostics';
+
+// ─── OpenAI-Compatible Provider ──────────────────────────────────────────────
+
+export { OpenAICompatibleProvider, OPENAI_COMPATIBLE_PRESETS } from './openai-compatible-provider';
+export type { OpenAICompatiblePreset } from './openai-compatible-provider';
+
+// ─── Model ID Resolver ──────────────────────────────────────────────────────
+
+export { ModelIdResolver, getModelIdResolver, setModelIdResolver, resetModelIdResolver } from './model-id-resolver';
+export type { ResolvedModelId } from './model-id-resolver';
+
+// ─── Provider Catalog ───────────────────────────────────────────────────────
+
+export { ProviderCatalog, getProviderCatalog, setProviderCatalog, resetProviderCatalog } from './provider-catalog';
+export type { ProviderCatalogEntry, ProviderPreset, ProviderCategory, ProviderDifficulty } from './provider-catalog';
+
+// ─── Gateway Router ─────────────────────────────────────────────────────────
+
+export { GatewayRouter, getGatewayRouter, setGatewayRouter, resetGatewayRouter } from './gateway-router';
+export type {
+  RoutingStrategy,
+  CostTier,
+  SpeedTier,
+  RoutingRule,
+  RoutingCondition,
+  RouteResult,
+  ProviderHealthInfo,
+} from './gateway-router';

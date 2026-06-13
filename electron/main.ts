@@ -36,6 +36,36 @@ import { OpenCodeBridge, getOpenCodeBridge, setOpenCodeBridge } from './opencode
 import { ProjectManager } from './projects/manager';
 import { SkillRegistry } from './skills/registry';
 import { ProviderHealthMonitor } from './providers/health-monitor';
+// ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
+import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
+import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
+import { AgentPresetManager } from './agents/agent-presets';
+import { AgentSessionBridge } from './agents/session-bridge';
+import { ModelIdResolver, getModelIdResolver } from './providers/model-id-resolver';
+import { ProviderCatalog } from './providers/provider-catalog';
+import { GatewayRouter } from './providers/gateway-router';
+import { ConfigSetManager } from './providers/config-sets';
+import { ModelVariantManager } from './providers/model-variants';
+import { ProviderDiagnostics } from './providers/diagnostics';
+import { AutoCompactionManager } from './context/auto-compaction-manager';
+import { ContextWindowManager } from './context/context-window-manager';
+import { SemanticSearchEngine } from './memory/embedding-search';
+import { CoreMemoryStore } from './memory/core-store';
+import { ExperienceMemoryStore } from './memory/experience-store';
+import { WildcardMatcher } from './permissions/wildcard-matcher';
+import { PermissionPolicyEngine } from './permissions/policy-engine';
+import { SteerManager } from './security/steer-manager';
+import { InjectionScanner } from './security/injection-scanner';
+import { RecipeImporter } from './recipes/recipe-importer';
+import { ScheduledExecutor } from './recipes/scheduled-executor';
+import { SubagentDashboard } from './recipes/subagent-dashboard';
+import { ExtensionMarketplace } from './extensions/marketplace';
+import { HotReloadManager } from './extensions/hot-reload';
+import { ExtensionLifecycleManager } from './extensions/lifecycle-manager';
+import { ProjectConfigManager } from './config/project-config-manager';
+import { SessionOperations } from './session/session-ops';
+import { ComputerUseOverlayManager } from './extensions/computer-use-overlay';
+import { LayeredConfig } from './config/layered-config';
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
 interface AppConfig {
@@ -106,6 +136,37 @@ let projectManager: ProjectManager;
 let skillRegistry: SkillRegistry;
 let healthMonitor: ProviderHealthMonitor;
 let openCodeBridge: OpenCodeBridge;
+
+// ─── Phase 1-8: New Subsystem Globals ────────────────────────────────────────
+let agentRegistry: AgentRegistry;
+let autoModeDetector: AutoModeDetector;
+let agentPresetManager: AgentPresetManager;
+let agentSessionBridge: AgentSessionBridge;
+let modelIdResolver: ModelIdResolver;
+let providerCatalog: ProviderCatalog;
+let gatewayRouter: GatewayRouter;
+let configSetManager: ConfigSetManager;
+let modelVariantManager: ModelVariantManager;
+let providerDiagnostics: ProviderDiagnostics;
+let autoCompactionManager: AutoCompactionManager;
+let contextWindowManager: ContextWindowManager;
+let semanticSearchEngine: SemanticSearchEngine;
+let coreMemoryStore: CoreMemoryStore;
+let experienceMemoryStore: ExperienceMemoryStore;
+let wildcardMatcher: WildcardMatcher;
+let permissionPolicyEngine: PermissionPolicyEngine;
+let steerManager: SteerManager;
+let injectionScanner: InjectionScanner;
+let recipeImporter: RecipeImporter;
+let scheduledExecutor: ScheduledExecutor;
+let subagentDashboard: SubagentDashboard;
+let extensionMarketplace: ExtensionMarketplace;
+let hotReloadManager: HotReloadManager;
+let extensionLifecycleManager: ExtensionLifecycleManager;
+let projectConfigManager: ProjectConfigManager;
+let sessionOperations: SessionOperations;
+let computerUseOverlayManager: ComputerUseOverlayManager;
+let layeredConfig: LayeredConfig;
 
 let appConfig: AppConfig;
 let healthCheckInterval: ReturnType<typeof setInterval> | undefined;
@@ -696,6 +757,70 @@ async function initializeSubsystems(): Promise<void> {
 
   console.info("[Main] All subsystems initialized successfully");
   logger.info('Main', 'All subsystems initialized successfully');
+
+  // ─── Phase 1-8: Initialize New Subsystems ─────────────────────────────────
+  try {
+    // Phase 1: Agent Mode System
+    agentRegistry = getAgentRegistry();
+    await agentRegistry.initialize();
+    setAgentRegistry(agentRegistry);
+    autoModeDetector = getAutoModeDetector();
+    agentPresetManager = new AgentPresetManager();
+    await agentPresetManager.initialize();
+    agentSessionBridge = new AgentSessionBridge(autoModeDetector);
+
+    // Phase 2: Provider Overhaul
+    modelIdResolver = getModelIdResolver();
+    providerCatalog = new ProviderCatalog();
+    gatewayRouter = new GatewayRouter(healthMonitor);
+    configSetManager = new ConfigSetManager();
+    await configSetManager.initialize();
+    modelVariantManager = new ModelVariantManager();
+    await modelVariantManager.initialize();
+    providerDiagnostics = new ProviderDiagnostics();
+
+    // Phase 3: UI Overhaul - no backend init needed (frontend only)
+
+    // Phase 4: Extension System Upgrade
+    extensionMarketplace = new ExtensionMarketplace();
+    hotReloadManager = new HotReloadManager(extensionRegistry);
+    extensionLifecycleManager = new ExtensionLifecycleManager(extensionRegistry, hotReloadManager);
+
+    // Phase 5: Context Management & Memory
+    autoCompactionManager = new AutoCompactionManager();
+    contextWindowManager = new ContextWindowManager();
+    coreMemoryStore = new CoreMemoryStore();
+    await coreMemoryStore.initialize();
+    experienceMemoryStore = new ExperienceMemoryStore();
+    await experienceMemoryStore.initialize();
+    semanticSearchEngine = new SemanticSearchEngine();
+    await semanticSearchEngine.indexMemories(experienceMemoryStore.list());
+
+    // Phase 6: Permission & Security
+    wildcardMatcher = new WildcardMatcher();
+    permissionPolicyEngine = new PermissionPolicyEngine();
+    await permissionPolicyEngine.initialize();
+    steerManager = new SteerManager();
+    injectionScanner = new InjectionScanner();
+
+    // Phase 7: Recipe & Automation
+    recipeImporter = new RecipeImporter();
+    scheduledExecutor = new ScheduledExecutor(recipeEngine);
+    await scheduledExecutor.initialize();
+    subagentDashboard = new SubagentDashboard();
+
+    // Phase 8: Polish & Integration
+    projectConfigManager = new ProjectConfigManager();
+    sessionOperations = new SessionOperations(sessionManager);
+    computerUseOverlayManager = new ComputerUseOverlayManager();
+    layeredConfig = new LayeredConfig();
+    await layeredConfig.initialize();
+
+    logger.info('Main', 'All Phase 1-8 subsystems initialized successfully');
+  } catch (err) {
+    logger.error('Main', 'Error initializing Phase 1-8 subsystems', err);
+    // Non-fatal: continue with whatever did initialize
+  }
 }
 
 // ─── IPC Handler Registration ─────────────────────────────────────────────────
@@ -1487,6 +1612,123 @@ function registerIpcHandlers(): void {
     const value = process.env[varName];
     return { success: true, data: value || null };
   }));
+
+  // ── Phase 1-8: New IPC Handlers ──────────────────────────────────────────
+
+  // Phase 1: Agent Mode System IPC
+  ipcMain.handle("agent:list", wrapIPC(async () => agentRegistry.list()));
+  ipcMain.handle("agent:get", wrapIPC(async (_e, id: string) => agentRegistry.get(id)));
+  ipcMain.handle("agent:getActive", wrapIPC(async () => agentRegistry.getActive()));
+  ipcMain.handle("agent:setActive", wrapIPC(async (_e, id: string) => { agentRegistry.setActive(id); }));
+  ipcMain.handle("agent:create", wrapIPC(async (_e, agent: any) => { await agentRegistry.create(agent); return agentRegistry.get(agent.id); }));
+  ipcMain.handle("agent:delete", wrapIPC(async (_e, id: string) => { await agentRegistry.delete(id); }));
+  ipcMain.handle("agent:detectMode", wrapIPC(async (_e, prompt: string) => autoModeDetector.detectMode(prompt)));
+  ipcMain.handle("agent:listPresets", wrapIPC(async () => agentPresetManager.list()));
+  ipcMain.handle("agent:applyPreset", wrapIPC(async (_e, presetId: string) => agentPresetManager.apply(presetId)));
+  ipcMain.handle("agent:switchMode", wrapIPC(async (_e, sessionId: string, mode: string) => { agentSessionBridge.switchMode(sessionId, mode as any, 'manual'); }));
+  ipcMain.handle("agent:suggestMode", wrapIPC(async (_e, sessionId: string, prompt: string) => agentSessionBridge.suggestMode(sessionId, prompt)));
+
+  // Phase 2: Provider Overhaul IPC
+  ipcMain.handle("provider:resolveModelId", wrapIPC(async (_e, modelId: string) => modelIdResolver.resolve(modelId)));
+  ipcMain.handle("provider:listAliases", wrapIPC(async () => modelIdResolver.listAliases()));
+  ipcMain.handle("provider:catalog", wrapIPC(async () => providerCatalog.list()));
+  ipcMain.handle("provider:catalogByCategory", wrapIPC(async (_e, cat: string) => providerCatalog.getByCategory(cat)));
+  ipcMain.handle("provider:catalogPopular", wrapIPC(async () => providerCatalog.getPopular()));
+  ipcMain.handle("provider:route", wrapIPC(async (_e, modelId: string, strategy?: string) => gatewayRouter.route(modelId, strategy as any)));
+  ipcMain.handle("provider:configSets", wrapIPC(async () => configSetManager.list()));
+  ipcMain.handle("provider:configSetActive", wrapIPC(async () => configSetManager.getActive()));
+  ipcMain.handle("provider:configSetSwitch", wrapIPC(async (_e, id: string) => configSetManager.switch(id)));
+  ipcMain.handle("provider:configSetCreate", wrapIPC(async (_e, config: any) => configSetManager.create(config)));
+  ipcMain.handle("provider:configSetUpdate", wrapIPC(async (_e, id: string, updates: any) => configSetManager.update(id, updates)));
+  ipcMain.handle("provider:configSetDelete", wrapIPC(async (_e, id: string) => configSetManager.delete(id)));
+  ipcMain.handle("provider:modelVariants", wrapIPC(async (_e, modelId?: string) => modelVariantManager.list(modelId)));
+  ipcMain.handle("provider:modelVariantActive", wrapIPC(async () => modelVariantManager.getActive()));
+  ipcMain.handle("provider:modelVariantSet", wrapIPC(async (_e, id: string) => modelVariantManager.setActive(id)));
+  ipcMain.handle("provider:modelVariantCycle", wrapIPC(async (_e, modelId: string, dir?: string) => modelVariantManager.cycleVariant(modelId, dir as any)));
+  ipcMain.handle("provider:diagnose", wrapIPC(async (_e, providerId: string, quick?: boolean) => {
+    const provider = providerManager.get(providerId);
+    if (!provider) throw new Error(`Provider not found: ${providerId}`);
+    const config = provider.config;
+    if (quick) {
+      return providerDiagnostics.runQuick(providerId, config.type, config.apiHost || '', config.apiKey);
+    }
+    return providerDiagnostics.runFull(providerId, config.type, config.apiHost || '', config.apiKey, config.models?.[0]);
+  }));
+
+  // Phase 4: Extension System Upgrade IPC
+  ipcMain.handle("extension:marketplace:search", wrapIPC(async (_e, query?: string, cat?: string) => extensionMarketplace.search(query, cat as any)));
+  ipcMain.handle("extension:marketplace:featured", wrapIPC(async () => extensionMarketplace.getFeatured()));
+  ipcMain.handle("extension:marketplace:install", wrapIPC(async (_e, id: string) => extensionMarketplace.install(id)));
+  ipcMain.handle("extension:lifecycle:state", wrapIPC(async (_e, id: string) => extensionLifecycleManager.getState(id)));
+  ipcMain.handle("extension:lifecycle:activate", wrapIPC(async (_e, id: string) => { await extensionLifecycleManager.activate(id); }));
+  ipcMain.handle("extension:lifecycle:deactivate", wrapIPC(async (_e, id: string) => { await extensionLifecycleManager.deactivate(id); }));
+  ipcMain.handle("extension:lifecycle:restart", wrapIPC(async (_e, id: string) => { await extensionLifecycleManager.restart(id); }));
+  ipcMain.handle("extension:hotReload:watch", wrapIPC(async (_e, id: string) => { hotReloadManager.watch(id, ''); }));
+  ipcMain.handle("extension:hotReload:unwatch", wrapIPC(async (_e, id: string) => { hotReloadManager.unwatch(id); }));
+
+  // Phase 5: Context & Memory IPC
+  ipcMain.handle("context:usage", wrapIPC(async (_e, sessionId: string) => {
+    const session = await sessionManager.load(sessionId);
+    return contextWindowManager.createContextUsage(session.messages || []);
+  }));
+  ipcMain.handle("context:compact", wrapIPC(async (_e, sessionId: string) => {
+    const session = await sessionManager.load(sessionId);
+    const result = autoCompactionManager.forceCompact(sessionId, session.messages);
+    return { savedTokens: result.savedTokens };
+  }));
+  ipcMain.handle("context:windowInfo", wrapIPC(async (_e, modelId: string) => contextWindowManager.getContextWindowInfo(modelId)));
+  ipcMain.handle("memory:core:list", wrapIPC(async () => coreMemoryStore.list()));
+  ipcMain.handle("memory:core:set", wrapIPC(async (_e, cat: string, key: string, val: string) => coreMemoryStore.set(cat as any, key, val)));
+  ipcMain.handle("memory:core:delete", wrapIPC(async (_e, id: string) => { await coreMemoryStore.delete(id); }));
+  ipcMain.handle("memory:experience:search", wrapIPC(async (_e, query: string, limit?: number) => semanticSearchEngine.search(query, limit)));
+  ipcMain.handle("memory:experience:list", wrapIPC(async (_e, limit?: number) => experienceMemoryStore.list(limit)));
+
+  // Phase 6: Permission & Security IPC
+  ipcMain.handle("permission:policies", wrapIPC(async () => permissionPolicyEngine.listPolicies()));
+  ipcMain.handle("permission:policy:get", wrapIPC(async (_e, id: string) => permissionPolicyEngine.getPolicy(id)));
+  ipcMain.handle("permission:policy:create", wrapIPC(async (_e, policy: any) => { permissionPolicyEngine.createPolicy(policy); }));
+  ipcMain.handle("permission:policy:update", wrapIPC(async (_e, id: string, updates: any) => { permissionPolicyEngine.updatePolicy(id, updates); }));
+  ipcMain.handle("permission:policy:delete", wrapIPC(async (_e, id: string) => { permissionPolicyEngine.deletePolicy(id); }));
+  ipcMain.handle("permission:policy:templates", wrapIPC(async () => permissionPolicyEngine.getTemplates()));
+  ipcMain.handle("permission:evaluate", wrapIPC(async (_e, toolName: string, args: any, mode: string) => permissionPolicyEngine.evaluate(toolName, args, { agentMode: mode })));
+  ipcMain.handle("security:scan", wrapIPC(async (_e, content: string, location?: string) => injectionScanner.scan(content, location as any)));
+  ipcMain.handle("security:steer:inject", wrapIPC(async (_e, sessionId: string, content: string, opts?: any) => steerManager.inject(sessionId, content, opts)));
+  ipcMain.handle("security:steer:pending", wrapIPC(async (_e, sessionId: string) => steerManager.getPendingSteers(sessionId)));
+  ipcMain.handle("security:steer:history", wrapIPC(async (_e, sessionId: string) => steerManager.getSteerHistory(sessionId)));
+
+  // Phase 7: Recipe & Automation IPC
+  ipcMain.handle("recipe:import", wrapIPC(async (_e, content: string, format?: string) => recipeImporter.importFromString(content, (format || 'json') as any)));
+  ipcMain.handle("recipe:export", wrapIPC(async (_e, recipeId: string, format?: string) => {
+    const recipe = recipeEngine.get(recipeId);
+    if (!recipe) throw new Error(`Recipe not found: ${recipeId}`);
+    return recipeImporter.exportToString(recipe, (format || 'json') as any);
+  }));
+  ipcMain.handle("recipe:schedule:list", wrapIPC(async () => scheduledExecutor.listJobs()));
+  ipcMain.handle("recipe:schedule:create", wrapIPC(async (_e, recipeId: string, schedule: string, vars?: any) => scheduledExecutor.schedule(recipeId, schedule, vars)));
+  ipcMain.handle("recipe:schedule:pause", wrapIPC(async (_e, jobId: string) => { scheduledExecutor.pause(jobId); }));
+  ipcMain.handle("recipe:schedule:resume", wrapIPC(async (_e, jobId: string) => { scheduledExecutor.resume(jobId); }));
+  ipcMain.handle("recipe:schedule:cancel", wrapIPC(async (_e, jobId: string) => { scheduledExecutor.cancel(jobId); }));
+  ipcMain.handle("recipe:schedule:runNow", wrapIPC(async (_e, jobId: string) => scheduledExecutor.runNow(jobId)));
+  ipcMain.handle("recipe:subagent:dashboard", wrapIPC(async () => subagentDashboard.getDashboard()));
+  ipcMain.handle("recipe:subagent:sessionTasks", wrapIPC(async (_e, sessionId: string) => subagentDashboard.getSessionTasks(sessionId)));
+
+  // Phase 8: Polish & Integration IPC
+  ipcMain.handle("project:config:load", wrapIPC(async (_e, dir: string) => projectConfigManager.loadProject(dir)));
+  ipcMain.handle("project:config:save", wrapIPC(async (_e, config: any) => { await projectConfigManager.saveProject(config); }));
+  ipcMain.handle("project:config:instructions", wrapIPC(async (_e, dir: string) => projectConfigManager.getInstructions(dir)));
+  ipcMain.handle("project:config:createInstructions", wrapIPC(async (_e, dir: string, fmt: string) => { await projectConfigManager.createInstructions(dir, fmt as any); }));
+  ipcMain.handle("session:fork", wrapIPC(async (_e, sessionId: string, atIdx: number, title?: string) => sessionOperations.fork(sessionId, atIdx, title)));
+  ipcMain.handle("session:revert", wrapIPC(async (_e, sessionId: string, atIdx: number) => sessionOperations.revert(sessionId, atIdx)));
+  ipcMain.handle("session:share", wrapIPC(async (_e, sessionId: string, expDays?: number) => sessionOperations.share(sessionId, expDays)));
+  ipcMain.handle("session:branches", wrapIPC(async (_e, sessionId: string) => sessionOperations.getBranches(sessionId)));
+  ipcMain.handle("session:compare", wrapIPC(async (_e, id1: string, id2: string) => sessionOperations.compare(id1, id2)));
+  ipcMain.handle("computerUse:state", wrapIPC(async () => computerUseOverlayManager.getState()));
+  ipcMain.handle("computerUse:show", wrapIPC(async () => { computerUseOverlayManager.showOverlay(); }));
+  ipcMain.handle("computerUse:hide", wrapIPC(async () => { computerUseOverlayManager.hideOverlay(); }));
+  ipcMain.handle("computerUse:captureScreenshot", wrapIPC(async () => computerUseOverlayManager.captureScreenshot()));
+  ipcMain.handle("config:layered:get", wrapIPC(async (_e, key: string) => layeredConfig.get(key)));
+  ipcMain.handle("config:layered:set", wrapIPC(async (_e, key: string, value: any, layer?: string) => { await layeredConfig.set(key, value, layer as any); }));
+  ipcMain.handle("config:layered:layers", wrapIPC(async () => layeredConfig.getAllLayers()));
 }
 
 // ─── Subsystem Event Forwarding ───────────────────────────────────────────────
@@ -1587,6 +1829,13 @@ async function cleanupBeforeQuit(): Promise<void> {
     }
     if (sessionManager) {
       await sessionManager.shutdown();
+    }
+    // Phase 1-8: Cleanup new subsystems
+    if (hotReloadManager) {
+      hotReloadManager.stopAll();
+    }
+    if (scheduledExecutor) {
+      scheduledExecutor.stopAll();
     }
     logger.info('Main', 'Cleanup completed successfully');
   } catch (err) {
