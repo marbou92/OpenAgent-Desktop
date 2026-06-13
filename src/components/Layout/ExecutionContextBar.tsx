@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { AgentMode } from '../Chat/ModeSwitch';
+import { AgentMode } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────────
 
