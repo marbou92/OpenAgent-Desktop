@@ -132,7 +132,7 @@ const TracePanel: React.FC<TracePanelProps> = ({
   contextUsage,
   coreMemories = [],
   experiences = [],
-  _healthSnapshots = [],
+  healthSnapshots: _healthSnapshots = [],
   securityAlerts = [],
   onCompact,
   onSearchExperiences,
