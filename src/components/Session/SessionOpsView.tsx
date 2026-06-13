@@ -100,7 +100,7 @@ const SessionOpsView: React.FC<SessionOpsViewProps> = ({
   currentSessionId,
   messages,
   onLoadSession,
-  _onNewSession,
+  onNewSession: _onNewSession,
   addToast,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
