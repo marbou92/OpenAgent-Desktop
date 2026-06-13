@@ -14,6 +14,8 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { AttachedFile, SlashCommand } from '../../types';
+import { formatFileSize } from '../../utils/format';
+import { getAPI } from '../../utils/api';
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/recipe', label: '/recipe', description: 'Run a recipe' },
@@ -167,9 +169,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   }, []);
 
   const handleFilePick = useCallback(async () => {
-    if (!(window as any).openagent?.files?.open) return;
+    const fileApi = getAPI();
+    if (!fileApi?.files?.open) return;
     try {
-      const result = await (window as any).openagent.files.open();
+      const result = await fileApi.files.open({} as any);
       if (Array.isArray(result)) {
         // Files are already handled by the drop zone
       }
@@ -339,21 +342,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           </button>
         )}
 
-        {/* Voice input button (placeholder) */}
-        <button
-          disabled
-          className="p-2 rounded-lg transition-colors flex-shrink-0 opacity-40"
-          style={{ color: 'var(--color-text-tertiary)' }}
-          title="Voice input (coming soon)"
-          aria-label="Voice input"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-        </button>
+        {/* Voice input — will be implemented when Web Speech API integration is ready */}
 
         {/* Send / Stop button */}
         {isStreaming ? (
@@ -407,13 +396,5 @@ const FileMiniIcon: React.FC<{ type: string }> = ({ type }) => {
     </svg>
   );
 };
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export default ChatInput;

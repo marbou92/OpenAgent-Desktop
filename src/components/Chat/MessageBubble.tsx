@@ -9,6 +9,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { ChatMessage, ToolCall } from '../../types';
 import { renderMarkdown, sanitizeHtml } from '../../utils/markdown';
+import { formatFileSize } from '../../utils/format';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -425,13 +426,5 @@ const FileIcon: React.FC<{ type: string }> = ({ type }) => {
     </svg>
   );
 };
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export default MessageBubble;

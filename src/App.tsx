@@ -33,10 +33,12 @@ import SettingsView from './components/Settings/SettingsView';
 import SandboxView from './components/Sandbox/SandboxView';
 import ProjectsView from './components/Projects/ProjectsView';
 import SkillsView from './components/Skills/SkillsView';
+import HooksView from './components/Hooks/HooksView';
 import FileDropZone from './components/Chat/FileDropZone';
 import ThinkingTrace from './components/Chat/ThinkingTrace';
+import { getAPI } from './utils/api';
 
-const api = (window as any).openagent;
+const api = getAPI();
 
 // ─── Zustand Store ─────────────────────────────────────────────────────────────
 
@@ -176,7 +178,51 @@ export const useAppStore = create<AppStore>((set, _get) => ({
 // ─── Main App Component ────────────────────────────────────────────────────────
 
 const App: React.FC = () => {
-  const store = useAppStore();
+  // Use individual selectors for frequently-changing values
+  const currentView = useAppStore(s => s.currentView);
+  const sidebarCollapsed = useAppStore(s => s.sidebarCollapsed);
+  const currentSessionId = useAppStore(s => s.currentSessionId);
+  const messages = useAppStore(s => s.messages);
+  const isStreaming = useAppStore(s => s.isStreaming);
+  const providers = useAppStore(s => s.providers);
+  const extensions = useAppStore(s => s.extensions);
+  const recipes = useAppStore(s => s.recipes);
+  const sessions = useAppStore(s => s.sessions);
+  const hooks = useAppStore(s => s.hooks);
+  const settings = useAppStore(s => s.settings);
+  const traceEntries = useAppStore(s => s.traceEntries);
+  const tracePanelOpen = useAppStore(s => s.tracePanelOpen);
+  const permissionRequests = useAppStore(s => s.permissionRequests);
+  const toasts = useAppStore(s => s.toasts);
+  const modals = useAppStore(s => s.modals);
+  const loading = useAppStore(s => s.loading);
+  const version = useAppStore(s => s.version);
+  const currentSession = useAppStore(s => s.currentSession);
+
+  // Action selectors (these don't cause re-renders since functions are stable)
+  const setCurrentView = useAppStore(s => s.setCurrentView);
+  const toggleSidebar = useAppStore(s => s.toggleSidebar);
+  const setCurrentSessionId = useAppStore(s => s.setCurrentSessionId);
+  const setSessions = useAppStore(s => s.setSessions);
+  const setCurrentSession = useAppStore(s => s.setCurrentSession);
+  const setProviders = useAppStore(s => s.setProviders);
+  const setExtensions = useAppStore(s => s.setExtensions);
+  const setRecipes = useAppStore(s => s.setRecipes);
+  const setHooks = useAppStore(s => s.setHooks);
+  const setMessages = useAppStore(s => s.setMessages);
+  const setIsStreaming = useAppStore(s => s.setIsStreaming);
+  const addTraceEntry = useAppStore(s => s.addTraceEntry);
+  const toggleTracePanel = useAppStore(s => s.toggleTracePanel);
+  const addPermissionRequest = useAppStore(s => s.addPermissionRequest);
+  const removePermissionRequest = useAppStore(s => s.removePermissionRequest);
+  const updateSettings = useAppStore(s => s.updateSettings);
+  const addToast = useAppStore(s => s.addToast);
+  const removeToast = useAppStore(s => s.removeToast);
+  const addModal = useAppStore(s => s.addModal);
+  const removeModal = useAppStore(s => s.removeModal);
+  const setLoading = useAppStore(s => s.setLoading);
+  const setVersion = useAppStore(s => s.setVersion);
+
   const initializedRef = useRef(false);
 
   // ─── Auto-initialize on mount ──────────────────────────────────────────────
@@ -189,23 +235,23 @@ const App: React.FC = () => {
   }, []);
 
   const initializeApp = async () => {
-    store.setLoading(true);
+    setLoading(true);
     try {
       // Load version
       if (api?.app?.getVersion) {
         try {
-          const version = await api.app.getVersion();
-          store.setVersion(version);
+          const v = await api.app.getVersion();
+          setVersion(v);
         } catch {
-          store.setVersion('0.1.0');
+          setVersion('0.1.0');
         }
       }
 
       // Load providers
       if (api?.providers?.list) {
         try {
-          const providers = await api.providers.list();
-          store.setProviders(providers);
+          const p = await api.providers.list();
+          setProviders(p);
         } catch (err) {
           console.error('Failed to load providers:', err);
         }
@@ -214,8 +260,8 @@ const App: React.FC = () => {
       // Load extensions
       if (api?.extensions?.list) {
         try {
-          const extensions = await api.extensions.list();
-          store.setExtensions(extensions);
+          const ext = await api.extensions.list();
+          setExtensions(ext);
         } catch (err) {
           console.error('Failed to load extensions:', err);
         }
@@ -224,8 +270,8 @@ const App: React.FC = () => {
       // Load sessions
       if (api?.sessions?.list) {
         try {
-          const sessions = await api.sessions.list();
-          store.setSessions(sessions);
+          const s = await api.sessions.list();
+          setSessions(s);
         } catch (err) {
           console.error('Failed to load sessions:', err);
         }
@@ -234,8 +280,8 @@ const App: React.FC = () => {
       // Load recipes
       if (api?.recipes?.list) {
         try {
-          const recipes = await api.recipes.list();
-          store.setRecipes(recipes);
+          const r = await api.recipes.list();
+          setRecipes(r);
         } catch (err) {
           console.error('Failed to load recipes:', err);
         }
@@ -244,18 +290,18 @@ const App: React.FC = () => {
       // Load hooks
       if (api?.hooks?.list) {
         try {
-          const hooks = await api.hooks.list();
-          store.setHooks(hooks);
+          const h = await api.hooks.list();
+          setHooks(h);
         } catch (err) {
           console.error('Failed to load hooks:', err);
         }
       }
 
-      store.addToast({ type: 'success', title: 'OpenAgent-Desktop initialized' });
+      addToast({ type: 'success', title: 'OpenAgent-Desktop initialized' });
     } catch (err: any) {
-      store.addToast({ type: 'error', title: 'Initialization failed', message: err.message });
+      addToast({ type: 'error', title: 'Initialization failed', message: err.message });
     } finally {
-      store.setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -265,28 +311,27 @@ const App: React.FC = () => {
     if (!api?.sessions?.create) return;
 
     try {
-      const defaultProvider = store.providers.find((p) => p.isDefault) || store.providers[0];
+      const defaultProvider = providers.find((p) => p.isDefault) || providers[0];
       const session = await api.sessions.create({
-        name: `Chat ${store.sessions.length + 1}`,
+        name: `Chat ${sessions.length + 1}`,
         providerId: defaultProvider?.id,
-        model: defaultProvider?.models?.[0] || store.settings.defaultModel,
+        model: defaultProvider?.models?.[0] || settings.defaultModel,
       });
-      store.setCurrentSession(session);
-      store.setCurrentSessionId(session.id);
-      store.setMessages([]);
-      store.clearTraceEntries();
-      store.setCurrentView('chat');
+      setCurrentSession(session);
+      setCurrentSessionId(session.id);
+      setMessages([]);
+      useAppStore.getState().clearTraceEntries();
+      setCurrentView('chat');
 
       // Refresh session list
-      const sessions = await api.sessions.list();
-      store.setSessions(sessions);
+      const s = await api.sessions.list();
+      setSessions(s);
 
-      store.addToast({ type: 'success', title: 'New session created' });
+      addToast({ type: 'success', title: 'New session created' });
     } catch (err: any) {
-      store.addToast({ type: 'error', title: 'Failed to create session', message: err.message });
+      addToast({ type: 'error', title: 'Failed to create session', message: err.message });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.providers, store.sessions, store.settings.defaultModel]);
+  }, [providers, sessions, settings.defaultModel, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast]);
 
   // ─── Load session ──────────────────────────────────────────────────────────
 
@@ -295,26 +340,25 @@ const App: React.FC = () => {
 
     try {
       const session = await api.sessions.load(sessionId);
-      store.setCurrentSession(session);
-      store.setCurrentSessionId(sessionId);
-      store.setMessages(
+      setCurrentSession(session);
+      setCurrentSessionId(sessionId);
+      setMessages(
         session.messages.map((m: any) => ({
           ...m,
           isStreaming: false,
         }))
       );
-      store.clearTraceEntries();
-      store.setCurrentView('chat');
+      useAppStore.getState().clearTraceEntries();
+      setCurrentView('chat');
 
       // Start tracing
       if (api?.trace?.start) {
         await api.trace.start(sessionId);
       }
     } catch (err: any) {
-      store.addToast({ type: 'error', title: 'Failed to load session', message: err.message });
+      addToast({ type: 'error', title: 'Failed to load session', message: err.message });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, addToast]);
 
   // ─── Delete session ────────────────────────────────────────────────────────
 
@@ -323,36 +367,44 @@ const App: React.FC = () => {
 
     try {
       await api.sessions.delete(sessionId);
-      if (store.currentSessionId === sessionId) {
-        store.setCurrentSessionId(null);
-        store.setCurrentSession(null);
-        store.setMessages([]);
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setCurrentSession(null);
+        setMessages([]);
       }
-      const sessions = await api.sessions.list();
-      store.setSessions(sessions);
-      store.addToast({ type: 'success', title: 'Session deleted' });
+      const s = await api.sessions.list();
+      setSessions(s);
+      addToast({ type: 'success', title: 'Session deleted' });
     } catch (err: any) {
-      store.addToast({ type: 'error', title: 'Failed to delete session', message: err.message });
+      addToast({ type: 'error', title: 'Failed to delete session', message: err.message });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.currentSessionId]);
+  }, [currentSessionId, setCurrentSessionId, setCurrentSession, setMessages, setSessions, addToast]);
 
   // ─── Import recipe ─────────────────────────────────────────────────────────
 
-  const handleImportRecipe = useCallback(async () => {
-    const url = prompt('Enter recipe URL or paste JSON:');
-    if (!url || !api?.recipes?.import) return;
-
+  const handleRecipeImportFromUrl = useCallback(async (url: string) => {
+    if (!url?.trim()) return;
     try {
-      await api.recipes.import(url);
-      const recipes = await api.recipes.list();
-      store.setRecipes(recipes);
-      store.addToast({ type: 'success', title: 'Recipe imported' });
+      if (api?.recipes?.import) {
+        await api.recipes.import(url.trim());
+        const r = await api.recipes.list();
+        setRecipes(r);
+        addToast({ type: 'success', title: 'Recipe imported' });
+      }
     } catch (err: any) {
-      store.addToast({ type: 'error', title: 'Failed to import recipe', message: err.message });
+      addToast({ type: 'error', title: 'Import failed', message: err.message });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setRecipes, addToast]);
+
+  const handleImportRecipe = useCallback(async () => {
+    addModal({
+      title: 'Import Recipe',
+      size: 'sm',
+      content: 'recipe-import',
+      onClose: () => {},
+      data: { onImport: handleRecipeImportFromUrl },
+    });
+  }, [addModal, handleRecipeImportFromUrl]);
 
   // ─── Keyboard shortcuts ────────────────────────────────────────────────────
 
@@ -370,37 +422,37 @@ const App: React.FC = () => {
       // Ctrl/Cmd + ,: Settings
       if (isMod && e.key === ',') {
         e.preventDefault();
-        store.setCurrentView('settings');
+        setCurrentView('settings');
         return;
       }
 
       // Ctrl/Cmd + B: Toggle sidebar
       if (isMod && e.key === 'b') {
         e.preventDefault();
-        store.toggleSidebar();
+        toggleSidebar();
         return;
       }
 
       // Ctrl/Cmd + E: Extensions
       if (isMod && e.key === 'e') {
         e.preventDefault();
-        store.setCurrentView('extensions');
+        setCurrentView('extensions');
         return;
       }
 
       // Ctrl/Cmd + R: Recipes
       if (isMod && e.shiftKey && e.key === 'R') {
         e.preventDefault();
-        store.setCurrentView('recipes');
+        setCurrentView('recipes');
         return;
       }
 
       // Escape: Close modal or trace panel
       if (e.key === 'Escape') {
-        if (store.modals.length > 0) {
-          store.removeModal(store.modals[store.modals.length - 1].id);
-        } else if (store.tracePanelOpen) {
-          store.toggleTracePanel();
+        if (modals.length > 0) {
+          removeModal(modals[modals.length - 1].id);
+        } else if (tracePanelOpen) {
+          toggleTracePanel();
         }
         return;
       }
@@ -408,110 +460,109 @@ const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleNewSession, store.modals, store.tracePanelOpen]);
+  }, [handleNewSession, modals, tracePanelOpen, setCurrentView, toggleSidebar, removeModal, toggleTracePanel]);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
   const renderMainContent = () => {
-    switch (store.currentView) {
+    switch (currentView) {
       case 'chat':
         return (
           <ChatView
-            sessionId={store.currentSessionId}
-            session={store.currentSession}
-            providers={store.providers}
-            messages={store.messages}
-            isStreaming={store.isStreaming}
-            onMessagesUpdate={store.setMessages}
+            sessionId={currentSessionId}
+            session={currentSession}
+            providers={providers}
+            messages={messages}
+            isStreaming={isStreaming}
+            onMessagesUpdate={setMessages}
             onNewSession={handleNewSession}
             onLoadSession={handleLoadSession}
-            settings={store.settings}
-            addToast={store.addToast}
-            addTraceEntry={store.addTraceEntry}
+            settings={settings}
+            addToast={addToast}
+            addTraceEntry={addTraceEntry}
           />
         );
       case 'extensions':
         return (
           <ExtensionsView
-            extensions={store.extensions}
+            extensions={extensions}
             onRefresh={async () => {
               if (api?.extensions?.list) {
-                const extensions = await api.extensions.list();
-                store.setExtensions(extensions);
+                const ext = await api.extensions.list();
+                setExtensions(ext);
               }
             }}
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       case 'recipes':
         return (
           <RecipesView
-            recipes={store.recipes}
+            recipes={recipes}
             onRefresh={async () => {
               if (api?.recipes?.list) {
-                const recipes = await api.recipes.list();
-                store.setRecipes(recipes);
+                const r = await api.recipes.list();
+                setRecipes(r);
               }
             }}
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       case 'sessions':
         return (
           <SessionsView
-            sessions={store.sessions}
-            currentSessionId={store.currentSessionId}
+            sessions={sessions}
+            currentSessionId={currentSessionId}
             onLoadSession={handleLoadSession}
             onDeleteSession={handleDeleteSession}
             onNewSession={handleNewSession}
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       case 'settings':
         return (
           <SettingsView
-            providers={store.providers}
-            settings={store.settings}
-            onUpdateSettings={store.updateSettings}
+            providers={providers}
+            settings={settings}
+            onUpdateSettings={updateSettings}
             onProvidersChange={async () => {
               if (api?.providers?.list) {
-                const providers = await api.providers.list();
-                store.setProviders(providers);
+                const p = await api.providers.list();
+                setProviders(p);
               }
             }}
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       case 'hooks':
         return (
           <HooksView
-            hooks={store.hooks}
+            hooks={hooks}
             onRefresh={async () => {
               if (api?.hooks?.list) {
-                const hooks = await api.hooks.list();
-                store.setHooks(hooks);
+                const h = await api.hooks.list();
+                setHooks(h);
               }
             }}
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       case 'sandbox':
         return (
           <SandboxView
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       case 'projects':
         return (
           <ProjectsView
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       case 'skills':
         return (
           <SkillsView
-            addToast={store.addToast}
+            addToast={addToast}
           />
         );
       default:
@@ -522,18 +573,18 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)' }}>
       {/* Sidebar */}
-      {!store.sidebarCollapsed && (
+      {!sidebarCollapsed && (
         <Sidebar
-          currentView={store.currentView}
-          currentSessionId={store.currentSessionId}
-          sessions={store.sessions}
-          providers={store.providers}
-          version={store.version}
-          onNavigate={store.setCurrentView}
+          currentView={currentView}
+          currentSessionId={currentSessionId}
+          sessions={sessions}
+          providers={providers}
+          version={version}
+          onNavigate={setCurrentView}
           onNewSession={handleNewSession}
           onLoadSession={handleLoadSession}
           onImportRecipe={handleImportRecipe}
-          onToggleSidebar={store.toggleSidebar}
+          onToggleSidebar={toggleSidebar}
         />
       )}
 
@@ -549,9 +600,9 @@ const App: React.FC = () => {
           }}
         >
           <div className="titlebar-no-drag flex items-center gap-2">
-            {store.sidebarCollapsed && (
+            {sidebarCollapsed && (
               <button
-                onClick={store.toggleSidebar}
+                onClick={toggleSidebar}
                 className="p-1.5 rounded-md transition-colors"
                 style={{ color: 'var(--color-text-tertiary)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-hover)')}
@@ -570,14 +621,14 @@ const App: React.FC = () => {
             </span>
           </div>
           <div className="titlebar-no-drag flex items-center gap-2">
-            {store.currentSession && store.currentView === 'chat' && (
+            {currentSession && currentView === 'chat' && (
               <span className="text-xs truncate max-w-xs" style={{ color: 'var(--color-text-muted)' }}>
-                {store.currentSession.name}
+                {currentSession.name}
               </span>
             )}
-            {store.currentView !== 'chat' && (
+            {currentView !== 'chat' && (
               <span className="text-xs capitalize" style={{ color: 'var(--color-text-muted)' }}>
-                {store.currentView}
+                {currentView}
               </span>
             )}
           </div>
@@ -586,7 +637,7 @@ const App: React.FC = () => {
         {/* Content Area */}
         <div className="flex-1 min-h-0 flex">
           <div className="flex-1 min-w-0 overflow-hidden">
-            {store.loading ? (
+            {loading ? (
               <LoadingScreen />
             ) : (
               renderMainContent()
@@ -594,10 +645,10 @@ const App: React.FC = () => {
           </div>
 
           {/* Thinking Trace Side Panel */}
-          {store.tracePanelOpen && (
+          {tracePanelOpen && (
             <ThinkingTrace
-              entries={store.traceEntries}
-              onClose={store.toggleTracePanel}
+              entries={traceEntries}
+              onClose={toggleTracePanel}
             />
           )}
         </div>
@@ -607,10 +658,10 @@ const App: React.FC = () => {
       <FileDropZone />
 
       {/* Toast Notifications */}
-      <ToastContainer toasts={store.toasts} onRemove={store.removeToast} />
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
 
       {/* Modals */}
-      <ModalContainer modals={store.modals} onRemove={store.removeModal} />
+      <ModalContainer modals={modals} onRemove={removeModal} />
     </div>
   );
 };
@@ -637,149 +688,6 @@ const LoadingScreen: React.FC = () => (
     <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Initializing OpenAgent-Desktop...</p>
   </div>
 );
-
-// ─── Hooks View ────────────────────────────────────────────────────────────────
-
-const HooksView: React.FC<{
-  hooks: HookInfo[];
-  onRefresh: () => Promise<void>;
-  addToast: (toast: Omit<Toast, 'id'>) => void;
-}> = ({ hooks, onRefresh, addToast }) => {
-  const [newHookName, setNewHookName] = useState('');
-  const [newHookType, setNewHookType] = useState<HookInfo['type']>('PreToolUse');
-  const [newHookCommand, setNewHookCommand] = useState('');
-
-  const handleAddHook = async () => {
-    if (!api?.hooks?.add || !newHookName || !newHookCommand) return;
-    try {
-      await api.hooks.add({
-        name: newHookName,
-        type: newHookType,
-        command: newHookCommand,
-        enabled: true,
-        conditions: {},
-      });
-      setNewHookName('');
-      setNewHookCommand('');
-      await onRefresh();
-      addToast({ type: 'success', title: 'Hook added' });
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Failed to add hook', message: err.message });
-    }
-  };
-
-  const handleRemoveHook = async (hookId: string) => {
-    if (!api?.hooks?.remove) return;
-    try {
-      await api.hooks.remove(hookId);
-      await onRefresh();
-      addToast({ type: 'success', title: 'Hook removed' });
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Failed to remove hook', message: err.message });
-    }
-  };
-
-  return (
-    <div className="h-full overflow-y-auto p-6" style={{ background: 'var(--color-bg-primary)' }}>
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--color-text-primary)' }}>Hooks</h1>
-
-        {/* Add Hook Form */}
-        <div className="rounded-xl p-4 mb-6 border" style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>Add New Hook</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-            <input
-              type="text"
-              value={newHookName}
-              onChange={(e) => setNewHookName(e.target.value)}
-              placeholder="Hook name"
-              className="px-3 py-2 rounded-lg border text-sm"
-              style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
-            />
-            <select
-              value={newHookType}
-              onChange={(e) => setNewHookType(e.target.value as any)}
-              className="px-3 py-2 rounded-lg border text-sm"
-              style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
-            >
-              <option value="PreToolUse">PreToolUse</option>
-              <option value="PostToolUse">PostToolUse</option>
-              <option value="UserPromptSubmit">UserPromptSubmit</option>
-              <option value="PreSession">PreSession</option>
-              <option value="PostSession">PostSession</option>
-            </select>
-            <input
-              type="text"
-              value={newHookCommand}
-              onChange={(e) => setNewHookCommand(e.target.value)}
-              placeholder="Shell command"
-              className="px-3 py-2 rounded-lg border text-sm"
-              style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
-            />
-          </div>
-          <button
-            onClick={handleAddHook}
-            disabled={!newHookName || !newHookCommand}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-            style={{ background: 'var(--color-accent)', color: 'white' }}
-          >
-            Add Hook
-          </button>
-        </div>
-
-        {/* Hook List */}
-        <div className="space-y-3">
-          {hooks.length === 0 && (
-            <div className="text-center py-12" style={{ color: 'var(--color-text-tertiary)' }}>
-              <p className="text-lg">No hooks configured</p>
-              <p className="text-sm mt-1">Add a hook above to customize agent behavior</p>
-            </div>
-          )}
-          {hooks.map((hook) => (
-            <div
-              key={hook.id}
-              className="rounded-xl p-4 border flex items-center justify-between"
-              style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)' }}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ background: hook.enabled ? 'var(--color-success)' : 'var(--color-text-muted)' }}
-                  />
-                  <span className="font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>
-                    {hook.name}
-                  </span>
-                  <span
-                    className="px-2 py-0.5 rounded text-xs font-medium"
-                    style={{ background: 'var(--color-accent-soft)', color: 'var(--color-accent)' }}
-                  >
-                    {hook.type}
-                  </span>
-                </div>
-                <p className="text-xs mt-1 font-mono truncate" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {hook.command}
-                </p>
-              </div>
-              <button
-                onClick={() => handleRemoveHook(hook.id)}
-                className="ml-3 p-1.5 rounded-lg transition-colors"
-                style={{ color: 'var(--color-error)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239,68,68,0.1)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                aria-label="Remove hook"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ─── Toast Container ───────────────────────────────────────────────────────────
 
@@ -891,6 +799,14 @@ const ModalContainer: React.FC<{
     full: 'max-w-full mx-4',
   };
 
+  // Render modal content based on type
+  const renderModalContent = () => {
+    if (modal.content === 'recipe-import') {
+      return <RecipeImportModal data={modal.data} onClose={() => { modal.onClose?.(); onRemove(modal.id); }} />;
+    }
+    return <div>{modal.content}</div>;
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
       <div
@@ -917,7 +833,69 @@ const ModalContainer: React.FC<{
             </button>
           )}
         </div>
-        <div className="p-4">{modal.content}</div>
+        <div className="p-4">{renderModalContent()}</div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Recipe Import Modal ───────────────────────────────────────────────────────
+
+const RecipeImportModal: React.FC<{
+  data?: Record<string, any>;
+  onClose: () => void;
+}> = ({ data, onClose }) => {
+  const [url, setUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+
+  const handleImport = async () => {
+    if (!url.trim()) return;
+    setImporting(true);
+    try {
+      await data?.onImport?.(url.trim());
+      onClose();
+    } catch {
+      // Error toast is already shown by the parent handler
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-primary)' }}>
+        Recipe URL
+      </label>
+      <input
+        type="text"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="Enter recipe URL or GitHub Gist URL"
+        className="w-full px-3 py-2 rounded-lg border text-sm"
+        style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && url.trim() && !importing) {
+            handleImport();
+          }
+        }}
+      />
+      <div className="flex justify-end gap-2 mt-4">
+        <button
+          onClick={onClose}
+          className="px-3 py-1.5 rounded-lg text-sm transition-colors"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleImport}
+          disabled={!url.trim() || importing}
+          className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+          style={{ background: 'var(--color-accent)', color: 'white' }}
+        >
+          {importing ? 'Importing...' : 'Import'}
+        </button>
       </div>
     </div>
   );

@@ -157,7 +157,7 @@ const ProjectConfigView: React.FC<ProjectConfigViewProps> = ({
 
         // Parse env overrides into entries
         const entries: EnvEntry[] = Object.entries(projectConfig.envOverrides || {}).map(
-          ([key, value]) => ({ key, value }),
+          ([key, value]) => ({ key, value: String(value) }),
         );
         setEnvEntries(entries);
       } else {
