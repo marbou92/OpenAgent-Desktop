@@ -66,6 +66,7 @@ import { ProjectConfigManager } from './config/project-config-manager';
 import { SessionOperations } from './session/session-ops';
 import { ComputerUseOverlayManager } from './extensions/computer-use-overlay';
 import { LayeredConfig } from './config/layered-config';
+import { runMigrations, closeDatabase } from './database';
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
 interface AppConfig {
@@ -1837,6 +1838,8 @@ async function cleanupBeforeQuit(): Promise<void> {
     if (scheduledExecutor) {
       scheduledExecutor.stopAll();
     }
+    // Close database connection
+    closeDatabase();
     logger.info('Main', 'Cleanup completed successfully');
   } catch (err) {
     console.error("[Main] Error during cleanup:", err);
@@ -1862,6 +1865,9 @@ if (!gotTheLock) {
       IS_DEV ? LogLevel.DEBUG : LogLevel.INFO
     );
     logger.info('Main', `${APP_NAME} v${app.getVersion()} starting...`);
+
+    // Run database migrations
+    runMigrations();
 
     // Load config
     appConfig = loadConfig();
