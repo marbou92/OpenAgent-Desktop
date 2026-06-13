@@ -260,7 +260,7 @@ const SteerPanel: React.FC<SteerPanelProps> = ({
   autoSteerConfig,
   onInject,
   onAcknowledge,
-  _onComplete,
+  onComplete: _onComplete,
   onCancel,
   onClearPending,
   onAutoSteerConfigChange,
