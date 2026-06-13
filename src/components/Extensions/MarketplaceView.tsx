@@ -161,6 +161,15 @@ const MarketplaceView: React.FC<MarketplaceViewProps> = ({ extensions, onRefresh
     fetchMarketplace();
   }, []);
 
+  const getFeatured = useCallback((): MarketplaceExtension[] => {
+    return marketplaceExtensions
+      .filter((ext) => ext.verified && ext.rating >= 4.5)
+      .sort((a, b) => b.downloads - a.downloads)
+      .slice(0, 8);
+  }, [marketplaceExtensions]);
+
+  const installedIds = useMemo(() => new Set(extensions.map((e) => e.id)), [extensions]);
+
   // Auto-rotate featured carousel
   useEffect(() => {
     const featured = getFeatured();
@@ -170,15 +179,6 @@ const MarketplaceView: React.FC<MarketplaceViewProps> = ({ extensions, onRefresh
     }, 5000);
     return () => clearInterval(interval);
   }, [getFeatured, marketplaceExtensions]);
-
-  const installedIds = useMemo(() => new Set(extensions.map((e) => e.id)), [extensions]);
-
-  const getFeatured = useCallback((): MarketplaceExtension[] => {
-    return marketplaceExtensions
-      .filter((ext) => ext.verified && ext.rating >= 4.5)
-      .sort((a, b) => b.downloads - a.downloads)
-      .slice(0, 8);
-  }, [marketplaceExtensions]);
 
   const filteredExtensions = useMemo(() => {
     let results = marketplaceExtensions;
