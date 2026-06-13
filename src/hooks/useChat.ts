@@ -14,8 +14,9 @@ import {
   TraceEntry,
   PermissionRequest,
 } from '../types';
+import { getAPI } from '../utils/api';
 
-const api = (window as any).openagent;
+const api = getAPI();
 
 interface UseChatOptions {
   sessionId: string | null;
@@ -136,17 +137,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         onPermissionRequest?.({
           id: newToolCall.id,
           toolName: newToolCall.name,
-          toolArguments: newToolCall.arguments,
-          onApprove: () => {
-            setActiveToolCalls(prev =>
-              prev.map(tc => (tc.id === newToolCall.id ? { ...tc, status: 'completed' as const } : tc))
-            );
-          },
-          onDeny: () => {
-            setActiveToolCalls(prev =>
-              prev.map(tc => (tc.id === newToolCall.id ? { ...tc, status: 'failed' as const } : tc))
-            );
-          },
+          args: newToolCall.arguments,
         });
       }
     });
