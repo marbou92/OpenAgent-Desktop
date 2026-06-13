@@ -31,8 +31,10 @@
     "clean": "rimraf dist dist-electron release"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
     "chokidar": "^3.6.0",
     "cron": "^3.1.6",
+    "dompurify": "^3.4.10",
     "dotenv": "^16.4.1",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.1.7",
@@ -52,6 +54,8 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/dompurify": "^3.0.5",
     "@types/js-yaml": "^4.0.9",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
@@ -59,8 +63,8 @@
     "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "7.18.0",
     "@typescript-eslint/parser": "7.18.0",
-    "@vitest/coverage-v8": "^1.6.1",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^1.6.1",
     "autoprefixer": "^10.4.17",
     "concurrently": "^8.2.2",
     "electron": "^28.1.3",
