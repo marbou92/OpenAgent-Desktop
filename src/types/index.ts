@@ -505,6 +505,7 @@ export interface Modal {
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   closable?: boolean;
   onClose?: () => void;
+  data?: Record<string, any>;
 }
 
 export interface AppState {
@@ -581,16 +582,7 @@ export interface SlashCommand {
 }
 
 // ─── Permission Request Types ──────────────────────────────────────────────────
-
-export interface PermissionRequest {
-  id: string;
-  toolName: string;
-  toolArguments: Record<string, unknown>;
-  extensionId?: string;
-  reason?: string;
-  onApprove: () => void;
-  onDeny: () => void;
-}
+// (Canonical PermissionRequest is defined near the bottom with Permission types)
 
 // ─── Event Map for the Electron API ────────────────────────────────────────────
 
@@ -982,6 +974,7 @@ export interface PermissionRequest {
   toolName: string;
   args: Record<string, unknown>;
   matchedPattern?: string;
+  reason?: string;
 }
 
 export interface PermissionConfirmation {
