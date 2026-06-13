@@ -783,6 +783,56 @@ declare global {
         minimize: () => Promise<void>;
         maximize: () => Promise<void>;
       };
+      agents: {
+        list: () => Promise<AgentDefinition[]>;
+        get: (agentId: string) => Promise<AgentDefinition>;
+        getActive: () => Promise<AgentDefinition>;
+        setActive: (agentId: string) => Promise<void>;
+        create: (agent: Omit<AgentDefinition, 'isBuiltIn'>) => Promise<AgentDefinition>;
+        delete: (agentId: string) => Promise<void>;
+      };
+      configSets: {
+        list: () => Promise<ProviderConfigSet[]>;
+        get: (id: string) => Promise<ProviderConfigSet>;
+        getActive: () => Promise<ProviderConfigSet>;
+        create: (config: Omit<ProviderConfigSet, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ProviderConfigSet>;
+        update: (id: string, updates: Partial<ProviderConfigSet>) => Promise<ProviderConfigSet>;
+        delete: (id: string) => Promise<void>;
+        switch: (id: string) => Promise<ProviderConfigSet>;
+      };
+      modelVariants: {
+        list: (modelId?: string) => Promise<ModelVariant[]>;
+        get: (id: string) => Promise<ModelVariant>;
+        getActive: () => Promise<ModelVariant | null>;
+        setActive: (id: string) => Promise<void>;
+        cycle: (modelId: string, direction?: 'next' | 'prev') => Promise<ModelVariant | null>;
+      };
+      diagnostics: {
+        run: (providerId: string, quick?: boolean) => Promise<DiagnosticReport>;
+      };
+      memory: {
+        getCore: () => Promise<CoreMemory[]>;
+        setCore: (category: CoreMemory['category'], key: string, value: string) => Promise<CoreMemory>;
+        deleteCore: (id: string) => Promise<void>;
+        search: (query: string, limit?: number) => Promise<ExperienceMemory[]>;
+        getExperiences: (limit?: number) => Promise<ExperienceMemory[]>;
+      };
+      permissions: {
+        getRules: (agentId: string) => Promise<any[]>;
+        addRule: (agentId: string, pattern: string, level: PermissionLevel, reason?: string) => Promise<void>;
+        removeRule: (agentId: string, pattern: string) => Promise<void>;
+        respond: (requestId: string, response: PermissionConfirmation['userResponse']) => Promise<void>;
+      };
+      context: {
+        usage: (sessionId: string) => Promise<ContextUsage>;
+        compact: (sessionId: string) => Promise<{ savedTokens: number }>;
+      };
+      sessionOps: {
+        fork: (sessionId: string, atMessageIndex: number, title?: string) => Promise<{ forkId: string; forkedMessages: any[] }>;
+        revert: (sessionId: string, atMessageIndex: number) => Promise<{ revertId: string; remainingMessages: any[] }>;
+        share: (sessionId: string, expiresInDays?: number) => Promise<{ shareId: string; shareToken: string }>;
+        exportSession: (sessionId: string) => Promise<string>;
+      };
       on: {
         sandboxStatusChanged: (callback: (status: SandboxStatus) => void) => () => void;
         sandboxError: (callback: (error: { message: string }) => void) => () => void;
@@ -817,9 +867,146 @@ declare global {
         providerStatusChanged: (callback: (data: { providerId: string; oldStatus: string; newStatus: string }) => void) => () => void;
         projectCreated: (callback: (data: ProjectConfig) => void) => () => void;
         projectActivated: (callback: (data: ProjectConfig) => void) => () => void;
+        agentSwitched: (callback: (data: { from: string; to: string; agent: AgentDefinition }) => void) => () => void;
+        configSetSwitched: (callback: (data: ProviderConfigSet) => void) => () => void;
+        permissionRequest: (callback: (data: PermissionRequest) => void) => () => void;
+        contextCompacted: (callback: (data: { savedTokens: number }) => void) => () => void;
       };
     };
   }
+}
+
+// ─── Agent Mode Types ────────────────────────────────────────────────────────
+
+export type AgentMode = 'build' | 'plan' | 'chat' | 'smart';
+
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  mode: AgentMode;
+  description: string;
+  prompt?: string;
+  model?: string;
+  permissions: Record<string, 'allow' | 'ask' | 'deny'>;
+  maxSteps?: number;
+  temperature?: number;
+  color?: string;
+  hidden?: boolean;
+  isBuiltIn?: boolean;
+}
+
+// ─── Config Set Types ────────────────────────────────────────────────────────
+
+export interface ProviderConfigSet {
+  id: string;
+  name: string;
+  providerType: ProviderType;
+  apiKey?: string;
+  apiHost?: string;
+  model: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  temperature?: number;
+  enableThinking?: boolean;
+  thinkingBudget?: number;
+  isDefault?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Model Variant Types ─────────────────────────────────────────────────────
+
+export interface ModelVariant {
+  id: string;
+  name: string;
+  modelId: string;
+  description?: string;
+  options: Record<string, unknown>;
+  color?: string;
+  isBuiltIn?: boolean;
+}
+
+// ─── Diagnostic Types ────────────────────────────────────────────────────────
+
+export type DiagnosticStep = 'dns' | 'tcp' | 'tls' | 'auth' | 'model';
+export type DiagnosticStatus = 'pending' | 'running' | 'passed' | 'failed' | 'warning' | 'skipped';
+
+export interface DiagnosticResult {
+  step: DiagnosticStep;
+  status: DiagnosticStatus;
+  latencyMs?: number;
+  message: string;
+  advisoryCode?: string;
+}
+
+export interface DiagnosticReport {
+  providerId: string;
+  providerType: string;
+  apiHost: string;
+  results: DiagnosticResult[];
+  overallStatus: 'healthy' | 'degraded' | 'unhealthy';
+  totalLatencyMs: number;
+  timestamp: string;
+  advisoryCodes: string[];
+}
+
+// ─── Memory Types ────────────────────────────────────────────────────────────
+
+export interface CoreMemory {
+  id: string;
+  category: 'identity' | 'preferences' | 'skills' | 'interests' | 'notes';
+  key: string;
+  value: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface ExperienceMemory {
+  id: string;
+  sessionId: string;
+  summary: string;
+  keyTopics: string[];
+  toolsUsed: string[];
+  outcome: 'success' | 'partial' | 'failure';
+  workingDirectory?: string;
+  model?: string;
+  createdAt: string;
+}
+
+// ─── Permission Types ────────────────────────────────────────────────────────
+
+export type PermissionLevel = 'allow' | 'ask' | 'deny';
+
+export interface PermissionRequest {
+  id: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  matchedPattern?: string;
+}
+
+export interface PermissionConfirmation {
+  toolName: string;
+  args: Record<string, unknown>;
+  userResponse: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny';
+}
+
+// ─── Context Types ───────────────────────────────────────────────────────────
+
+export interface ContextUsage {
+  totalTokens: number;
+  maxTokens: number;
+  usagePercent: number;
+  promptTokens: number;
+  completionTokens: number;
+  canCompact: boolean;
+}
+
+export interface TraceStep {
+  id: string;
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'message';
+  content: string;
+  toolName?: string;
+  timestamp: string;
 }
 
 export {};
