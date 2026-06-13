@@ -3,10 +3,9 @@
  * Barrel export for all provider modules
  */
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types (re-exported for consumers) ──────────────────────────────────────────
 
-export {
-  ProviderType,
+export type {
   ProviderConfig,
   MessageRole,
   ToolCall,
@@ -22,7 +21,6 @@ export {
   ProviderError,
   ProviderMetadata,
   ProviderRegistryEntry,
-  HealthStatus,
   HealthCheck,
   MeshRoute,
   FallbackChain,
@@ -30,6 +28,11 @@ export {
   SSEEvent,
   RateLimitInfo,
   RequestLogEntry,
+} from './types';
+
+export {
+  ProviderType,
+  HealthStatus,
 } from './types';
 
 // ─── Base Provider ─────────────────────────────────────────────────────────────
@@ -85,9 +88,9 @@ export { OpenRouterProvider, OPENROUTER_MODELS } from './openrouter-provider';
 
 // ─── OpenCode Provider ─────────────────────────────────────────────────────────
 
-export {
-  OpenCodeProvider,
-  OPENCODE_MODELS,
+export { OpenCodeProvider, OPENCODE_MODELS } from './opencode-provider';
+
+export type {
   OpenCodeSession,
   OpenCodeMessage,
   OpenCodeMessageBody,
@@ -648,7 +651,8 @@ export function setProviderManager(manager: ProviderManager): void {
 
 // ─── File Storage ──────────────────────────────────────────────────────────────
 
-export { FileStorageAdapter, StorageAdapter } from './file-storage';
+export { FileStorageAdapter } from './file-storage';
+export type { StorageAdapter } from './file-storage';
 
 // ─── Config Sets ──────────────────────────────────────────────────────────────
 
