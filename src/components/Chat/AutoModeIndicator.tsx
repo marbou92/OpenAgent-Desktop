@@ -7,8 +7,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-
-export type AgentMode = 'build' | 'plan' | 'chat' | 'smart';
+import { AgentMode } from '../../types';
 
 interface AutoModeIndicatorProps {
   detectedMode: AgentMode;
