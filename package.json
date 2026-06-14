@@ -31,7 +31,6 @@
     "clean": "rimraf dist dist-electron release"
   },
   "dependencies": {
-    "better-sqlite3": "^12.10.0",
     "chokidar": "^3.6.0",
     "cron": "^3.1.6",
     "dompurify": "^3.4.10",
@@ -54,7 +53,6 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/dompurify": "^3.0.5",
     "@types/js-yaml": "^4.0.9",
     "@types/react": "^18.3.1",

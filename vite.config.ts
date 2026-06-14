@@ -18,7 +18,6 @@ const electronExternals = [
   'eventsource-parser',
   'cron',
   'screenshot-desktop',
-  'better-sqlite3',
 ];
 
 export default defineConfig({

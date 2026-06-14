@@ -1,39 +1,50 @@
 /**
  * OpenAgent-Desktop - Generic Repository Pattern
  *
- * Provides a base repository class for common database CRUD operations.
+ * Provides a base repository class for common CRUD operations
+ * using the JSON-backed storage layer.
  * Subclass this for specific table repositories with custom queries.
  */
 
-import Database from 'better-sqlite3';
-import { getDatabase } from './connection';
+import { getTable, flushAll, JsonTable } from './connection';
 
-export class Repository<T> {
-  constructor(private tableName: string, private idColumn = 'id') {}
+export class Repository<T extends { id: string }> {
+  protected table: JsonTable;
 
-  protected get db(): Database.Database {
-    return getDatabase();
+  constructor(tableName: string) {
+    this.table = getTable(tableName);
   }
 
   findById(id: string): T | undefined {
-    return this.db.prepare(`SELECT * FROM ${this.tableName} WHERE ${this.idColumn} = ?`).get(id) as T | undefined;
+    const row = this.table.get(id);
+    return row as T | undefined;
   }
 
   findAll(limit = 100, offset = 0): T[] {
-    return this.db.prepare(`SELECT * FROM ${this.tableName} LIMIT ? OFFSET ?`).all(limit, offset) as T[];
+    const all = this.table.getAll() as T[];
+    return all.slice(offset, offset + limit);
+  }
+
+  upsert(entity: T): void {
+    this.table.upsert(entity as Record<string, unknown>);
+    flushAll();
   }
 
   deleteById(id: string): boolean {
-    const result = this.db.prepare(`DELETE FROM ${this.tableName} WHERE ${this.idColumn} = ?`).run(id);
-    return result.changes > 0;
+    const result = this.table.delete(id);
+    flushAll();
+    return result;
   }
 
   count(): number {
-    const row = this.db.prepare(`SELECT COUNT(*) as count FROM ${this.tableName}`).get() as any;
-    return row?.count ?? 0;
+    return this.table.count();
   }
 
-  transaction<R>(fn: () => R): R {
-    return this.db.transaction(fn)();
+  find(predicate: (row: T) => boolean): T[] {
+    return this.table.find((row) => predicate(row as T)) as T[];
+  }
+
+  findOne(predicate: (row: T) => boolean): T | undefined {
+    return this.table.findOne((row) => predicate(row as T)) as T | undefined;
   }
 }
