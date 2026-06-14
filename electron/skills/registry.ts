@@ -21,82 +21,48 @@ import { EventEmitter } from 'events';
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SkillStep {
-  /** Unique step identifier within the skill */
   id: string;
-  /** Human-readable step label */
   label: string;
-  /** Tool or action to invoke */
   action: string;
-  /** Parameters for the action — may include variable references like {{varName}} */
   params: Record<string, unknown>;
-  /** Optional condition that must be true for this step to execute */
   condition?: string;
-  /** Seconds to wait before executing this step */
   delaySeconds?: number;
-  /** Whether to continue on failure */
   continueOnError?: boolean;
 }
 
 export interface SkillDefinition {
-  /** Unique skill identifier */
   id: string;
-  /** Human-readable name */
   name: string;
-  /** Short description */
   description: string;
-  /** Version string */
   version: string;
-  /** Author */
   author?: string;
-  /** Category for grouping (e.g. 'coding', 'analysis', 'writing') */
   category?: string;
-  /** Tags for categorization */
   tags?: string[];
-  /** Variables that can be supplied when executing the skill */
   variables?: SkillVariable[];
-  /** Ordered list of steps to execute */
   steps: SkillStep[];
-  /** Whether the skill is built-in or user-created */
   isBuiltIn?: boolean;
-  /** Creation timestamp (ISO 8601) */
   createdAt?: string;
-  /** Last modified timestamp (ISO 8601) */
   updatedAt?: string;
 }
 
 export interface SkillVariable {
-  /** Variable name */
   name: string;
-  /** Human-readable label */
   label?: string;
-  /** Type of the variable */
   type: 'string' | 'number' | 'boolean' | 'select';
-  /** Default value */
   default?: unknown;
-  /** Whether this variable is required */
   required?: boolean;
-  /** Options for 'select' type */
   options?: string[];
-  /** Description of the variable */
   description?: string;
 }
 
 export interface SkillExecution {
-  /** Unique execution identifier */
   executionId: string;
-  /** Skill that was executed */
   skillId: string;
-  /** Variables supplied at execution time */
   variables: Record<string, unknown>;
-  /** Status of the execution */
   status: 'running' | 'completed' | 'failed' | 'cancelled';
-  /** Results from each step */
   results: SkillStepResult[];
-  /** Timestamp when execution started */
   startedAt: string;
-  /** Timestamp when execution finished */
   finishedAt?: string;
-  /** Error message if failed */
   error?: string;
 }
 
@@ -241,9 +207,7 @@ export class SkillRegistry extends EventEmitter {
     this.storagePath = storagePath;
   }
 
-  /** Scan the storage directory, load skill definitions, and register built-in skills. */
   async initialize(): Promise<void> {
-    // Register built-in skills first
     for (const skill of BUILT_IN_SKILLS) {
       if (!this.skills.has(skill.id)) {
         this.skills.set(skill.id, {
@@ -254,7 +218,6 @@ export class SkillRegistry extends EventEmitter {
       }
     }
 
-    // Then load user-created skills from disk
     try {
       await fs.mkdir(this.storagePath, { recursive: true });
     } catch {
@@ -278,28 +241,18 @@ export class SkillRegistry extends EventEmitter {
     this.emit('initialized', { count: this.skills.size });
   }
 
-  /** Return all registered skills. */
   list(): SkillDefinition[] {
     return Array.from(this.skills.values());
   }
 
-  /** Return skills filtered by category. */
   listByCategory(category: string): SkillDefinition[] {
     return this.list().filter((s) => s.category === category);
   }
 
-  /** Look up a single skill by its identifier. */
   get(skillId: string): SkillDefinition | undefined {
     return this.skills.get(skillId);
   }
 
-  /**
-   * Execute a skill with the given variables.
-   *
-   * This produces a SkillExecution record. In this baseline implementation the
-   * steps are iterated sequentially with template variable substitution; real
-   * execution would dispatch each step to the appropriate tool runner.
-   */
   async execute(
     skillId: string,
     variables: Record<string, unknown> = {},
@@ -310,7 +263,6 @@ export class SkillRegistry extends EventEmitter {
       throw new Error(`Skill not found: ${skillId}`);
     }
 
-    // Validate required variables
     if (skill.variables) {
       for (const v of skill.variables) {
         if (v.required && !(v.name in variables) && v.default === undefined) {
@@ -332,7 +284,6 @@ export class SkillRegistry extends EventEmitter {
     this.emit('execution:started', { executionId, skillId });
 
     for (const step of skill.steps) {
-      // Evaluate condition if present (simple truthy check)
       if (step.condition) {
         try {
           const shouldRun = this.evaluateCondition(step.condition, variables);
@@ -346,16 +297,13 @@ export class SkillRegistry extends EventEmitter {
         }
       }
 
-      // Apply delay if specified
       if (step.delaySeconds && step.delaySeconds > 0) {
         await new Promise((resolve) => setTimeout(resolve, step.delaySeconds! * 1000));
       }
 
       const startMs = Date.now();
       try {
-        // Substitute variables in params
         const resolvedParams = this.substituteVariables(step.params, variables);
-        // In a full implementation this would dispatch to the tool runner
         execution.results.push({
           stepId: step.id,
           status: 'success',
@@ -388,9 +336,6 @@ export class SkillRegistry extends EventEmitter {
     return execution;
   }
 
-  // ─── Persistence helpers ──────────────────────────────────────────────────────
-
-  /** Register a new skill and persist it to disk. */
   async register(definition: SkillDefinition): Promise<void> {
     const def = {
       ...definition,
@@ -402,7 +347,6 @@ export class SkillRegistry extends EventEmitter {
     this.emit('skill:registered', { skillId: def.id });
   }
 
-  /** Remove a skill by id. */
   async unregister(skillId: string): Promise<boolean> {
     if (!this.skills.has(skillId)) return false;
     this.skills.delete(skillId);
@@ -415,8 +359,6 @@ export class SkillRegistry extends EventEmitter {
     return true;
   }
 
-  // ─── Private ─────────────────────────────────────────────────────────────────
-
   private async persist(def: SkillDefinition): Promise<void> {
     await fs.mkdir(this.storagePath, { recursive: true });
     await fs.writeFile(
@@ -426,11 +368,7 @@ export class SkillRegistry extends EventEmitter {
     );
   }
 
-  /** Recursively substitute {{varName}} placeholders in a value. */
-  private substituteVariables(
-    value: unknown,
-    variables: Record<string, unknown>,
-  ): unknown {
+  private substituteVariables(value: unknown, variables: Record<string, unknown>): unknown {
     if (typeof value === 'string') {
       return value.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
         return key in variables ? String(variables[key]) : `{{${key}}}`;
@@ -449,18 +387,12 @@ export class SkillRegistry extends EventEmitter {
     return value;
   }
 
-  /** Very simple condition evaluator — supports basic variable truthiness checks. */
-  private evaluateCondition(
-    condition: string,
-    variables: Record<string, unknown>,
-  ): boolean {
-    // Support patterns like "{{varName}}" which evaluate to the truthiness of the variable
+  private evaluateCondition(condition: string, variables: Record<string, unknown>): boolean {
     const match = condition.match(/^\{\{(\w+)\}\}$/);
     if (match) {
       const val = variables[match[1]];
       return !!val;
     }
-    // Otherwise treat the condition string as a boolean literal or default to true
     return condition.toLowerCase() !== 'false';
   }
 }

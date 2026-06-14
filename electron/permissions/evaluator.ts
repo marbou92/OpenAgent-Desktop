@@ -106,7 +106,7 @@ export class PermissionEvaluator {
     return {
       allowed: level === 'allow',
       level,
-      matchedPattern,
+      matchedPattern: _matchedPattern,
     };
   }
 

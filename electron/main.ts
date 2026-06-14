@@ -773,7 +773,7 @@ async function initializeSubsystems(): Promise<void> {
     // Phase 2: Provider Overhaul
     modelIdResolver = getModelIdResolver();
     providerCatalog = new ProviderCatalog();
-    gatewayRouter = new GatewayRouter(healthMonitor);
+    gatewayRouter = new GatewayRouter();
     configSetManager = new ConfigSetManager();
     await configSetManager.initialize();
     modelVariantManager = new ModelVariantManager();
@@ -784,8 +784,8 @@ async function initializeSubsystems(): Promise<void> {
 
     // Phase 4: Extension System Upgrade
     extensionMarketplace = new ExtensionMarketplace();
-    hotReloadManager = new HotReloadManager(extensionRegistry);
-    extensionLifecycleManager = new ExtensionLifecycleManager(extensionRegistry, hotReloadManager);
+    hotReloadManager = new HotReloadManager();
+    extensionLifecycleManager = new ExtensionLifecycleManager(undefined, hotReloadManager);
 
     // Phase 5: Context Management & Memory
     autoCompactionManager = new AutoCompactionManager();
@@ -806,13 +806,18 @@ async function initializeSubsystems(): Promise<void> {
 
     // Phase 7: Recipe & Automation
     recipeImporter = new RecipeImporter();
-    scheduledExecutor = new ScheduledExecutor(recipeEngine);
+    scheduledExecutor = new ScheduledExecutor(
+      async (recipeId: string, variables: Record<string, string>) => {
+        const result = await recipeEngine.run(recipeId, variables);
+        return result as any;
+      },
+    );
     await scheduledExecutor.initialize();
     subagentDashboard = new SubagentDashboard();
 
     // Phase 8: Polish & Integration
     projectConfigManager = new ProjectConfigManager();
-    sessionOperations = new SessionOperations(sessionManager);
+    sessionOperations = new SessionOperations();
     computerUseOverlayManager = new ComputerUseOverlayManager();
     layeredConfig = new LayeredConfig();
     await layeredConfig.initialize();
@@ -1633,7 +1638,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("provider:resolveModelId", wrapIPC(async (_e, modelId: string) => modelIdResolver.resolve(modelId)));
   ipcMain.handle("provider:listAliases", wrapIPC(async () => modelIdResolver.listAliases()));
   ipcMain.handle("provider:catalog", wrapIPC(async () => providerCatalog.list()));
-  ipcMain.handle("provider:catalogByCategory", wrapIPC(async (_e, cat: string) => providerCatalog.getByCategory(cat)));
+  ipcMain.handle("provider:catalogByCategory", wrapIPC(async (_e, cat: string) => providerCatalog.getByCategory(cat as any)));
   ipcMain.handle("provider:catalogPopular", wrapIPC(async () => providerCatalog.getPopular()));
   ipcMain.handle("provider:route", wrapIPC(async (_e, modelId: string, strategy?: string) => gatewayRouter.route(modelId, strategy as any)));
   ipcMain.handle("provider:configSets", wrapIPC(async () => configSetManager.list()));
@@ -1647,7 +1652,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("provider:modelVariantSet", wrapIPC(async (_e, id: string) => modelVariantManager.setActive(id)));
   ipcMain.handle("provider:modelVariantCycle", wrapIPC(async (_e, modelId: string, dir?: string) => modelVariantManager.cycleVariant(modelId, dir as any)));
   ipcMain.handle("provider:diagnose", wrapIPC(async (_e, providerId: string, quick?: boolean) => {
-    const provider = providerManager.get(providerId);
+    const provider = providerManager.getProvider(providerId);
     if (!provider) throw new Error(`Provider not found: ${providerId}`);
     const config = provider.config;
     if (quick) {
@@ -1670,14 +1675,15 @@ function registerIpcHandlers(): void {
   // Phase 5: Context & Memory IPC
   ipcMain.handle("context:usage", wrapIPC(async (_e, sessionId: string) => {
     const session = await sessionManager.load(sessionId);
-    return contextWindowManager.createContextUsage(session.messages || []);
+    const allocation = contextWindowManager.allocate(sessionId, session.messages || [], [], '', []);
+    return contextWindowManager.createContextUsage(allocation);
   }));
   ipcMain.handle("context:compact", wrapIPC(async (_e, sessionId: string) => {
     const session = await sessionManager.load(sessionId);
-    const result = autoCompactionManager.forceCompact(sessionId, session.messages);
+    const result = await autoCompactionManager.forceCompact(sessionId, session.messages);
     return { savedTokens: result.savedTokens };
   }));
-  ipcMain.handle("context:windowInfo", wrapIPC(async (_e, modelId: string) => contextWindowManager.getContextWindowInfo(modelId)));
+  ipcMain.handle("context:windowInfo", wrapIPC(async (_e, modelId: string) => contextWindowManager.getContextWindow(modelId)));
   ipcMain.handle("memory:core:list", wrapIPC(async () => coreMemoryStore.list()));
   ipcMain.handle("memory:core:set", wrapIPC(async (_e, cat: string, key: string, val: string) => coreMemoryStore.set(cat as any, key, val)));
   ipcMain.handle("memory:core:delete", wrapIPC(async (_e, id: string) => { await coreMemoryStore.delete(id); }));
@@ -1685,13 +1691,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle("memory:experience:list", wrapIPC(async (_e, limit?: number) => experienceMemoryStore.list(limit)));
 
   // Phase 6: Permission & Security IPC
-  ipcMain.handle("permission:policies", wrapIPC(async () => permissionPolicyEngine.listPolicies()));
+  ipcMain.handle("permission:policies", wrapIPC(async () => permissionPolicyEngine.getAllPolicies()));
   ipcMain.handle("permission:policy:get", wrapIPC(async (_e, id: string) => permissionPolicyEngine.getPolicy(id)));
   ipcMain.handle("permission:policy:create", wrapIPC(async (_e, policy: any) => { permissionPolicyEngine.createPolicy(policy); }));
   ipcMain.handle("permission:policy:update", wrapIPC(async (_e, id: string, updates: any) => { permissionPolicyEngine.updatePolicy(id, updates); }));
   ipcMain.handle("permission:policy:delete", wrapIPC(async (_e, id: string) => { permissionPolicyEngine.deletePolicy(id); }));
   ipcMain.handle("permission:policy:templates", wrapIPC(async () => permissionPolicyEngine.getTemplates()));
-  ipcMain.handle("permission:evaluate", wrapIPC(async (_e, toolName: string, args: any, mode: string) => permissionPolicyEngine.evaluate(toolName, args, { agentMode: mode })));
+  ipcMain.handle("permission:evaluate", wrapIPC(async (_e, toolName: string, args: any, mode: string) => permissionPolicyEngine.evaluate(toolName, args, { customContext: { agentMode: mode } })));
   ipcMain.handle("security:scan", wrapIPC(async (_e, content: string, location?: string) => injectionScanner.scan(content, location as any)));
   ipcMain.handle("security:steer:inject", wrapIPC(async (_e, sessionId: string, content: string, opts?: any) => steerManager.inject(sessionId, content, opts)));
   ipcMain.handle("security:steer:pending", wrapIPC(async (_e, sessionId: string) => steerManager.getPendingSteers(sessionId)));
@@ -1700,9 +1706,9 @@ function registerIpcHandlers(): void {
   // Phase 7: Recipe & Automation IPC
   ipcMain.handle("recipe:import", wrapIPC(async (_e, content: string, format?: string) => recipeImporter.importFromString(content, (format || 'json') as any)));
   ipcMain.handle("recipe:export", wrapIPC(async (_e, recipeId: string, format?: string) => {
-    const recipe = recipeEngine.get(recipeId);
+    const recipe = await recipeEngine.get(recipeId);
     if (!recipe) throw new Error(`Recipe not found: ${recipeId}`);
-    return recipeImporter.exportToString(recipe, (format || 'json') as any);
+    return recipeImporter.exportToString(recipe as any, (format || 'json') as any);
   }));
   ipcMain.handle("recipe:schedule:list", wrapIPC(async () => scheduledExecutor.listJobs()));
   ipcMain.handle("recipe:schedule:create", wrapIPC(async (_e, recipeId: string, schedule: string, vars?: any) => scheduledExecutor.schedule(recipeId, schedule, vars)));
@@ -1836,7 +1842,7 @@ async function cleanupBeforeQuit(): Promise<void> {
       hotReloadManager.stopAll();
     }
     if (scheduledExecutor) {
-      scheduledExecutor.stopAll();
+      scheduledExecutor.shutdown();
     }
     // Close database connection
     closeDatabase();

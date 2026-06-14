@@ -131,8 +131,6 @@ import { ProviderAutoDetector } from './provider-autodetect';
 import { StorageAdapter } from './file-storage';
 import { EventEmitter } from 'events';
 
-export type { StorageAdapter } from './file-storage';
-
 export class ProviderManager {
   private registry: ProviderRegistry;
   private router: ProviderRouter;

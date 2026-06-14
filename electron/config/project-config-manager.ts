@@ -587,7 +587,7 @@ export class ProjectConfigManager extends EventEmitter {
   /**
    * Get which layer provides a specific config key.
    */
-  getConfigSource(directory: string, key: string): 'project' | 'global' | 'default' | 'none' {
+  getConfigSource(directory: string, key: string): 'project' | 'global' | 'default' | 'session' | 'none' {
     const config = this.configs.get(directory);
 
     // Check project layer
