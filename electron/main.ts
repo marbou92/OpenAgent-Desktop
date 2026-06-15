@@ -37,17 +37,7 @@ import { ProjectManager } from './projects/manager';
 import { SkillRegistry } from './skills/registry';
 import { ProviderHealthMonitor } from './providers/health-monitor';
 // ─── Aether v2: New Subsystem Imports ──────────────────────────────────────
-import { CrashLogger, CrashDetector } from './crash';
-import type { CrashLogInfo, CrashLog } from './crash';
-import { SidecarManager } from './sidecar';
-import type { SidecarInstance, SidecarStatus } from './sidecar';
-import { CustomProvider } from './custom-provider';
-import type { CustomProviderConfig } from './custom-provider';
-import { CUSTOM_PROVIDER_PRESETS } from './custom-provider/model-presets';
-import { SkillsManager } from './skills';
-import type { SkillDefinition } from './skills';
-import { validateSetting, validateAllSettings, getSettingDefaults, SETTINGS_SCHEMA, migrateFromV1, isV1Config } from './settings';
-import type { AetherAppConfig } from './settings';
+import { CrashLogger } from './crash';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
 import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
