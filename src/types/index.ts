@@ -545,31 +545,68 @@ export interface AppState {
 }
 
 export interface AppSettings {
+  // ─── General ──────────────────────────────────────────────────
   theme: 'light' | 'dark' | 'system';
-  language: string;
-  autoSave: boolean;
-  defaultProviderId: string;
-  defaultModel: string;
-  permissionMode: 'auto' | 'approve' | 'smart_approve' | 'chat';
-  autoStartSandbox: boolean;
+  language: 'en' | 'zh' | 'ja' | 'ko';
+  autoUpdate: boolean;
   minimizeToTray: boolean;
-  traceEnabled: boolean;
+  startupBehavior: 'show' | 'hidden' | 'tray';
+
+  // ─── Provider / Model ─────────────────────────────────────────
+  defaultModel: string;
+  opencodePort: number;
+  opencodeHostname: string;
+  opencodeAutoStart: boolean;
+
+  // ─── Session ──────────────────────────────────────────────────
+  maxConcurrentSessions: number;
+  autoSave: boolean;
+  sessionTimeoutMinutes: number;
+
+  // ─── Security ─────────────────────────────────────────────────
+  permissionMode: 'auto' | 'approve' | 'smart_approve' | 'chat';
+  sandboxMode: 'path' | 'vm';
   debugMode: boolean;
+
+  // ─── Skills ───────────────────────────────────────────────────
+  skillsPath: string;
+  enableBuiltinSkills: boolean;
+
+  // ─── Advanced ─────────────────────────────────────────────────
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  traceEnabled: boolean;
+  crashLogRetention: number;
+  developerMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: 'dark',
+  // General
+  theme: 'system',
   language: 'en',
-  autoSave: true,
-  defaultProviderId: 'openai',
-  defaultModel: 'gpt-4o',
-  permissionMode: 'smart_approve',
-  autoStartSandbox: true,
+  autoUpdate: true,
   minimizeToTray: true,
-  traceEnabled: true,
+  startupBehavior: 'show',
+  // Provider / Model
+  defaultModel: 'anthropic/claude-sonnet-4',
+  opencodePort: 0,
+  opencodeHostname: '127.0.0.1',
+  opencodeAutoStart: true,
+  // Session
+  maxConcurrentSessions: 5,
+  autoSave: true,
+  sessionTimeoutMinutes: 0,
+  // Security
+  permissionMode: 'smart_approve',
+  sandboxMode: 'path',
   debugMode: false,
+  // Skills
+  skillsPath: '~/.claude/skills',
+  enableBuiltinSkills: true,
+  // Advanced
   logLevel: 'info',
+  traceEnabled: false,
+  crashLogRetention: 5,
+  developerMode: false,
 };
 
 // ─── Slash Command Types ───────────────────────────────────────────────────────
