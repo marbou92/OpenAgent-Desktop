@@ -104,7 +104,21 @@ jobs:
         run: npx vitest run
 
       - name: Build application (x64 + ia32 for Win7)
-        run: npm run electron:build:win
+        run: |
+          # Temporarily switch to NSIS + portable targets for native Windows build
+          node -e "
+            const pkg = require('./package.json');
+            pkg.build.win.target = [
+              { target: 'nsis', arch: ['x64', 'ia32'] },
+              { target: 'portable', arch: ['x64', 'ia32'] }
+            ];
+            delete pkg.build.win.sign;
+            delete pkg.build.win.signAndEditExecutable;
+            delete pkg.build.win.verifyUpdateCodeSignature;
+            delete pkg.build.forceCodeSigning;
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+          npm run electron:build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -112,7 +126,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: win7-build
-          path: release/
+          path: |
+            release/*.exe
+            release/*.zip
+            release/*.msi
           retention-days: 90
 
       - name: Restore original Electron version
