@@ -6,13 +6,16 @@
  */
 
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
+import { app } from 'electron';
 import { SidecarManager } from '../sidecar';
 import { OpenCodeBridge } from './opencode-bridge';
 import { CustomBridge } from './custom-bridge';
 import { CUSTOM_PROVIDER_PRESETS } from '../custom-provider/model-presets';
 import type { SidecarConfig, SidecarInstance } from '../sidecar/types';
 import type { CustomProviderConfig } from '../custom-provider/types';
-import type { UnifiedProviderInfo, UnifiedModelInfo, ChatRequest, ChatResponse, StreamChunk } from './v2-types';
+import type { UnifiedProviderInfo, UnifiedModelInfo, ChatRequest, ChatResponse, StreamChunk, ProviderInfo } from './v2-types';
 
 export class ProviderManager extends EventEmitter {
   private sidecarManager: SidecarManager;
@@ -69,9 +72,9 @@ export class ProviderManager extends EventEmitter {
     return [...opencodeProviders, ...customProviders];
   }
 
-  // Legacy-compatible list method
-  async list(): Promise<any[]> {
-    return this.listProviders();
+  // Legacy-compatible list method — returns ProviderInfo[] for the renderer
+  async list(): Promise<ProviderInfo[]> {
+    return this.listProvidersLegacy();
   }
 
   // ─── Chat (routes to correct engine) ────────────────────────────────
@@ -313,13 +316,53 @@ export class ProviderManager extends EventEmitter {
     return config;
   }
 
+  private getConfigsPath(): string {
+    const userData = app.getPath('userData');
+    return path.join(userData, 'custom-providers.json');
+  }
+
   private loadCustomConfigs(): void {
-    // Custom configs will be loaded from the settings system
-    // For now, start empty
+    try {
+      const configsPath = this.getConfigsPath();
+      if (fs.existsSync(configsPath)) {
+        const raw = fs.readFileSync(configsPath, 'utf-8');
+        const configs: CustomProviderConfig[] = JSON.parse(raw);
+        for (const config of configs) {
+          this.customConfigs.set(config.id, config);
+        }
+        this.emit('custom-configs-loaded', configs.length);
+      }
+    } catch (err) {
+      // Corrupted or unreadable config file — start fresh
+      this.emit('custom-configs-error', err);
+    }
   }
 
   private async saveCustomConfigs(): Promise<void> {
-    // Custom configs will be saved through the settings system
-    // For now, this is a no-op (settings integration in Phase 3)
+    try {
+      const configsPath = this.getConfigsPath();
+      const configs = Array.from(this.customConfigs.values());
+      const json = JSON.stringify(configs, null, 2);
+      // Atomic write: write to .tmp then rename
+      const tmpPath = configsPath + '.tmp';
+      fs.writeFileSync(tmpPath, json, 'utf-8');
+      fs.renameSync(tmpPath, configsPath);
+    } catch (err) {
+      this.emit('custom-configs-error', err);
+    }
+  }
+
+  // ─── Convert UnifiedProviderInfo → ProviderInfo for legacy compat ────
+
+  async listProvidersLegacy(): Promise<ProviderInfo[]> {
+    const unified = await this.listProviders();
+    return unified.map((p): ProviderInfo => ({
+      id: p.id,
+      name: p.name,
+      type: p.source === 'custom' ? 'custom_openai' : (p.id.split(':')[0] as any),
+      models: p.models.map(m => m.id),
+      isDefault: p.isDefault,
+      configured: p.configured,
+    }));
   }
 }

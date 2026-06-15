@@ -224,6 +224,8 @@ const App: React.FC = () => {
   const setVersion = useAppStore(s => s.setVersion);
 
   const initializedRef = useRef(false);
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
 
   // ─── Auto-initialize on mount ──────────────────────────────────────────────
 
@@ -231,6 +233,29 @@ const App: React.FC = () => {
     if (initializedRef.current) return;
     initializedRef.current = true;
     initializeApp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── Subscribe to provider push events from main process ──────────────────
+
+  useEffect(() => {
+    const refreshProviders = async () => {
+      if (api?.providers?.list) {
+        try {
+          const p = await api.providers.list();
+          setProviders(p);
+        } catch { /* ignore stale refresh */ }
+      }
+    };
+
+    // Subscribe to health and status change events
+    const unsubHealth = (api as any)?.on?.providerHealthUpdate?.(() => refreshProviders());
+    const unsubStatus = (api as any)?.on?.providerStatusChanged?.(() => refreshProviders());
+
+    return () => {
+      unsubHealth?.();
+      unsubStatus?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

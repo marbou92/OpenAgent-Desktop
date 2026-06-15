@@ -201,6 +201,8 @@ const ProviderForm: React.FC<ProviderFormProps> = ({ provider, onClose, onSave, 
           return;
         }
         setSavedProviderId(testId);
+        // Silent save added a new provider — refresh the list so UI stays in sync
+        await onSave();
       }
       const result = await api.providers.test(testId);
       setTestResult(result);
