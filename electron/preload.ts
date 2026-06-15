@@ -444,6 +444,32 @@ const electronAPI = {
       invoke("skill:execute", skillId, variables, context),
   },
 
+  // ── Aether v2: Crash Logger ───────────────────────────────────────────────
+
+  crash: {
+    check: (): Promise<any> => invoke("crash:check"),
+    getLog: (): Promise<any> => invoke("crash:getLog"),
+    dismiss: (): Promise<void> => invoke("crash:dismiss"),
+  },
+
+  // ── Aether v2: Sidecar ────────────────────────────────────────────────────
+
+  sidecar: {
+    status: (): Promise<any> => invoke("sidecar:status"),
+    restart: (): Promise<any> => invoke("sidecar:restart"),
+    getInstance: (): Promise<any> => invoke("sidecar:getInstance"),
+  },
+
+  // ── Aether v2: Custom Providers ───────────────────────────────────────────
+
+  customProviders: {
+    list: (): Promise<any[]> => invoke("custom-provider:list"),
+    add: (config: any): Promise<any> => invoke("custom-provider:add", config),
+    remove: (id: string): Promise<void> => invoke("custom-provider:remove", id),
+    test: (id: string): Promise<any> => invoke("custom-provider:test", id),
+    presets: (): Promise<any[]> => invoke("custom-provider:presets"),
+  },
+
   // ── Platform ───────────────────────────────────────────────────────────────
 
   platform: {
@@ -653,6 +679,13 @@ const electronAPI = {
       const handler = (_event: Electron.IpcRendererEvent, data: { message: string; stack?: string }) => callback(data);
       ipcRenderer.on("app:error", handler);
       return () => ipcRenderer.removeListener("app:error", handler);
+    },
+
+    // Aether v2: Crash detected event
+    crashDetected: (callback: (info: any) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on("crash:detected", handler);
+      return () => ipcRenderer.removeListener("crash:detected", handler);
     },
   },
 };

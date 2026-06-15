@@ -36,6 +36,18 @@ import { OpenCodeBridge, getOpenCodeBridge, setOpenCodeBridge } from './opencode
 import { ProjectManager } from './projects/manager';
 import { SkillRegistry } from './skills/registry';
 import { ProviderHealthMonitor } from './providers/health-monitor';
+// ─── Aether v2: New Subsystem Imports ──────────────────────────────────────
+import { CrashLogger, CrashDetector } from './crash';
+import type { CrashLogInfo, CrashLog } from './crash';
+import { SidecarManager } from './sidecar';
+import type { SidecarInstance, SidecarStatus } from './sidecar';
+import { CustomProvider } from './custom-provider';
+import type { CustomProviderConfig } from './custom-provider';
+import { CUSTOM_PROVIDER_PRESETS } from './custom-provider/model-presets';
+import { SkillsManager } from './skills';
+import type { SkillDefinition } from './skills';
+import { validateSetting, validateAllSettings, getSettingDefaults, SETTINGS_SCHEMA, migrateFromV1, isV1Config } from './settings';
+import type { AetherAppConfig } from './settings';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
 import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
@@ -72,13 +84,26 @@ import { runMigrations, closeDatabase } from './database';
 interface AppConfig {
   windowBounds: { width: number; height: number; x?: number; y?: number };
   theme: "light" | "dark" | "system";
-  autoStartSandbox: boolean;
-  defaultProviderId: string;
-  defaultModel: string;
-  maxConcurrentSessions: number;
-  traceEnabled: boolean;
+  language: string;
   autoUpdate: boolean;
   minimizeToTray: boolean;
+  startupBehavior: 'show' | 'hidden' | 'tray';
+  defaultModel: string;
+  opencodePort: number;
+  opencodeHostname: string;
+  opencodeAutoStart: boolean;
+  maxConcurrentSessions: number;
+  autoSave: boolean;
+  sessionTimeoutMinutes: number;
+  permissionMode: string;
+  sandboxMode: 'path' | 'vm';
+  debugMode: boolean;
+  skillsPath: string;
+  enableBuiltinSkills: boolean;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  traceEnabled: boolean;
+  crashLogRetention: number;
+  developerMode: boolean;
 }
 
 interface DropppedFile {
@@ -1980,21 +2005,79 @@ if (!gotTheLock) {
     }
   });
 
-  // Handle uncaught exceptions
-  process.on("uncaughtException", (error) => {
+  // Handle uncaught exceptions — Aether v2: Crash Logger
+  process.on("uncaughtException", (error: Error) => {
     console.error("[Main] Uncaught exception:", error);
     logger.error('Process', 'Uncaught exception', error);
+    try {
+      const crashLogger = new CrashLogger(getUserDataPath());
+      crashLogger.writeCrashLog({
+        timestamp: new Date().toISOString(),
+        errorType: 'uncaughtException',
+        errorName: error.name,
+        errorMessage: error.message,
+        stackTrace: error.stack || '',
+      }, logger.getRecentEntries(100));
+    } catch { /* best effort */ }
     mainWindow?.webContents.send("app:error", {
       message: error.message,
       stack: error.stack,
     });
   });
 
-  process.on("unhandledRejection", (reason) => {
+  process.on("unhandledRejection", (reason: unknown) => {
     console.error("[Main] Unhandled rejection:", reason);
     logger.error('Process', 'Unhandled rejection', reason);
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    try {
+      const crashLogger = new CrashLogger(getUserDataPath());
+      crashLogger.writeCrashLog({
+        timestamp: new Date().toISOString(),
+        errorType: 'unhandledRejection',
+        errorName: error.name,
+        errorMessage: error.message,
+        stackTrace: error.stack || '',
+      }, logger.getRecentEntries(100));
+    } catch { /* best effort */ }
     mainWindow?.webContents.send("app:error", {
       message: String(reason),
     });
+  });
+
+  // Aether v2: Signal handlers for crash logging
+  process.on('SIGTERM', () => {
+    logger.info('Process', 'Received SIGTERM');
+    if (!isQuitting) {
+      try {
+        const crashLogger = new CrashLogger(getUserDataPath());
+        crashLogger.writeCrashLog({
+          timestamp: new Date().toISOString(),
+          errorType: 'SIGTERM',
+          errorName: 'SIGTERM',
+          errorMessage: 'Process received SIGTERM signal',
+          stackTrace: new Error().stack || '',
+        }, logger.getRecentEntries(100));
+      } catch { /* best effort */ }
+    }
+    isQuitting = true;
+    app.quit();
+  });
+
+  process.on('SIGINT', () => {
+    logger.info('Process', 'Received SIGINT');
+    if (!isQuitting) {
+      try {
+        const crashLogger = new CrashLogger(getUserDataPath());
+        crashLogger.writeCrashLog({
+          timestamp: new Date().toISOString(),
+          errorType: 'SIGINT',
+          errorName: 'SIGINT',
+          errorMessage: 'Process received SIGINT signal',
+          stackTrace: new Error().stack || '',
+        }, logger.getRecentEntries(100));
+      } catch { /* best effort */ }
+    }
+    isQuitting = true;
+    app.quit();
   });
 }

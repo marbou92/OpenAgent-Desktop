@@ -34,6 +34,9 @@ export class Logger {
   private maxFiles: number;
   private level: LogLevel;
   private initialized = false;
+  // ─── Ring Buffer for Crash Logger (Aether v2) ──────────────────────────
+  private recentEntries: string[] = [];
+  private maxRecentEntries = 100;
 
   constructor(options: { logDir: string; level?: LogLevel }) {
     this.logDir = options.logDir;
@@ -91,6 +94,23 @@ export class Logger {
     return this.initialized;
   }
 
+  /**
+   * Get recent log entries from the ring buffer (for crash logger).
+   * Aether v2: Returns the last N log lines for inclusion in crash.log.
+   */
+  getRecentEntries(count?: number): string[] {
+    const n = count ?? this.maxRecentEntries;
+    return this.recentEntries.slice(-n);
+  }
+
+  /**
+   * Get the current log file path.
+   * Aether v2: Used by crash logger to reference the log file.
+   */
+  getLogFilePath(): string {
+    return this.currentLogFile;
+  }
+
   // ─── Internal ───────────────────────────────────────────────────────────
 
   private write(level: string, module: string, message: string, data?: any): void {
@@ -127,6 +147,12 @@ export class Logger {
 
       // Append to the current log file
       fs.appendFileSync(this.currentLogFile, logLine, 'utf-8');
+
+      // Aether v2: Add to ring buffer for crash logger
+      this.recentEntries.push(logLine.trimEnd());
+      if (this.recentEntries.length > this.maxRecentEntries) {
+        this.recentEntries.shift();
+      }
     } catch (err) {
       // If file write fails, we've already logged to console
       console.error('[Logger] Failed to write to log file:', err);
