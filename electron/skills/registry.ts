@@ -330,7 +330,7 @@ export class SkillRegistry extends EventEmitter {
     return this.skills.get(skillId);
   }
 
-  async execute(skillId: string, inputs: Record<string, any>, context?: Record<string, unknown>): Promise<SkillExecution> {
+  async execute(skillId: string, inputs: Record<string, any>, _context?: Record<string, unknown>): Promise<SkillExecution> {
     const skill = this.skills.get(skillId);
     if (!skill) {
       throw new Error(`Skill not found: ${skillId}`);

@@ -53,7 +53,7 @@ export class CrashDetector {
     }
   }
 
-  getArchivedLogs(maxCount: number = 5): CrashLogInfo[] {
+  getArchivedLogs(maxCount = 5): CrashLogInfo[] {
     // In the future, we could support multiple archived crash logs
     // For now, just check the single archived file
     const results: CrashLogInfo[] = [];

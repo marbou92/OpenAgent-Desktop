@@ -26,7 +26,7 @@ export class GatewayRouter extends EventEmitter {
     this.customProviderIds.delete(providerId);
   }
 
-  route(modelId: string, strategy?: string): RouteResult {
+  route(modelId: string, _strategy?: string): RouteResult {
     const providerId = modelId.split('/')[0];
 
     if (this.customProviderIds.has(providerId) || providerId.startsWith('custom:')) {

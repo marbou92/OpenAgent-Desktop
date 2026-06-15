@@ -12,7 +12,7 @@ import { CustomBridge } from './custom-bridge';
 import { CUSTOM_PROVIDER_PRESETS } from '../custom-provider/model-presets';
 import type { SidecarConfig, SidecarInstance } from '../sidecar/types';
 import type { CustomProviderConfig } from '../custom-provider/types';
-import type { UnifiedProviderInfo, UnifiedModelInfo, ChatRequest, ChatResponse, StreamChunk, ProviderConfig, ProviderInfo } from './v2-types';
+import type { UnifiedProviderInfo, UnifiedModelInfo, ChatRequest, ChatResponse, StreamChunk } from './v2-types';
 
 export class ProviderManager extends EventEmitter {
   private sidecarManager: SidecarManager;
@@ -181,6 +181,7 @@ export class ProviderManager extends EventEmitter {
     message: string,
     options?: { sessionId?: string; extensions?: string[]; sandboxManager?: any; traceCollector?: any }
   ): Promise<ChatResponse> {
+    void options;
     const messages = [
       ...sessionMessages.map((m: any) => ({ role: m.role as string, content: m.content as string })),
       { role: 'user' as const, content: message },
@@ -199,6 +200,7 @@ export class ProviderManager extends EventEmitter {
     message: string,
     options?: { sessionId?: string; extensions?: string[]; sandboxManager?: any; traceCollector?: any }
   ): Promise<EventEmitter> {
+    void options;
     const emitter = new EventEmitter();
     const messages = [
       ...sessionMessages.map((m: any) => ({ role: m.role as string, content: m.content as string })),
@@ -240,7 +242,7 @@ export class ProviderManager extends EventEmitter {
     this.emit('stream:cancelled', { sessionId });
   }
 
-  private getDefaultModel(providerId: string): string {
+  private getDefaultModel(_providerId: string): string {
     return 'gpt-4o';
   }
 
@@ -277,7 +279,7 @@ export class ProviderManager extends EventEmitter {
 
   getDefault(): any { return undefined; }
   getDefaultConfig(): any { return undefined; }
-  getProvider(id: string): any { return undefined; }
+  getProvider(_id: string): any { return undefined; }
   getProviderConfig(id: string): any {
     if (id.startsWith('custom:')) return this.customConfigs.get(id);
     return undefined;

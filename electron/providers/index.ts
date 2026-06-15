@@ -12,7 +12,7 @@ import { CustomBridge } from './custom-bridge';
 import { CUSTOM_PROVIDER_PRESETS } from '../custom-provider/model-presets';
 import type { SidecarConfig, SidecarInstance } from '../sidecar/types';
 import type { CustomProviderConfig } from '../custom-provider/types';
-import type { UnifiedProviderInfo, UnifiedModelInfo, ChatRequest, ChatResponse, StreamChunk, ProviderConfig, ProviderInfo } from './v2-types';
+import type { UnifiedProviderInfo, UnifiedModelInfo, ChatRequest, ChatResponse, StreamChunk } from './v2-types';
 
 export class ProviderManager extends EventEmitter {
   private sidecarManager: SidecarManager;
@@ -205,7 +205,7 @@ export class ProviderManager extends EventEmitter {
 
   getDefault(): any { return undefined; }
   getDefaultConfig(): any { return undefined; }
-  getProvider(id: string): any { return undefined; }
+  getProvider(_id: string): any { return undefined; }
   getProviderConfig(id: string): any {
     if (id.startsWith('custom:')) return this.customConfigs.get(id);
     return undefined;

@@ -129,11 +129,11 @@ export class GeminiProtocolHandler {
 
   private messagesToGeminiFormat(messages: CustomProviderMessage[]): any[] {
     const contents: any[] = [];
-    let systemInstruction: string | undefined;
+    let _systemInstruction: string | undefined;
 
     for (const msg of messages) {
       if (msg.role === 'system') {
-        systemInstruction = msg.content;
+        _systemInstruction = msg.content;
         continue;
       }
       contents.push({
