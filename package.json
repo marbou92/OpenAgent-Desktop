@@ -93,24 +93,21 @@
       "dist-electron/**/*",
       "resources/**/*"
     ],
+    "forceCodeSigning": false,
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "ia32"
-          ]
-        },
-        {
-          "target": "portable",
+          "target": "zip",
           "arch": [
             "x64",
             "ia32"
           ]
         }
       ],
-      "icon": "resources/icon.ico"
+      "icon": "resources/icon.ico",
+      "sign": false,
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
     },
     "mac": {
       "target": [
