@@ -722,8 +722,8 @@ async function initializeSubsystems(): Promise<void> {
   });
 
   // Initialize skill registry
-  skillRegistry = new SkillRegistry(path.join(userDataPath, "skills"));
-  await skillRegistry.initialize();
+  skillRegistry = new SkillRegistry();
+  await skillRegistry.initialize(path.join(userDataPath, "skills"));
 
   // Initialize OpenCode bridge
   openCodeBridge = new OpenCodeBridge({
@@ -907,6 +907,31 @@ function registerIpcHandlers(): void {
       return { success: true };
     })
   );
+
+  // ── Custom Provider IPC (Aether v2) ─────────────────────────────────────────
+
+  ipcMain.handle("custom-provider:list", wrapIPC(async () => {
+    return { success: true, data: await providerManager.list() };
+  }));
+
+  ipcMain.handle("custom-provider:add", wrapIPC(async (_event, config: Record<string, unknown>) => {
+    const provider = await providerManager.add(config);
+    return { success: true, data: provider };
+  }));
+
+  ipcMain.handle("custom-provider:remove", wrapIPC(async (_event, providerId: string) => {
+    await providerManager.remove(providerId);
+    return { success: true };
+  }));
+
+  ipcMain.handle("custom-provider:test", wrapIPC(async (_event, providerId: string) => {
+    const result = await providerManager.test(providerId);
+    return { success: true, data: result };
+  }));
+
+  ipcMain.handle("custom-provider:presets", wrapIPC(async () => {
+    return { success: true, data: providerManager.getCustomProviderPresets() };
+  }));
 
   // ── Extension IPC ─────────────────────────────────────────────────────────
 

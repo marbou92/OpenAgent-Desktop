@@ -316,6 +316,8 @@ export class ProviderManager extends EventEmitter {
     return config;
   }
 
+  private static readonly CONFIG_SCHEMA_VERSION = 2;
+
   private getConfigsPath(): string {
     const userData = app.getPath('userData');
     return path.join(userData, 'custom-providers.json');
@@ -326,9 +328,24 @@ export class ProviderManager extends EventEmitter {
       const configsPath = this.getConfigsPath();
       if (fs.existsSync(configsPath)) {
         const raw = fs.readFileSync(configsPath, 'utf-8');
-        const configs: CustomProviderConfig[] = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+
+        // Schema version check — migrate or bust stale cache
+        const storedVersion = parsed._schemaVersion || 1;
+        if (storedVersion < ProviderManager.CONFIG_SCHEMA_VERSION) {
+          // Backup old file and start fresh
+          const backupPath = configsPath + `.v${storedVersion}.bak`;
+          try { fs.renameSync(configsPath, backupPath); } catch { /* ignore */ }
+          this.emit('custom-configs-migrated', { from: storedVersion, to: ProviderManager.CONFIG_SCHEMA_VERSION });
+          return;
+        }
+
+        // v2+ format: { _schemaVersion, providers: [...] }
+        const configs: CustomProviderConfig[] = parsed.providers || parsed;
         for (const config of configs) {
-          this.customConfigs.set(config.id, config);
+          if (config.id) {
+            this.customConfigs.set(config.id, config);
+          }
         }
         this.emit('custom-configs-loaded', configs.length);
       }
@@ -342,7 +359,11 @@ export class ProviderManager extends EventEmitter {
     try {
       const configsPath = this.getConfigsPath();
       const configs = Array.from(this.customConfigs.values());
-      const json = JSON.stringify(configs, null, 2);
+      const payload = {
+        _schemaVersion: ProviderManager.CONFIG_SCHEMA_VERSION,
+        providers: configs,
+      };
+      const json = JSON.stringify(payload, null, 2);
       // Atomic write: write to .tmp then rename
       const tmpPath = configsPath + '.tmp';
       fs.writeFileSync(tmpPath, json, 'utf-8');

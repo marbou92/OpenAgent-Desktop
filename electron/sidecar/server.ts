@@ -2,16 +2,21 @@
  * OpenAgent-Desktop Aether - Sidecar Server Manager
  * 
  * Spawns the OpenCode server as a utility process and manages its lifecycle.
+ * Gracefully handles Electron 22 (Win7) where utilityProcess may not exist.
  */
 
-import { app, utilityProcess } from 'electron';
+import { app } from 'electron';
 import { EventEmitter } from 'events';
+import * as child_process from 'child_process';
 import * as net from 'net';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
 import { loadShellEnv } from './shell-env';
 import type { SidecarConfig, SidecarInstance, SidecarStatus } from './types';
+
+// Feature-detect utilityProcess (Electron 26+). Fall back to child_process.fork on Electron 22.
+const utilityProcess: typeof Electron.UtilityProcess | undefined = (Electron as any).utilityProcess;
 
 export class SidecarManager extends EventEmitter {
   private instance: SidecarInstance | null = null;
@@ -168,13 +173,31 @@ export class SidecarManager extends EventEmitter {
     shellEnv: Record<string, string>,
     timeout: number
   ): Promise<void> {
+    // If utilityProcess is available (Electron 26+), use it; otherwise fall back to child_process.fork
+    if (utilityProcess) {
+      return this.spawnViaElectronUtilityProcess(sidecarPath, port, hostname, username, password, userDataPath, shellEnv, timeout);
+    } else {
+      return this.spawnViaChildProcess(sidecarPath, port, hostname, username, password, userDataPath, shellEnv, timeout);
+    }
+  }
+
+  private spawnViaElectronUtilityProcess(
+    sidecarPath: string,
+    port: number,
+    hostname: string,
+    username: string,
+    password: string,
+    userDataPath: string,
+    shellEnv: Record<string, string>,
+    timeout: number
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         reject(new Error(`Sidecar failed to start within ${timeout}ms`));
       }, timeout);
 
       try {
-        const child = utilityProcess.fork(sidecarPath, [], {
+        const child = utilityProcess!.fork(sidecarPath, [], {
           env: {
             ...process.env,
             ...shellEnv,
@@ -207,6 +230,74 @@ export class SidecarManager extends EventEmitter {
 
         // Send start message
         child.postMessage({
+          type: 'start',
+          hostname,
+          port,
+          username,
+          password,
+          userDataPath,
+        });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        reject(err);
+      }
+    });
+  }
+
+  /**
+   * Fallback for Electron 22 (Windows 7) where utilityProcess doesn't exist.
+   * Uses child_process.fork with IPC instead.
+   */
+  private spawnViaChildProcess(
+    sidecarPath: string,
+    port: number,
+    hostname: string,
+    username: string,
+    password: string,
+    userDataPath: string,
+    shellEnv: Record<string, string>,
+    timeout: number
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Sidecar failed to start within ${timeout}ms`));
+      }, timeout);
+
+      try {
+        const child = child_process.fork(sidecarPath, [], {
+          env: {
+            ...process.env,
+            ...shellEnv,
+            OPENCODE_SERVER_USERNAME: username,
+            OPENCODE_SERVER_PASSWORD: password,
+            OPENCODE_DISABLE_EMBEDDED_WEB_UI: 'true',
+            XDG_STATE_HOME: userDataPath,
+            ELECTRON_RUN_AS_NODE: '1',
+          },
+        });
+
+        child.on('message', (msg: any) => {
+          if (msg?.type === 'ready') {
+            clearTimeout(timeoutId);
+            if (this.instance) {
+              this.instance.pid = child.pid;
+            }
+            resolve();
+          }
+        });
+
+        child.on('exit', (code) => {
+          clearTimeout(timeoutId);
+          if (this.status === 'starting') {
+            reject(new Error(`Sidecar exited during startup with code ${code}`));
+          } else if (this.status === 'running') {
+            this.setStatus('error');
+            this.emit('crashed', code);
+          }
+        });
+
+        // Send start message via IPC
+        child.send({
           type: 'start',
           hostname,
           port,
