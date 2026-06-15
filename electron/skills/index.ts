@@ -1,97 +1,76 @@
 /**
- * OpenAgent-Desktop Aether - Skills Module
- * 
- * Manages built-in and custom skills for document generation,
- * code analysis, automation, and more.
+ * OpenAgent-Desktop Aether - Skills Module Index
  */
 
+export { SkillRegistry } from './registry';
+export type {
+  SkillCategory,
+  SkillStatus,
+  SkillVariable,
+  SkillStep,
+  SkillDefinition,
+  SkillExecution,
+} from './registry';
+
+/**
+ * SkillsManager - High-level manager for the skills subsystem.
+ * Wraps SkillRegistry and provides lifecycle management.
+ */
+import { SkillRegistry } from './registry';
+import type { SkillDefinition, SkillExecution, SkillCategory } from './registry';
 import { EventEmitter } from 'events';
-import { SkillLoader } from './skill-loader';
-import { SkillExecutor } from './skill-executor';
-import { PptxSkill } from './builtin/pptx-skill';
-import { DocxSkill } from './builtin/docx-skill';
-import { XlsxSkill } from './builtin/xlsx-skill';
-import { PdfSkill } from './builtin/pdf-skill';
-import type { SkillDefinition, SkillContext, SkillResult } from './types';
 
 export class SkillsManager extends EventEmitter {
-  private skills: Map<string, SkillDefinition> = new Map();
-  private skillLoader: SkillLoader;
-  private skillExecutor: SkillExecutor;
+  private registry: SkillRegistry;
+  private activeExecutions: Map<string, SkillExecution> = new Map();
 
-  constructor(skillsPath: string) {
+  constructor(skillsDir: string) {
     super();
-    this.skillLoader = new SkillLoader(skillsPath);
-    this.skillExecutor = new SkillExecutor();
+    this.registry = new SkillRegistry(skillsDir);
   }
 
   async initialize(): Promise<void> {
-    // Load built-in skills
-    const builtinSkills: SkillDefinition[] = [
-      new PptxSkill(),
-      new DocxSkill(),
-      new XlsxSkill(),
-      new PdfSkill(),
-    ];
-    for (const skill of builtinSkills) {
-      this.skills.set(skill.id, skill);
-    }
-
-    // Load custom skills from .claude/skills/
-    const customSkills = await this.skillLoader.loadAll();
-    for (const skill of customSkills) {
-      this.skills.set(skill.id, skill);
-    }
-
-    this.emit('initialized', this.skills.size);
+    await this.registry.initialize();
+    this.emit('initialized');
   }
 
-  listSkills(): SkillDefinition[] {
-    return Array.from(this.skills.values());
+  listSkills() {
+    return this.registry.list();
   }
 
-  getSkill(id: string): SkillDefinition | undefined {
-    return this.skills.get(id);
+  listSkillsByCategory(category: SkillCategory) {
+    return this.registry.listByCategory(category);
   }
 
-  async executeSkill(id: string, context: SkillContext): Promise<SkillResult> {
-    const skill = this.skills.get(id);
-    if (!skill) {
-      return {
-        success: false,
-        output: `Skill not found: ${id}`,
-        error: `Skill not found: ${id}`,
-      };
+  getSkill(id: string) {
+    return this.registry.get(id);
+  }
+
+  async executeSkill(skillId: string, inputs: Record<string, any>): Promise<SkillExecution> {
+    const execution = await this.registry.execute(skillId, inputs);
+    this.activeExecutions.set(execution.id, execution);
+    if (execution.status === 'completed' || execution.status === 'failed') {
+      this.activeExecutions.delete(execution.id);
     }
-    return this.skillExecutor.execute(skill, context);
+    this.emit('skill:executed', execution);
+    return execution;
   }
 
-  async reloadCustomSkills(): Promise<number> {
-    // Remove existing custom skills
-    for (const [id, skill] of this.skills) {
-      if (skill.category === 'custom') {
-        this.skills.delete(id);
-      }
-    }
-    // Reload from disk
-    const customSkills = await this.skillLoader.loadAll();
-    for (const skill of customSkills) {
-      this.skills.set(skill.id, skill);
-    }
-    return customSkills.length;
+  async addSkill(skill: SkillDefinition): Promise<void> {
+    await this.registry.addSkill(skill);
+    this.emit('skill:added', skill);
   }
 
-  toToolDefinitions(): Array<{ name: string; description: string; parameters: Record<string, unknown> }> {
-    return Array.from(this.skills.values()).map(skill => ({
-      name: `skill_${skill.id}`,
-      description: skill.description,
-      parameters: Object.fromEntries(
-        skill.parameters.map(p => [p.name, { type: p.type, description: p.description, required: p.required }])
-      ),
-    }));
+  async removeSkill(skillId: string): Promise<void> {
+    await this.registry.removeSkill(skillId);
+    this.emit('skill:removed', { skillId });
+  }
+
+  getRegistry(): SkillRegistry {
+    return this.registry;
+  }
+
+  getActiveExecutions(): SkillExecution[] {
+    return Array.from(this.activeExecutions.values());
   }
 }
-
-export type { SkillDefinition, SkillContext, SkillResult, SkillArtifact, SkillCategory, SkillParameter } from './types';
-export { SkillLoader } from './skill-loader';
-export { SkillExecutor } from './skill-executor';

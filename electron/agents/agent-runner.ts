@@ -287,12 +287,13 @@ export class AgentRunner extends EventEmitter {
         totalTokens.completion += response.usage?.completionTokens ?? 0;
 
         // Add assistant message
+        const msg = response.message ?? { content: response.content, toolCalls: undefined };
         const assistantMessage: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: response.message.content,
+          content: msg.content,
           thinking: response.thinking,
-          toolCalls: response.message.toolCalls?.map(tc => ({
+          toolCalls: msg.toolCalls?.map(tc => ({
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments,
@@ -310,12 +311,12 @@ export class AgentRunner extends EventEmitter {
         options.onStep?.(stepRecord);
 
         // If no tool calls, we're done
-        if (!response.message.toolCalls || response.message.toolCalls.length === 0) {
+        if (!msg.toolCalls || msg.toolCalls.length === 0) {
           return { steps: loopSteps, status: 'completed', totalTokens, finalMessage: assistantMessage };
         }
 
         // Process tool calls
-        for (const toolCall of response.message.toolCalls) {
+        for (const toolCall of msg.toolCalls) {
           const tcRequest: ToolCallRequest = {
             id: toolCall.id,
             name: toolCall.name,
@@ -409,9 +410,9 @@ export class AgentRunner extends EventEmitter {
       });
     }
 
-    return this.providerManager.chat(this.context.providerId, {
-      messages: chatMessages,
+    return this.providerManager.chat({
       model: this.agent.model || this.context.model,
+      messages: chatMessages,
       temperature: this.agent.temperature,
       stream: false,
     });

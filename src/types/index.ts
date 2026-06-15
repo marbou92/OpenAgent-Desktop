@@ -553,10 +553,12 @@ export interface AppSettings {
   startupBehavior: 'show' | 'hidden' | 'tray';
 
   // ─── Provider / Model ─────────────────────────────────────────
+  defaultProviderId: string;
   defaultModel: string;
   opencodePort: number;
   opencodeHostname: string;
   opencodeAutoStart: boolean;
+  autoStartSandbox: boolean;
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: number;
@@ -587,10 +589,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   minimizeToTray: true,
   startupBehavior: 'show',
   // Provider / Model
+  defaultProviderId: '',
   defaultModel: 'anthropic/claude-sonnet-4',
   opencodePort: 0,
   opencodeHostname: '127.0.0.1',
   opencodeAutoStart: true,
+  autoStartSandbox: false,
   // Session
   maxConcurrentSessions: 5,
   autoSave: true,

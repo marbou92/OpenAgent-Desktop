@@ -172,6 +172,78 @@ export class ProviderManager extends EventEmitter {
     return instance;
   }
 
+  // ─── Legacy Chat Convenience Methods ──────────────────────────────────
+
+  async send(
+    providerId: string,
+    model: string,
+    sessionMessages: any[],
+    message: string,
+    options?: { sessionId?: string; extensions?: string[]; sandboxManager?: any; traceCollector?: any }
+  ): Promise<ChatResponse> {
+    const messages = [
+      ...sessionMessages.map((m: any) => ({ role: m.role as string, content: m.content as string })),
+      { role: 'user' as const, content: message },
+    ];
+    return this.chat({
+      model: model || this.getDefaultModel(providerId),
+      messages,
+      stream: false,
+    });
+  }
+
+  async stream(
+    providerId: string,
+    model: string,
+    sessionMessages: any[],
+    message: string,
+    options?: { sessionId?: string; extensions?: string[]; sandboxManager?: any; traceCollector?: any }
+  ): Promise<EventEmitter> {
+    const emitter = new EventEmitter();
+    const messages = [
+      ...sessionMessages.map((m: any) => ({ role: m.role as string, content: m.content as string })),
+      { role: 'user' as const, content: message },
+    ];
+
+    // Start streaming in background
+    (async () => {
+      try {
+        const chatRequest: ChatRequest = {
+          model: model || this.getDefaultModel(providerId),
+          messages,
+          stream: true,
+        };
+        for await (const chunk of this.chatStream(chatRequest)) {
+          if (chunk.type === 'content' && chunk.content) {
+            emitter.emit('data', chunk.content);
+          } else if (chunk.type === 'tool_call' && chunk.toolCall) {
+            emitter.emit('tool_call', chunk.toolCall);
+          } else if (chunk.type === 'tool_result' && chunk.content) {
+            emitter.emit('tool_result', chunk.content);
+          } else if (chunk.type === 'thinking' && chunk.content) {
+            emitter.emit('thinking', chunk.content);
+          } else if (chunk.type === 'usage' && chunk.usage) {
+            // Usage info, can be emitted if needed
+          }
+        }
+        emitter.emit('end', '');
+      } catch (err: any) {
+        emitter.emit('error', err instanceof Error ? err : new Error(String(err)));
+      }
+    })();
+
+    return emitter;
+  }
+
+  async cancelStream(sessionId: string): Promise<void> {
+    // Cancel streaming for a session — currently a no-op placeholder
+    this.emit('stream:cancelled', { sessionId });
+  }
+
+  private getDefaultModel(providerId: string): string {
+    return 'gpt-4o';
+  }
+
   // ─── Legacy Compatibility ──────────────────────────────────────────
 
   async add(config: any): Promise<any> {

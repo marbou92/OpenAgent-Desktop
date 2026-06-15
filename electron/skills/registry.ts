@@ -1,398 +1,411 @@
 /**
- * OpenAgent-Desktop - Skill Registry
+ * OpenAgent-Desktop Aether - Skill Registry
  *
- * Central registry for managing and executing skills (reusable automation templates).
- * Skills are persisted as JSON files on disk and can be parameterized with variables.
- * Built-in skills are registered automatically on initialize().
- *
- * API:
- *   new SkillRegistry(storagePath)  — create a registry rooted at the given directory
- *   .initialize()                   — scan disk, load skill definitions, register built-ins
- *   .list()                         — return all registered skills
- *   .listByCategory(category)       — return skills filtered by category
- *   .get(id)                        — look up a single skill by id
- *   .execute(id, variables, ctx?)   — instantiate and run a skill with the given variables
+ * Manages built-in and user-defined skills. Skills are reusable
+ * workflow templates that can be triggered by the agent or user.
+ * Built-in skills cover common tasks like component creation,
+ * data analysis, document drafting, etc.
  */
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────────
+
+export type SkillCategory = 'coding' | 'analysis' | 'writing' | 'automation' | 'design' | 'debugging';
+export type SkillStatus = 'available' | 'running' | 'completed' | 'failed';
+
+export interface SkillVariable {
+  name: string;
+  description: string;
+  type: 'string' | 'number' | 'boolean' | 'select' | 'file';
+  required: boolean;
+  defaultValue?: any;
+  options?: string[];  // For 'select' type
+}
 
 export interface SkillStep {
-  id: string;
-  label: string;
+  description: string;
   action: string;
-  params: Record<string, unknown>;
-  condition?: string;
-  delaySeconds?: number;
-  continueOnError?: boolean;
+  args?: Record<string, any>;
 }
 
 export interface SkillDefinition {
   id: string;
   name: string;
   description: string;
+  category: SkillCategory;
   version: string;
-  author?: string;
-  category?: string;
-  tags?: string[];
-  variables?: SkillVariable[];
+  variables: SkillVariable[];
   steps: SkillStep[];
-  isBuiltIn?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface SkillVariable {
-  name: string;
-  label?: string;
-  type: 'string' | 'number' | 'boolean' | 'select';
-  default?: unknown;
-  required?: boolean;
-  options?: string[];
-  description?: string;
+  tags?: string[];
+  author?: string;
 }
 
 export interface SkillExecution {
-  executionId: string;
+  id: string;
   skillId: string;
-  variables: Record<string, unknown>;
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
-  results: SkillStepResult[];
+  status: SkillStatus;
+  inputs: Record<string, any>;
+  results: any[];
   startedAt: string;
-  finishedAt?: string;
+  completedAt?: string;
   error?: string;
 }
 
-export interface SkillStepResult {
-  stepId: string;
-  status: 'success' | 'failure' | 'skipped';
-  output?: unknown;
-  error?: string;
-  durationMs?: number;
-}
+// ─── Built-in Skill Definitions ─────────────────────────────────────────────────
 
-// ─── Built-in Skill Definitions ────────────────────────────────────────────────
-
-const BUILT_IN_SKILLS: SkillDefinition[] = [
+const BUILTIN_SKILLS: SkillDefinition[] = [
   {
     id: 'create-component',
     name: 'Create Component',
-    description: 'Generate a new UI component with the specified framework and styling',
-    version: '1.0.0',
-    author: 'OpenAgent',
+    description: 'Generate a new UI component with best practices and proper structure',
     category: 'coding',
-    tags: ['component', 'ui', 'scaffold'],
-    isBuiltIn: true,
+    version: '1.0.0',
     variables: [
-      { name: 'componentName', label: 'Component Name', type: 'string', required: true, description: 'Name of the component to create' },
-      { name: 'framework', label: 'Framework', type: 'select', options: ['react', 'vue', 'svelte', 'angular'], required: true, description: 'UI framework to use' },
-      { name: 'styling', label: 'Styling', type: 'select', options: ['css', 'tailwind', 'styled-components', 'css-modules'], default: 'tailwind', description: 'Styling approach' },
+      { name: 'componentName', description: 'Name of the component', type: 'string', required: true },
+      { name: 'framework', description: 'Target framework', type: 'select', required: true, options: ['react', 'vue', 'svelte', 'angular'] },
+      { name: 'includeTests', description: 'Generate test file', type: 'boolean', required: false, defaultValue: true },
+      { name: 'includeStyles', description: 'Generate style file', type: 'boolean', required: false, defaultValue: true },
     ],
     steps: [
-      { id: 'plan', label: 'Plan Component', action: 'plan', params: { prompt: 'Create a {{componentName}} component using {{framework}} with {{styling}} styling' } },
-      { id: 'generate', label: 'Generate Code', action: 'write-file', params: { path: 'src/components/{{componentName}}.tsx', content: '{{componentCode}}' } },
-      { id: 'test', label: 'Generate Test', action: 'write-file', params: { path: 'src/components/__tests__/{{componentName}}.test.tsx', content: '{{testCode}}' } },
-      { id: 'index', label: 'Update Index', action: 'append-file', params: { path: 'src/components/index.ts', content: "export { default as {{componentName}} } from './{{componentName}}';" } },
+      { description: 'Analyze component requirements', action: 'analyze' },
+      { description: 'Generate component code', action: 'generate' },
+      { description: 'Generate test file', action: 'generate', args: { type: 'test' } },
+      { description: 'Generate style file', action: 'generate', args: { type: 'style' } },
     ],
+    tags: ['component', 'ui', 'frontend'],
   },
   {
     id: 'analyze-data',
     name: 'Analyze Data',
-    description: 'Analyze a dataset and generate insights, statistics, and visualizations',
-    version: '1.0.0',
-    author: 'OpenAgent',
+    description: 'Analyze a dataset and produce insights, statistics, and visualizations',
     category: 'analysis',
-    tags: ['data', 'analysis', 'statistics'],
-    isBuiltIn: true,
+    version: '1.0.0',
     variables: [
-      { name: 'dataPath', label: 'Data Path', type: 'string', required: true, description: 'Path to the data file' },
-      { name: 'analysisType', label: 'Analysis Type', type: 'select', options: ['summary', 'correlation', 'trend', 'anomaly'], default: 'summary', description: 'Type of analysis to perform' },
+      { name: 'dataSource', description: 'Path or URL to the data', type: 'string', required: true },
+      { name: 'analysisType', description: 'Type of analysis', type: 'select', required: false, options: ['summary', 'trends', 'correlations', 'anomalies'], defaultValue: 'summary' },
     ],
     steps: [
-      { id: 'load', label: 'Load Data', action: 'read-file', params: { path: '{{dataPath}}' } },
-      { id: 'profile', label: 'Profile Data', action: 'analyze', params: { type: '{{analysisType}}' } },
-      { id: 'visualize', label: 'Create Visualizations', action: 'generate-chart', params: { format: 'png' } },
-      { id: 'report', label: 'Generate Report', action: 'write-file', params: { path: 'analysis-report.md', content: '{{reportContent}}' } },
+      { description: 'Load data', action: 'load' },
+      { description: 'Compute statistics', action: 'compute' },
+      { description: 'Generate visualizations', action: 'visualize' },
     ],
+    tags: ['data', 'statistics', 'visualization'],
   },
   {
     id: 'draft',
     name: 'Draft Document',
-    description: 'Draft a document from a template with variable substitution',
-    version: '1.0.0',
-    author: 'OpenAgent',
+    description: 'Create a draft document from an outline or description',
     category: 'writing',
-    tags: ['document', 'template', 'writing'],
-    isBuiltIn: true,
+    version: '1.0.0',
     variables: [
-      { name: 'templateName', label: 'Template', type: 'select', options: ['readme', 'changelog', 'api-doc', 'design-doc', 'prd'], required: true, description: 'Document template to use' },
-      { name: 'title', label: 'Title', type: 'string', required: true, description: 'Document title' },
+      { name: 'documentType', description: 'Type of document', type: 'select', required: true, options: ['report', 'proposal', 'memo', 'article', 'readme'] },
+      { name: 'topic', description: 'Document topic or title', type: 'string', required: true },
+      { name: 'outline', description: 'Optional outline or key points', type: 'string', required: false },
     ],
     steps: [
-      { id: 'template', label: 'Load Template', action: 'load-template', params: { name: '{{templateName}}' } },
-      { id: 'fill', label: 'Fill Template', action: 'substitute', params: { title: '{{title}}' } },
-      { id: 'save', label: 'Save Document', action: 'write-file', params: { path: '{{title}}.md', content: '{{documentContent}}' } },
+      { description: 'Generate outline', action: 'plan' },
+      { description: 'Write sections', action: 'write' },
+      { description: 'Review and polish', action: 'review' },
     ],
+    tags: ['document', 'writing', 'content'],
   },
   {
-    id: 'debug-error',
-    name: 'Debug Error',
-    description: 'Analyze an error message and suggest fixes',
-    version: '1.0.0',
-    author: 'OpenAgent',
+    id: 'refactor',
+    name: 'Refactor Code',
+    description: 'Analyze and refactor code for improved quality, readability, and performance',
     category: 'coding',
+    version: '1.0.0',
+    variables: [
+      { name: 'filePath', description: 'Path to the file to refactor', type: 'file', required: true },
+      { name: 'focus', description: 'Refactoring focus area', type: 'select', required: false, options: ['readability', 'performance', 'patterns', 'all'], defaultValue: 'all' },
+    ],
+    steps: [
+      { description: 'Analyze code structure', action: 'analyze' },
+      { description: 'Identify improvements', action: 'identify' },
+      { description: 'Apply refactoring', action: 'transform' },
+    ],
+    tags: ['code', 'quality', 'refactoring'],
+  },
+  {
+    id: 'debug',
+    name: 'Debug Issue',
+    description: 'Systematically diagnose and fix a bug or error',
+    category: 'debugging',
+    version: '1.0.0',
+    variables: [
+      { name: 'errorDescription', description: 'Description of the bug or error', type: 'string', required: true },
+      { name: 'filePath', description: 'Optional file path where the error occurs', type: 'file', required: false },
+      { name: 'errorMessage', description: 'Error message or stack trace', type: 'string', required: false },
+    ],
+    steps: [
+      { description: 'Reproduce the issue', action: 'reproduce' },
+      { description: 'Identify root cause', action: 'diagnose' },
+      { description: 'Apply fix', action: 'fix' },
+      { description: 'Verify fix', action: 'verify' },
+    ],
     tags: ['debug', 'error', 'fix'],
-    isBuiltIn: true,
-    variables: [
-      { name: 'errorMessage', label: 'Error Message', type: 'string', required: true, description: 'The error message to debug' },
-      { name: 'language', label: 'Language', type: 'select', options: ['typescript', 'python', 'rust', 'go', 'java'], default: 'typescript', description: 'Programming language' },
-    ],
-    steps: [
-      { id: 'analyze', label: 'Analyze Error', action: 'analyze', params: { error: '{{errorMessage}}', language: '{{language}}' } },
-      { id: 'search', label: 'Search Solutions', action: 'web-search', params: { query: '{{errorMessage}} {{language}} fix' } },
-      { id: 'suggest', label: 'Suggest Fix', action: 'generate', params: { prompt: 'Suggest fix for {{errorMessage}} in {{language}}' } },
-    ],
   },
   {
-    id: 'code-review',
-    name: 'Code Review',
-    description: 'Review code changes and provide feedback',
+    id: 'create-chart',
+    name: 'Create Chart',
+    description: 'Generate a data visualization chart from data',
+    category: 'analysis',
     version: '1.0.0',
-    author: 'OpenAgent',
-    category: 'coding',
-    tags: ['review', 'quality', 'feedback'],
-    isBuiltIn: true,
     variables: [
-      { name: 'filePath', label: 'File Path', type: 'string', required: true, description: 'Path to the file to review' },
-      { name: 'focus', label: 'Focus Area', type: 'select', options: ['security', 'performance', 'readability', 'all'], default: 'all', description: 'Review focus area' },
+      { name: 'dataSource', description: 'Data to visualize', type: 'string', required: true },
+      { name: 'chartType', description: 'Type of chart', type: 'select', required: true, options: ['bar', 'line', 'pie', 'scatter', 'heatmap', 'radar'] },
+      { name: 'title', description: 'Chart title', type: 'string', required: false },
     ],
     steps: [
-      { id: 'read', label: 'Read Code', action: 'read-file', params: { path: '{{filePath}}' } },
-      { id: 'review', label: 'Review Code', action: 'analyze', params: { focus: '{{focus}}' } },
-      { id: 'feedback', label: 'Generate Feedback', action: 'generate', params: { prompt: 'Review the code in {{filePath}} focusing on {{focus}}' } },
+      { description: 'Load data', action: 'load' },
+      { description: 'Prepare data for chart', action: 'prepare' },
+      { description: 'Generate chart', action: 'generate' },
     ],
+    tags: ['chart', 'visualization', 'data'],
+  },
+  {
+    id: 'generate-report',
+    name: 'Generate Report',
+    description: 'Create a formatted report from analysis results or data',
+    category: 'writing',
+    version: '1.0.0',
+    variables: [
+      { name: 'title', description: 'Report title', type: 'string', required: true },
+      { name: 'dataSources', description: 'Data or results to include', type: 'string', required: true },
+      { name: 'format', description: 'Output format', type: 'select', required: false, options: ['pdf', 'docx', 'html', 'md'], defaultValue: 'pdf' },
+    ],
+    steps: [
+      { description: 'Compile data', action: 'compile' },
+      { description: 'Generate report sections', action: 'generate' },
+      { description: 'Format output', action: 'format' },
+    ],
+    tags: ['report', 'document', 'format'],
+  },
+  {
+    id: 'automate',
+    name: 'Automate Task',
+    description: 'Create an automation script for repetitive tasks',
+    category: 'automation',
+    version: '1.0.0',
+    variables: [
+      { name: 'taskDescription', description: 'Description of the task to automate', type: 'string', required: true },
+      { name: 'language', description: 'Scripting language', type: 'select', required: false, options: ['python', 'bash', 'node', 'powershell'], defaultValue: 'python' },
+    ],
+    steps: [
+      { description: 'Analyze task requirements', action: 'analyze' },
+      { description: 'Generate automation script', action: 'generate' },
+      { description: 'Add error handling', action: 'enhance' },
+    ],
+    tags: ['automation', 'script', 'task'],
+  },
+  {
+    id: 'schedule',
+    name: 'Schedule Task',
+    description: 'Set up a scheduled or recurring task',
+    category: 'automation',
+    version: '1.0.0',
+    variables: [
+      { name: 'taskName', description: 'Name for the scheduled task', type: 'string', required: true },
+      { name: 'schedule', description: 'Cron expression or schedule description', type: 'string', required: true },
+      { name: 'command', description: 'Command or script to run', type: 'string', required: true },
+    ],
+    steps: [
+      { description: 'Validate schedule', action: 'validate' },
+      { description: 'Register scheduled task', action: 'register' },
+    ],
+    tags: ['schedule', 'cron', 'automation'],
+  },
+  {
+    id: 'monitor',
+    name: 'Monitor Process',
+    description: 'Set up monitoring for a process, service, or metric',
+    category: 'automation',
+    version: '1.0.0',
+    variables: [
+      { name: 'target', description: 'What to monitor', type: 'string', required: true },
+      { name: 'metric', description: 'Metric to track', type: 'string', required: false },
+      { name: 'threshold', description: 'Alert threshold', type: 'string', required: false },
+    ],
+    steps: [
+      { description: 'Configure monitoring', action: 'configure' },
+      { description: 'Set up alerts', action: 'alert' },
+    ],
+    tags: ['monitor', 'alert', 'automation'],
+  },
+  {
+    id: 'edit',
+    name: 'Edit Document',
+    description: 'Edit an existing document with specific changes',
+    category: 'writing',
+    version: '1.0.0',
+    variables: [
+      { name: 'filePath', description: 'Path to the document', type: 'file', required: true },
+      { name: 'instructions', description: 'Edit instructions', type: 'string', required: true },
+    ],
+    steps: [
+      { description: 'Read document', action: 'read' },
+      { description: 'Apply edits', action: 'edit' },
+    ],
+    tags: ['edit', 'document', 'writing'],
   },
   {
     id: 'summarize',
     name: 'Summarize Content',
-    description: 'Summarize long-form content into key points',
+    description: 'Summarize a document, article, or text content',
+    category: 'writing',
     version: '1.0.0',
-    author: 'OpenAgent',
-    category: 'analysis',
-    tags: ['summary', 'content', 'distill'],
-    isBuiltIn: true,
     variables: [
-      { name: 'sourcePath', label: 'Source Path', type: 'string', required: true, description: 'Path or URL to the content' },
-      { name: 'length', label: 'Summary Length', type: 'select', options: ['brief', 'medium', 'detailed'], default: 'medium', description: 'Desired summary length' },
+      { name: 'content', description: 'Content to summarize', type: 'string', required: true },
+      { name: 'length', description: 'Summary length', type: 'select', required: false, options: ['brief', 'medium', 'detailed'], defaultValue: 'medium' },
     ],
     steps: [
-      { id: 'load', label: 'Load Content', action: 'read-file', params: { path: '{{sourcePath}}' } },
-      { id: 'summarize', label: 'Summarize', action: 'generate', params: { prompt: 'Summarize the content in {{length}} form' } },
-      { id: 'save', label: 'Save Summary', action: 'write-file', params: { path: 'summary.md', content: '{{summaryContent}}' } },
+      { description: 'Analyze content', action: 'analyze' },
+      { description: 'Generate summary', action: 'generate' },
     ],
+    tags: ['summary', 'document', 'writing'],
   },
 ];
 
-// ─── Registry ──────────────────────────────────────────────────────────────────
+// ─── Skill Registry ─────────────────────────────────────────────────────────────
 
 export class SkillRegistry extends EventEmitter {
-  private storagePath: string;
+  private skillsDir: string;
   private skills: Map<string, SkillDefinition> = new Map();
+  private executions: Map<string, SkillExecution> = new Map();
+  private initialized = false;
 
-  constructor(storagePath: string) {
+  constructor(skillsDir: string) {
     super();
-    this.storagePath = storagePath;
+    this.skillsDir = skillsDir;
   }
 
   async initialize(): Promise<void> {
-    for (const skill of BUILT_IN_SKILLS) {
-      if (!this.skills.has(skill.id)) {
-        this.skills.set(skill.id, {
-          ...skill,
-          createdAt: skill.createdAt ?? new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
+    if (this.initialized) return;
+
+    // Load built-in skills
+    for (const skill of BUILTIN_SKILLS) {
+      this.skills.set(skill.id, skill);
     }
 
+    // Ensure skills directory exists
     try {
-      await fs.mkdir(this.storagePath, { recursive: true });
+      await fs.mkdir(this.skillsDir, { recursive: true });
     } catch {
       // Directory may already exist
     }
 
-    const files = await fs.readdir(this.storagePath).catch(() => [] as string[]);
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
-      try {
-        const raw = await fs.readFile(path.join(this.storagePath, file), 'utf-8');
-        const def: SkillDefinition = JSON.parse(raw);
-        if (def.id) {
-          this.skills.set(def.id, def);
+    // Load custom skills from disk
+    try {
+      const files = await fs.readdir(this.skillsDir);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          try {
+            const content = await fs.readFile(path.join(this.skillsDir, file), 'utf-8');
+            const skill: SkillDefinition = JSON.parse(content);
+            this.skills.set(skill.id, skill);
+          } catch {
+            // Skip invalid skill files
+          }
         }
-      } catch {
-        // Skip malformed skill files silently
       }
+    } catch {
+      // No custom skills yet
     }
 
-    this.emit('initialized', { count: this.skills.size });
+    this.initialized = true;
   }
 
   list(): SkillDefinition[] {
     return Array.from(this.skills.values());
   }
 
-  listByCategory(category: string): SkillDefinition[] {
-    return this.list().filter((s) => s.category === category);
+  listByCategory(category: SkillCategory): SkillDefinition[] {
+    return this.list().filter(s => s.category === category);
   }
 
   get(skillId: string): SkillDefinition | undefined {
     return this.skills.get(skillId);
   }
 
-  async execute(
-    skillId: string,
-    variables: Record<string, unknown> = {},
-    context?: Record<string, unknown>,
-  ): Promise<SkillExecution> {
+  async execute(skillId: string, inputs: Record<string, any>, context?: Record<string, unknown>): Promise<SkillExecution> {
     const skill = this.skills.get(skillId);
     if (!skill) {
       throw new Error(`Skill not found: ${skillId}`);
     }
 
-    if (skill.variables) {
-      for (const v of skill.variables) {
-        if (v.required && !(v.name in variables) && v.default === undefined) {
-          throw new Error(`Missing required variable: ${v.name}`);
-        }
+    // Validate required variables
+    for (const variable of skill.variables) {
+      if (variable.required && (inputs[variable.name] === undefined || inputs[variable.name] === '')) {
+        throw new Error(`Missing required variable: ${variable.name}`);
       }
     }
 
-    const executionId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const executionId = `exec-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     const execution: SkillExecution = {
-      executionId,
+      id: executionId,
       skillId,
-      variables,
       status: 'running',
+      inputs,
       results: [],
       startedAt: new Date().toISOString(),
     };
 
-    this.emit('execution:started', { executionId, skillId });
+    this.executions.set(executionId, execution);
 
-    for (const step of skill.steps) {
-      if (step.condition) {
-        try {
-          const shouldRun = this.evaluateCondition(step.condition, variables);
-          if (!shouldRun) {
-            execution.results.push({ stepId: step.id, status: 'skipped' });
-            continue;
-          }
-        } catch {
-          execution.results.push({ stepId: step.id, status: 'skipped' });
-          continue;
-        }
+    try {
+      // Execute each step (simplified — in production, each step would invoke an LLM/tool)
+      for (const step of skill.steps) {
+        const result = {
+          step: step.description,
+          action: step.action,
+          output: `Completed: ${step.description}`,
+          inputs: { ...inputs, ...step.args },
+        };
+        execution.results.push(result);
       }
 
-      if (step.delaySeconds && step.delaySeconds > 0) {
-        await new Promise((resolve) => setTimeout(resolve, step.delaySeconds! * 1000));
-      }
-
-      const startMs = Date.now();
-      try {
-        const resolvedParams = this.substituteVariables(step.params, variables);
-        execution.results.push({
-          stepId: step.id,
-          status: 'success',
-          output: { action: step.action, params: resolvedParams, context: context ?? null },
-          durationMs: Date.now() - startMs,
-        });
-      } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        execution.results.push({
-          stepId: step.id,
-          status: 'failure',
-          error: errorMsg,
-          durationMs: Date.now() - startMs,
-        });
-
-        if (!step.continueOnError) {
-          execution.status = 'failed';
-          execution.error = `Step ${step.id} failed: ${errorMsg}`;
-          break;
-        }
-      }
-    }
-
-    if (execution.status === 'running') {
       execution.status = 'completed';
+      execution.completedAt = new Date().toISOString();
+    } catch (err: any) {
+      execution.status = 'failed';
+      execution.error = err?.message || String(err);
+      execution.completedAt = new Date().toISOString();
     }
-    execution.finishedAt = new Date().toISOString();
 
-    this.emit('execution:completed', { executionId, skillId, status: execution.status });
+    this.emit('skill:executed', execution);
     return execution;
   }
 
-  async register(definition: SkillDefinition): Promise<void> {
-    const def = {
-      ...definition,
-      createdAt: definition.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    this.skills.set(def.id, def);
-    await this.persist(def);
-    this.emit('skill:registered', { skillId: def.id });
+  async addSkill(skill: SkillDefinition): Promise<void> {
+    this.skills.set(skill.id, skill);
+    // Persist to disk
+    const filePath = path.join(this.skillsDir, `${skill.id}.json`);
+    await fs.writeFile(filePath, JSON.stringify(skill, null, 2), 'utf-8');
+    this.emit('skill:added', skill);
   }
 
-  async unregister(skillId: string): Promise<boolean> {
-    if (!this.skills.has(skillId)) return false;
+  async removeSkill(skillId: string): Promise<void> {
+    if (!this.skills.has(skillId)) {
+      throw new Error(`Skill not found: ${skillId}`);
+    }
     this.skills.delete(skillId);
     try {
-      await fs.unlink(path.join(this.storagePath, `${skillId}.json`));
+      const filePath = path.join(this.skillsDir, `${skillId}.json`);
+      await fs.unlink(filePath);
     } catch {
-      // File may already be gone
+      // File may not exist
     }
-    this.emit('skill:unregistered', { skillId });
-    return true;
+    this.emit('skill:removed', { skillId });
   }
 
-  private async persist(def: SkillDefinition): Promise<void> {
-    await fs.mkdir(this.storagePath, { recursive: true });
-    await fs.writeFile(
-      path.join(this.storagePath, `${def.id}.json`),
-      JSON.stringify(def, null, 2),
-      'utf-8',
-    );
+  getExecution(executionId: string): SkillExecution | undefined {
+    return this.executions.get(executionId);
   }
 
-  private substituteVariables(value: unknown, variables: Record<string, unknown>): unknown {
-    if (typeof value === 'string') {
-      return value.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-        return key in variables ? String(variables[key]) : `{{${key}}}`;
-      });
-    }
-    if (Array.isArray(value)) {
-      return value.map((item) => this.substituteVariables(item, variables));
-    }
-    if (value !== null && typeof value === 'object') {
-      const result: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        result[k] = this.substituteVariables(v, variables);
-      }
-      return result;
-    }
-    return value;
-  }
-
-  private evaluateCondition(condition: string, variables: Record<string, unknown>): boolean {
-    const match = condition.match(/^\{\{(\w+)\}\}$/);
-    if (match) {
-      const val = variables[match[1]];
-      return !!val;
-    }
-    return condition.toLowerCase() !== 'false';
+  isInitialized(): boolean {
+    return this.initialized;
   }
 }

@@ -36,11 +36,23 @@ export interface ChatRequest {
   tools?: ToolDefinition[];
 }
 
+export interface ToolCallInfo {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
 export interface ChatResponse {
   id: string;
   content: string;
   model: string;
   usage?: { promptTokens: number; completionTokens: number };
+  // Extended fields for agent-runner compatibility
+  message?: {
+    content: string;
+    toolCalls?: ToolCallInfo[];
+  };
+  thinking?: string;
 }
 
 export interface StreamChunk {

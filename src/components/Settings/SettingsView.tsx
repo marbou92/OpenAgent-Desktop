@@ -261,7 +261,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               <SettingsRow label="Language" description="Application language">
                 <select
                   value={settings.language}
-                  onChange={(e) => onUpdateSettings({ language: e.target.value })}
+                  onChange={(e) => onUpdateSettings({ language: e.target.value as AppSettings['language'] })}
                   className="px-3 py-2 rounded-lg border text-sm"
                   style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
                 >

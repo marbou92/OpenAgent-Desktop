@@ -88,10 +88,12 @@ interface AppConfig {
   autoUpdate: boolean;
   minimizeToTray: boolean;
   startupBehavior: 'show' | 'hidden' | 'tray';
+  defaultProviderId: string;
   defaultModel: string;
   opencodePort: number;
   opencodeHostname: string;
   opencodeAutoStart: boolean;
+  autoStartSandbox: boolean;
   maxConcurrentSessions: number;
   autoSave: boolean;
   sessionTimeoutMinutes: number;
@@ -212,13 +214,28 @@ function loadConfig(): AppConfig {
   const defaults: AppConfig = {
     windowBounds: { width: 1280, height: 800 },
     theme: "system",
-    autoStartSandbox: true,
-    defaultProviderId: "openai",
-    defaultModel: "gpt-4o",
-    maxConcurrentSessions: 5,
-    traceEnabled: true,
+    language: "en",
     autoUpdate: true,
     minimizeToTray: true,
+    startupBehavior: "show",
+    defaultProviderId: "openai",
+    defaultModel: "gpt-4o",
+    opencodePort: 3000,
+    opencodeHostname: "127.0.0.1",
+    opencodeAutoStart: true,
+    autoStartSandbox: true,
+    maxConcurrentSessions: 5,
+    autoSave: true,
+    sessionTimeoutMinutes: 30,
+    permissionMode: "ask",
+    sandboxMode: "path",
+    debugMode: false,
+    skillsPath: "",
+    enableBuiltinSkills: true,
+    logLevel: "info",
+    traceEnabled: true,
+    crashLogRetention: 7,
+    developerMode: false,
   };
 
   // Backup existing config before loading
@@ -893,7 +910,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     "provider:setDefault",
     wrapIPC(async (_event, providerId: string, model: string) => {
-      await providerManager.setDefault(providerId);
+      await providerManager.setDefault(providerId, model);
       appConfig.defaultProviderId = providerId;
       appConfig.defaultModel = model;
       saveConfig(appConfig);
@@ -1918,13 +1935,28 @@ if (!gotTheLock) {
       const defaults: AppConfig = {
         windowBounds: { width: 1280, height: 800 },
         theme: "system",
-        autoStartSandbox: true,
-        defaultProviderId: "openai",
-        defaultModel: "gpt-4o",
-        maxConcurrentSessions: 5,
-        traceEnabled: true,
+        language: "en",
         autoUpdate: true,
         minimizeToTray: true,
+        startupBehavior: "show",
+        defaultProviderId: "openai",
+        defaultModel: "gpt-4o",
+        opencodePort: 3000,
+        opencodeHostname: "127.0.0.1",
+        opencodeAutoStart: true,
+        autoStartSandbox: true,
+        maxConcurrentSessions: 5,
+        autoSave: true,
+        sessionTimeoutMinutes: 30,
+        permissionMode: "ask",
+        sandboxMode: "path",
+        debugMode: false,
+        skillsPath: "",
+        enableBuiltinSkills: true,
+        logLevel: "info",
+        traceEnabled: true,
+        crashLogRetention: 7,
+        developerMode: false,
       };
       appConfig = { ...defaults, ...appConfig };
     }
