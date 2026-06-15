@@ -1,49 +1,34 @@
 /**
  * OpenAgent-Desktop Aether - PDF Skill
  *
- * Built-in skill for generating PDF documents.
+ * Generates PDF documents from user instructions.
  */
 
 import type { SkillDefinition, SkillExecution } from '../registry';
 
-export const PDF_SKILL: SkillDefinition = {
+export const pdfSkillDefinition: SkillDefinition = {
   id: 'generate-pdf',
   name: 'Generate PDF',
-  description: 'Create a PDF document from content',
+  description: 'Create a PDF document from a description or template',
   category: 'writing',
   version: '1.0.0',
-  variables: [
-    { name: 'filename', description: 'Output filename', type: 'string', required: true },
-    { name: 'title', description: 'Document title', type: 'string', required: true },
-    { name: 'content', description: 'PDF body content', type: 'string', required: false },
-  ],
-  steps: [
-    { description: 'Prepare PDF structure', action: 'prepare' },
-    { description: 'Generate PDF file', action: 'generate' },
-    { description: 'Save to output path', action: 'save' },
-  ],
-  tags: ['document', 'pdf', 'writing'],
+  enabled: true,
+  isBuiltin: true,
 };
 
-export async function executePdfSkill(
-  inputs: Record<string, any>,
-): Promise<SkillExecution> {
-  const { filename, title, content: _content } = inputs;
-
-  const executionId = `exec-pdf-${Date.now()}`;
-  const results: any[] = [];
-
-  results.push({ step: 'Prepare PDF structure', output: `Prepared structure for "${title}"` });
-  results.push({ step: 'Generate PDF file', output: `Generated PDF: ${filename}` });
-  results.push({ step: 'Save to output path', output: `Saved to ${filename}` });
-
+export const pdfSkillExecution: SkillExecution = async (input, _context) => {
+  const { title, content, template } = input;
+  // Stub: actual PDF generation handled by the agent via external tools
   return {
-    id: executionId,
-    skillId: 'generate-pdf',
     status: 'completed',
-    inputs,
-    results,
-    startedAt: new Date().toISOString(),
-    completedAt: new Date().toISOString(),
+    title: title ?? 'Untitled Document',
+    content: content ?? '',
+    template: template ?? 'default',
+    format: 'pdf',
   };
-}
+};
+
+export default {
+  definition: pdfSkillDefinition,
+  execute: pdfSkillExecution,
+};

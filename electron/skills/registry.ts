@@ -14,11 +14,14 @@ export interface SkillDefinition {
   name: string;
   description: string;
   category: string;
+  version?: string;
   parameters?: Record<string, unknown>;
   handler?: string;
   enabled: boolean;
   isBuiltin: boolean;
 }
+
+export type SkillExecution = (input: Record<string, unknown>, context?: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 export class SkillRegistry extends EventEmitter {
   private skills: Map<string, SkillDefinition> = new Map();
