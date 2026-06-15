@@ -103,7 +103,7 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
-      - name: Build application
+      - name: Build application (x64 + ia32 for Win7)
         run: npm run electron:build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
