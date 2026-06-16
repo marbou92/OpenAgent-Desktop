@@ -5,7 +5,7 @@
  * Gracefully handles Electron 22 (Win7) where utilityProcess may not exist.
  */
 
-import { app } from 'electron';
+import { app, utilityProcess as _utilityProcess } from 'electron';
 import { EventEmitter } from 'events';
 import * as child_process from 'child_process';
 import * as net from 'net';
@@ -16,7 +16,8 @@ import { loadShellEnv } from './shell-env';
 import type { SidecarConfig, SidecarInstance, SidecarStatus } from './types';
 
 // Feature-detect utilityProcess (Electron 26+). Fall back to child_process.fork on Electron 22.
-const utilityProcess: typeof Electron.UtilityProcess | undefined = (Electron as any).utilityProcess;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const utilityProcess: any = typeof _utilityProcess !== 'undefined' ? _utilityProcess : undefined;
 
 export class SidecarManager extends EventEmitter {
   private instance: SidecarInstance | null = null;
@@ -218,7 +219,7 @@ export class SidecarManager extends EventEmitter {
           }
         });
 
-        child.on('exit', (code) => {
+        child.on('exit', (code: number | null) => {
           clearTimeout(timeoutId);
           if (this.status === 'starting') {
             reject(new Error(`Sidecar exited during startup with code ${code}`));
@@ -286,7 +287,7 @@ export class SidecarManager extends EventEmitter {
           }
         });
 
-        child.on('exit', (code) => {
+        child.on('exit', (code: number | null) => {
           clearTimeout(timeoutId);
           if (this.status === 'starting') {
             reject(new Error(`Sidecar exited during startup with code ${code}`));
