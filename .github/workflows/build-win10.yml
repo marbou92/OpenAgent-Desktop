@@ -1,0 +1,70 @@
+name: Build Windows 10
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'electron/**'
+      - 'src/**'
+      - '.github/workflows/build-win10.yml'
+
+jobs:
+  build-win10:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run typecheck (renderer + electron)
+        run: |
+          npm run typecheck
+          npm run typecheck:electron
+
+      - name: Run tests
+        run: npx vitest run
+
+      - name: Build application (x64 + ia32)
+        run: npm run electron:build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows 10 build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win10-build
+          path: |
+            release/*.exe
+            release/*.zip
+            release/*.msi
+          retention-days: 90
+
+      - name: Upload to release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/*.exe
+            release/*.zip
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
