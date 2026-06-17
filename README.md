@@ -20,48 +20,34 @@
 ## Features
 
 ### Multi-Provider Support
-Connect to **LLM providers** with a unified interface (the custom-provider system supports OpenAI-, Anthropic-, and Gemini-protocol compatible endpoints; built-in provider presets are defined in `electron/custom-provider/model-presets.ts`):
+The provider system was rewritten in v3 to follow opencode's design. Connect to **12 built-in LLM providers** with a unified interface, plus any OpenAI-compatible custom endpoint:
 
-| Provider | Environment Variable | Description |
-|----------|---------------------|-------------|
-| OpenAI | `OPENAI_API_KEY` | GPT-4o, GPT-4 Turbo, GPT-3.5, o1, o3 |
-| Anthropic | `ANTHROPIC_API_KEY` | Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku |
-| Google Gemini | `GOOGLE_API_KEY` | Gemini Pro, Gemini Ultra, Gemini Flash |
-| Azure OpenAI | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT` | Azure-hosted OpenAI models |
-| AWS Bedrock | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | AWS-hosted Claude, Llama, Mistral |
-| Google Vertex AI | `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_REGION` | Google Cloud-hosted models |
-| Mistral AI | `MISTRAL_API_KEY` | Mistral Large, Medium, Small, Nemo |
-| Cohere | `COHERE_API_KEY` | Command R+, Command R, Embed |
-| Meta Llama (API) | `LLAMA_API_KEY` | Llama 3.1, Llama 3 |
-| xAI Grok | `XAI_API_KEY` | Grok-1, Grok-2 |
-| DeepSeek | `DEEPSEEK_API_KEY` | DeepSeek-V2, DeepSeek Coder |
-| Perplexity | `PERPLEXITY_API_KEY` | Sonar, Sonar Large |
-| Together AI | `TOGETHER_API_KEY` | Open-source model hosting |
-| Fireworks AI | `FIREWORKS_API_KEY` | Fast inference for open models |
-| Anyscale | `ANYSCALE_API_KEY` | Scalable LLM endpoint |
-| OpenRouter | `OPENROUTER_API_KEY` | Multi-model router |
-| LiteLLM | `LITELLM_API_KEY` | Universal LLM proxy |
-| Ollama | (local, no key needed) | Local model runtime |
-| LM Studio | (local, no key needed) | Local model desktop app |
-| llama.cpp | (local, no key needed) | Local inference engine |
-| KoboldCpp | (local, no key needed) | Local GGML/GGUF runtime |
-| LocalAI | `LOCALAI_API_KEY` | Self-hosted OpenAI-compatible API |
-| Text Generation WebUI | (local, no key needed) | Oobabooga local inference |
-| vLLM | (local, no key needed) | High-throughput local serving |
-| Hugging Face | `HUGGINGFACE_API_KEY` | Inference API |
-| AI21 Labs | `AI21_API_KEY` | Jamba, Jurassic-2 |
-| Aleph Alpha | `ALEPH_ALPHA_API_KEY` | Luminous models |
-| Cerebras | `CEREBRAS_API_KEY` | Cerebras WSE inference |
-| Groq | `GROQ_API_KEY` | Ultra-fast LPU inference |
-| SambaNova | `SAMBANOVA_API_KEY` | SambaNova Reconfigurable Dataflow |
-| Silicon Flow | `SILICONFLOW_API_KEY` | Cloud GPU inference |
-| Zhipu AI | `ZHIPU_API_KEY` | GLM-4, ChatGLM |
-| Moonshot | `MOONSHOT_API_KEY` | Kimi, Moonshot-v1 |
-| Baichuan | `BAICHUAN_API_KEY` | Baichuan-2 |
-| Yi (01.AI) | `YI_API_KEY` | Yi-Large, Yi-34B |
-| Minimax | `MINIMAX_API_KEY` | abab6, abab5.5 |
-| Stepfun | `STEPFUN_API_KEY` | Step-1V, Step-2 |
-| Databricks | `DATABRICKS_API_KEY` | DBRX, Dolly |
+#### Built-in Providers
+
+| Provider | Auth Methods | Description |
+|----------|--------------|-------------|
+| OpenAI | API key, OAuth, env var | GPT-4o, GPT-4 Turbo, GPT-3.5, o1, o3 |
+| Anthropic | API key, OAuth, env var | Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku |
+| Google Gemini | API key, env var | Gemini 2.0 Flash, Gemini 1.5 Pro/Flash |
+| Azure OpenAI | API key, Azure AD | Azure-hosted OpenAI models |
+| AWS Bedrock | env var (AWS creds) | Claude / Llama / Mistral on Bedrock |
+| Google Vertex AI | env var, Azure AD | Gemini + Claude on Vertex AI |
+| OpenRouter | API key, env var | 100+ models via OpenRouter |
+| Mistral AI | API key, env var | Mistral Large / Medium / Small / Nemo / Codestral |
+| Cohere | API key, env var | Command R+ / R / R7B |
+| Groq | API key, env var | Llama 3.3 70B, Mixtral 8x7B (fast inference) |
+| DeepSeek | API key, env var | DeepSeek Chat / Reasoner |
+| Together AI | API key, env var | Llama 3.3 70B, Llama 3.1 405B, Qwen 2.5 72B |
+
+#### Architecture (opencode-style)
+- **auth.json** persisted at `userData/auth.json` — all credentials encrypted at rest via Electron `safeStorage` (DPAPI / Keychain / libsecret).
+- **Provider registry** — static catalog of the 12 built-ins, plus user-added custom OpenAI-compatible endpoints.
+- **Protocol adapters** — per-protocol translators (openai / anthropic / gemini / bedrock / vertex) that normalize the unified `ChatRequest`/`StreamChunk` types.
+- **Provider client** — unified entry point; routes to the correct adapter based on the model's qualified id (`<providerId>/<modelId>`).
+- **OpenCode sidecar (optional)** — if `@opencode-ai/server` is installed and the sidecar starts successfully, chat calls are routed through it. Otherwise, the in-process provider client handles them directly. Both paths return the same `StreamChunk` shape.
+- **Per-session binding** — each session has its own provider+model selection (opencode-style). Switching sessions in the UI changes the active provider without manual re-selection.
+- **Model discovery** — hardcoded presets per provider + a "Refresh from provider" button that calls the provider's `/models` endpoint and caches the result.
+- **OAuth + Azure AD** — full OAuth 2.0 Authorization Code flow with PKCE for Anthropic and OpenAI; Azure AD (MSAL-equivalent inline PKCE flow) for Azure OpenAI / Vertex. Custom protocol `openagent-desktop://oauth/callback` handles redirects.
 
 ### Extensions
 

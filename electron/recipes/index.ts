@@ -22,6 +22,7 @@ export interface RecipeEngineOptions {
   traceCollector?: any;
   extensionRegistry?: any;
   providerManager?: any;
+  providerClient?: any; // Provider v3 — preferred when available
   sandboxManager?: any;
   hookManager?: any;
 }
@@ -54,6 +55,7 @@ export class RecipeEngine extends EventEmitter {
 
     this.executor = new RecipeExecutor({
       providerManager: options.providerManager,
+      providerClient: options.providerClient,
       hookManager: options.hookManager,
       traceCollector: options.traceCollector,
       store: this.store,

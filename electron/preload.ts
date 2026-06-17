@@ -470,6 +470,45 @@ const electronAPI = {
     presets: (): Promise<any[]> => invoke("custom-provider:presets"),
   },
 
+  // ── Provider v3 (opencode-style) ──────────────────────────────────────────
+  // The new provider system. Replaces customProviders in the long run; both
+  // are exposed during the transition.
+
+  providersV3: {
+    // Catalog
+    listDefinitions: (): Promise<any[]> => invoke("providerv3:list-definitions"),
+    listConfigured: (): Promise<any[]> => invoke("providerv3:list-configured"),
+    listModels: (providerId: string): Promise<any[]> => invoke("providerv3:list-models", providerId),
+    getDiscovered: (providerId: string): Promise<any> => invoke("providerv3:get-discovered", providerId),
+    refreshModels: (providerId: string): Promise<any[]> => invoke("providerv3:refresh-models", providerId),
+
+    // CRUD
+    setApiKey: (providerId: string, apiKey: string): Promise<void> => invoke("providerv3:set-api-key", providerId, apiKey),
+    setBaseUrlOverride: (providerId: string, baseUrl: string): Promise<void> => invoke("providerv3:set-base-url-override", providerId, baseUrl),
+    setDefaultModel: (providerId: string, modelId: string): Promise<void> => invoke("providerv3:set-default-model", providerId, modelId),
+    addCustomModel: (providerId: string, model: { id: string; displayName: string; contextWindow?: number }): Promise<void> => invoke("providerv3:add-custom-model", providerId, model),
+    removeCustomModel: (providerId: string, modelId: string): Promise<void> => invoke("providerv3:remove-custom-model", providerId, modelId),
+    setEnabled: (providerId: string, enabled: boolean): Promise<void> => invoke("providerv3:set-enabled", providerId, enabled),
+    remove: (providerId: string): Promise<void> => invoke("providerv3:remove", providerId),
+    disconnect: (providerId: string): Promise<void> => invoke("providerv3:disconnect", providerId),
+
+    // Auth flows
+    startOAuth: (providerId: string): Promise<void> => invoke("providerv3:start-oauth", providerId),
+    startAzureAd: (providerId: string, tenantId: string, clientId: string): Promise<void> => invoke("providerv3:start-azure-ad", providerId, tenantId, clientId),
+
+    // Health
+    runHealthCheck: (providerId: string): Promise<any> => invoke("providerv3:run-health-check", providerId),
+    listHealth: (): Promise<Record<string, any>> => invoke("providerv3:list-health"),
+
+    // Session binding
+    getBinding: (sessionId: string): Promise<any> => invoke("providerv3:get-binding", sessionId),
+    setBinding: (sessionId: string, providerId: string, modelId: string, overrides?: { systemPromptOverride?: string; temperatureOverride?: number }): Promise<void> => invoke("providerv3:set-binding", sessionId, providerId, modelId, overrides),
+    clearBinding: (sessionId: string): Promise<void> => invoke("providerv3:clear-binding", sessionId),
+
+    // Chat (non-stream)
+    chat: (request: any): Promise<any> => invoke("providerv3:chat", request),
+  },
+
   // ── Platform ───────────────────────────────────────────────────────────────
 
   platform: {

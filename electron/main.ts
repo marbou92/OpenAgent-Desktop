@@ -38,6 +38,14 @@ import { SkillRegistry } from './skills/registry';
 import { ProviderHealthMonitor } from './providers/health-monitor';
 // ─── Aether v2: New Subsystem Imports ──────────────────────────────────────
 import { CrashLogger, CrashDetector } from './crash';
+// ─── Provider v3: New Provider System Imports ──────────────────────────────
+import { AuthStore } from './providers/auth-store';
+import { ProviderClient, setSidecarEndpoint } from './providers/provider-client';
+import { OAuthHandler } from './providers/oauth/oauth-handler';
+import { AzureAdProvider } from './providers/azure-ad/msal-provider';
+import { ModelDiscoverer } from './providers/model-discoverer';
+import { SessionBinding } from './providers/session-binding';
+import { getProviderRegistry } from './providers/provider-registry';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
 import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
@@ -154,6 +162,14 @@ let projectManager: ProjectManager;
 let skillRegistry: SkillRegistry;
 let healthMonitor: ProviderHealthMonitor;
 let openCodeBridge: OpenCodeBridge;
+
+// ─── Provider v3 Globals ────────────────────────────────────────────────────
+let authStore: AuthStore;
+let providerClient: ProviderClient;
+let oauthHandler: OAuthHandler;
+let azureAdProvider: AzureAdProvider;
+let modelDiscoverer: ModelDiscoverer;
+let sessionBinding: SessionBinding;
 
 // ─── Phase 1-8: New Subsystem Globals ────────────────────────────────────────
 let agentRegistry: AgentRegistry;
@@ -531,7 +547,7 @@ function setupDeepLinks(): void {
   });
 }
 
-function handleDeepLink(url: string): void {
+async function handleDeepLink(url: string): Promise<void> {
   try {
     const parsedUrl = new URL(url);
     const action = parsedUrl.hostname;
@@ -635,6 +651,27 @@ function handleDeepLink(url: string): void {
         const sessionId = params.id;
         if (sessionId) {
           mainWindow?.webContents.send("session:open-requested", sessionId);
+        }
+        break;
+      }
+      case "oauth/callback": {
+        // Provider v3 OAuth callback. The full URL is reconstructed from
+        // searchParams because the URL parser strips some chars.
+        try {
+          const fullUrl = `${DEEP_LINK_PROTOCOL}://${action}${parsedUrl.search}${parsedUrl.hash}`;
+          await oauthHandler.handleCallback(fullUrl);
+        } catch (err) {
+          console.error("[Main] OAuth callback failed:", err);
+        }
+        break;
+      }
+      case "azure-ad/callback": {
+        // Azure AD OAuth callback.
+        try {
+          const fullUrl = `${DEEP_LINK_PROTOCOL}://${action}${parsedUrl.search}${parsedUrl.hash}`;
+          await azureAdProvider.handleCallback(fullUrl);
+        } catch (err) {
+          console.error("[Main] Azure AD callback failed:", err);
         }
         break;
       }
@@ -857,6 +894,67 @@ async function initializeSubsystems(): Promise<void> {
   });
   await healthMonitor.start();
 
+  // ─── Provider v3 initialization ────────────────────────────────────────────
+  // The new v3 provider system (auth-store + provider-registry + protocol-adapters +
+  // provider-client + oauth + azure-ad + model-discoverer + session-binding).
+  // Runs alongside the legacy v2 manager during the transition.
+  authStore = new AuthStore();
+  authStore.load();
+  authStore.on('error', (err: unknown) => logger.error('AuthStore', 'Error', err));
+  authStore.on('provider-changed', (providerId: string) => {
+    mainWindow?.webContents.send('providerv3:changed', { providerId });
+  });
+  authStore.on('provider-removed', (providerId: string) => {
+    mainWindow?.webContents.send('providerv3:removed', { providerId });
+  });
+  authStore.on('session-binding-changed', (sessionId: string) => {
+    mainWindow?.webContents.send('providerv3:binding-changed', { sessionId });
+  });
+
+  providerClient = new ProviderClient(authStore);
+  providerClient.on('sidecar-fallback', (info: unknown) => {
+    logger.info('ProviderClient', 'Sidecar unavailable, using in-process path', info);
+  });
+
+  // If the OpenCode sidecar is running, route provider calls through it.
+  const sidecarInstanceForV3 = providerManager.getSidecarInstance();
+  if (sidecarInstanceForV3) {
+    setSidecarEndpoint(sidecarInstanceForV3.url, sidecarInstanceForV3.password);
+    logger.info('ProviderClient', 'OpenCode sidecar detected — using sidecar path for supported providers');
+  } else {
+    logger.info('ProviderClient', 'No OpenCode sidecar — using in-process provider path');
+  }
+
+  oauthHandler = new OAuthHandler(authStore);
+  oauthHandler.on('flow-completed', ({ providerId }: { providerId: string }) => {
+    mainWindow?.webContents.send('providerv3:oauth-completed', { providerId });
+  });
+  oauthHandler.on('flow-error', (info: unknown) => {
+    mainWindow?.webContents.send('providerv3:oauth-error', info);
+  });
+  oauthHandler.on('needs-config', (info: unknown) => {
+    mainWindow?.webContents.send('providerv3:oauth-needs-config', info);
+  });
+
+  azureAdProvider = new AzureAdProvider(authStore);
+  azureAdProvider.on('flow-completed', ({ providerId }: { providerId: string }) => {
+    mainWindow?.webContents.send('providerv3:azure-ad-completed', { providerId });
+  });
+  azureAdProvider.on('flow-error', (info: unknown) => {
+    mainWindow?.webContents.send('providerv3:azure-ad-error', info);
+  });
+
+  modelDiscoverer = new ModelDiscoverer(authStore, providerClient);
+  sessionBinding = new SessionBinding(authStore, providerClient);
+  sessionBinding.on('binding-changed', (binding: unknown) => {
+    mainWindow?.webContents.send('providerv3:binding-changed', binding);
+  });
+  sessionBinding.on('binding-invalid', (info: unknown) => {
+    logger.warn('SessionBinding', 'Binding invalid — provider no longer configured', info);
+  });
+
+  logger.info('ProviderClient', `Provider v3 initialized — ${authStore.listProviders().length} providers configured`);
+
   // Initialize extension registry
   extensionRegistry = new ExtensionRegistry(path.join(userDataPath, "extensions", "extension-configs.json"));
   await extensionRegistry.initialize();
@@ -951,6 +1049,7 @@ async function initializeSubsystems(): Promise<void> {
     traceCollector,
     extensionRegistry,
     providerManager,
+    providerClient, // Provider v3 — preferred when available
     sandboxManager,
     hookManager,
   });
@@ -1099,6 +1198,219 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("custom-provider:presets", wrapIPC(async () => {
     return { success: true, data: providerManager.getCustomProviderPresets() };
+  }));
+
+  // ── Provider v3 IPC ──────────────────────────────────────────────────────────
+  // The new opencode-style provider system. The renderer's ProvidersView calls
+  // these via window.openagent.providersV3.* (see preload.ts).
+
+  ipcMain.handle("providerv3:list-definitions", wrapIPC(async () => {
+    return { success: true, data: getProviderRegistry().listAll() };
+  }));
+
+  ipcMain.handle("providerv3:list-configured", wrapIPC(async () => {
+    return { success: true, data: authStore.listProviders() };
+  }));
+
+  ipcMain.handle("providerv3:list-models", wrapIPC(async (_event, providerId: string) => {
+    return { success: true, data: providerClient.listAvailableModels(providerId) };
+  }));
+
+  ipcMain.handle("providerv3:get-discovered", wrapIPC(async (_event, providerId: string) => {
+    const models = authStore.getCachedModels(providerId);
+    const fetchedAt = authStore.getCachedModelsFetchedAt(providerId);
+    return { success: true, data: models ? { models, fetchedAt } : null };
+  }));
+
+  ipcMain.handle("providerv3:refresh-models", wrapIPC(async (_event, providerId: string) => {
+    const models = await modelDiscoverer.refreshModels(providerId, true);
+    return { success: true, data: models };
+  }));
+
+  ipcMain.handle("providerv3:set-api-key", wrapIPC(async (_event, providerId: string, apiKey: string) => {
+    const def = getProviderRegistry().get(providerId);
+    if (!def) return { success: false, error: `Unknown provider: ${providerId}` };
+    const existing = authStore.getProvider(providerId);
+    authStore.upsertProvider({
+      providerId,
+      label: existing?.label || def.name,
+      auth: { method: 'api_key', apiKey },
+      customModels: existing?.customModels,
+      baseUrlOverride: existing?.baseUrlOverride,
+      defaultModelId: existing?.defaultModelId || def.modelPresets[0]?.id,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    });
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:set-base-url-override", wrapIPC(async (_event, providerId: string, baseUrl: string) => {
+    const existing = authStore.getProvider(providerId);
+    if (!existing) return { success: false, error: 'Provider not configured' };
+    authStore.upsertProvider({ ...existing, baseUrlOverride: baseUrl || undefined });
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:set-default-model", wrapIPC(async (_event, providerId: string, modelId: string) => {
+    const existing = authStore.getProvider(providerId);
+    if (!existing) return { success: false, error: 'Provider not configured' };
+    authStore.upsertProvider({ ...existing, defaultModelId: modelId });
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:add-custom-model", wrapIPC(async (_event, providerId: string, model: { id: string; displayName: string; contextWindow?: number }) => {
+    const existing = authStore.getProvider(providerId);
+    if (!existing) return { success: false, error: 'Provider not configured' };
+    const customModels = [...(existing.customModels || []), { ...model, supportsStreaming: true, supportsToolUse: true }];
+    authStore.upsertProvider({ ...existing, customModels });
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:remove-custom-model", wrapIPC(async (_event, providerId: string, modelId: string) => {
+    const existing = authStore.getProvider(providerId);
+    if (!existing) return { success: false, error: 'Provider not configured' };
+    const customModels = (existing.customModels || []).filter((m) => m.id !== modelId);
+    authStore.upsertProvider({ ...existing, customModels });
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:set-enabled", wrapIPC(async (_event, providerId: string, enabled: boolean) => {
+    authStore.setProviderEnabled(providerId, enabled);
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:remove", wrapIPC(async (_event, providerId: string) => {
+    authStore.removeProvider(providerId);
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:disconnect", wrapIPC(async (_event, providerId: string) => {
+    // Clear stored credentials but keep the provider entry (user can re-connect).
+    const existing = authStore.getProvider(providerId);
+    if (!existing) return { success: false, error: 'Provider not configured' };
+    // Reset auth to a no-op env_var entry pointing at the provider's env var (if any).
+    const def = getProviderRegistry().get(providerId);
+    authStore.upsertProvider({
+      ...existing,
+      auth: { method: 'env_var', envVarName: def?.envVarName || '' },
+      enabled: false,
+    });
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:start-oauth", wrapIPC(async (_event, providerId: string) => {
+    await oauthHandler.startFlow(providerId);
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:start-azure-ad", wrapIPC(async (_event, providerId: string, tenantId: string, clientId: string) => {
+    // Persist the tenant/client first so handleCallback can find them.
+    const def = getProviderRegistry().get(providerId);
+    if (!def) return { success: false, error: `Unknown provider: ${providerId}` };
+    const existing = authStore.getProvider(providerId);
+    authStore.upsertProvider({
+      providerId,
+      label: existing?.label || def.name,
+      auth: { method: 'azure_ad', tenantId, clientId },
+      customModels: existing?.customModels,
+      baseUrlOverride: existing?.baseUrlOverride,
+      defaultModelId: existing?.defaultModelId || def.modelPresets[0]?.id,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    });
+    await azureAdProvider.startFlow(providerId, tenantId, clientId);
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:run-health-check", wrapIPC(async (_event, providerId: string) => {
+    // Quick health check: attempt a tiny chat completion (max_tokens=1) or
+    // a models list call. We use the models endpoint when available because
+    // it's cheaper.
+    const def = getProviderRegistry().get(providerId);
+    if (!def) return { success: false, error: `Unknown provider: ${providerId}` };
+    const startTime = Date.now();
+    try {
+      if (def.modelsEndpoint) {
+        const models = await providerClient.discoverModels(providerId);
+        return {
+          success: true,
+          data: {
+            providerId,
+            status: 'healthy' as const,
+            latencyMs: Date.now() - startTime,
+            lastCheckedAt: new Date().toISOString(),
+            modelCount: models.length,
+          },
+        };
+      } else {
+        // No models endpoint — fall back to a 1-token chat.
+        const models = providerClient.listAvailableModels(providerId);
+        if (models.length === 0) {
+          return {
+            success: true,
+            data: {
+              providerId,
+              status: 'unknown' as const,
+              latencyMs: Date.now() - startTime,
+              lastCheckedAt: new Date().toISOString(),
+              error: 'No models available to test',
+            },
+          };
+        }
+        await providerClient.chat({
+          model: models[0].qualifiedId,
+          messages: [{ role: 'user', content: 'ping' }],
+          maxTokens: 1,
+        });
+        return {
+          success: true,
+          data: {
+            providerId,
+            status: 'healthy' as const,
+            latencyMs: Date.now() - startTime,
+            lastCheckedAt: new Date().toISOString(),
+          },
+        };
+      }
+    } catch (err: any) {
+      return {
+        success: true,
+        data: {
+          providerId,
+          status: 'unhealthy' as const,
+          latencyMs: Date.now() - startTime,
+          lastCheckedAt: new Date().toISOString(),
+          error: err.message,
+        },
+      };
+    }
+  }));
+
+  ipcMain.handle("providerv3:list-health", wrapIPC(async () => {
+    // Return an empty record — health is checked on-demand per provider.
+    // Future: cache the last result and return it here.
+    return { success: true, data: {} };
+  }));
+
+  // Session binding IPC
+  ipcMain.handle("providerv3:get-binding", wrapIPC(async (_event, sessionId: string) => {
+    return { success: true, data: sessionBinding.getBinding(sessionId) };
+  }));
+
+  ipcMain.handle("providerv3:set-binding", wrapIPC(async (_event, sessionId: string, providerId: string, modelId: string, overrides?: { systemPromptOverride?: string; temperatureOverride?: number }) => {
+    sessionBinding.setBinding(sessionId, providerId, modelId, overrides);
+    return { success: true };
+  }));
+
+  ipcMain.handle("providerv3:clear-binding", wrapIPC(async (_event, sessionId: string) => {
+    sessionBinding.clearBinding(sessionId);
+    return { success: true };
+  }));
+
+  // Provider v3 chat (used by useChat via window.openagent.providersV3.chat / stream)
+  ipcMain.handle("providerv3:chat", wrapIPC(async (_event, request: any) => {
+    const response = await providerClient.chat(request);
+    return { success: true, data: response };
   }));
 
   // ── Sidecar IPC ───────────────────────────────────────────────────────────

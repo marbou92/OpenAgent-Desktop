@@ -83,6 +83,9 @@
     "vitest": "^1.6.1",
     "wait-on": "^7.2.0"
   },
+  "optionalDependencies": {
+    "@opencode-ai/server": "^1.17.0"
+  },
   "build": {
     "appId": "com.openagent.desktop",
     "productName": "OpenAgent-Desktop",

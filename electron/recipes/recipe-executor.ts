@@ -19,17 +19,20 @@ import {
 
 export class RecipeExecutor {
   private providerManager?: any;
+  private providerClient?: any; // Provider v3 client — preferred when available
   private hookManager?: any;
   private traceCollector?: any;
   private store: any; // RecipeStore reference for run lookups
 
   constructor(deps: {
     providerManager?: any;
+    providerClient?: any;
     hookManager?: any;
     traceCollector?: any;
     store: any;
   }) {
     this.providerManager = deps.providerManager;
+    this.providerClient = deps.providerClient;
     this.hookManager = deps.hookManager;
     this.traceCollector = deps.traceCollector;
     this.store = deps.store;
@@ -524,6 +527,19 @@ export class RecipeExecutor {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
+        // Provider v3 path: if the ProviderClient is available, prefer it.
+        // The v3 client supports OAuth, Azure AD, dynamic model discovery,
+        // and per-session binding — none of which the legacy v2 manager does.
+        if (this.providerClient) {
+          const response = await this.providerClient.chat({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: settings?.temperature,
+            maxTokens: settings?.maxTokens,
+          });
+          return response.content || '';
+        }
+        // Legacy v2 fallback.
         const response = await this.providerManager.sendDirect(
           model,
           prompt,
