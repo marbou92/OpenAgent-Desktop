@@ -12,7 +12,7 @@ import { AgentDefinition, AgentStep, AgentRunContext, AgentRunResult, SteerMessa
 import { PermissionEvaluator } from '../permissions/evaluator';
 import { PermissionPolicyEngine } from '../permissions/policy-engine';
 import { ProviderClient } from '../providers/provider-client';
-import { ChatResponse } from '../providers/v3-types';
+import { ChatResponse, ToolDefinition } from '../providers/v3-types';
 
 export interface AgentRunnerEvents {
   'step:start': (step: AgentStep) => void;
@@ -247,6 +247,8 @@ export class AgentRunner extends EventEmitter {
     options: {
       maxSteps?: number;
       systemPrompt?: string;
+      /** Tools the LLM can call (built-in + extension/MCP). Forwarded to providerClient.chat. */
+      tools?: ToolDefinition[];
       onStep?: (step: AgentLoopStep) => void;
       onToolCall?: (toolCall: ToolCallRequest) => Promise<ToolCallResult>;
       onStreamChunk?: (chunk: string) => void;
@@ -281,6 +283,7 @@ export class AgentRunner extends EventEmitter {
         // Call LLM
         const response = await this.callLLM(currentMessages, {
           systemPrompt: options.systemPrompt,
+          tools: options.tools,
           onStreamChunk: options.onStreamChunk,
         });
 
@@ -387,11 +390,11 @@ export class AgentRunner extends EventEmitter {
   }
 
   /**
-   * Call the LLM via the provider manager.
+   * Call the LLM via the provider client.
    */
   private async callLLM(
     messages: ChatMessage[],
-    options: { systemPrompt?: string; onStreamChunk?: (chunk: string) => void }
+    options: { systemPrompt?: string; tools?: ToolDefinition[]; onStreamChunk?: (chunk: string) => void }
   ): Promise<ChatResponse> {
     if (!this.providerClient) {
       throw new Error('ProviderClient not set on AgentRunner. Call setProviderClient() before run().');
@@ -416,6 +419,7 @@ export class AgentRunner extends EventEmitter {
       messages: chatMessages,
       temperature: this.agent.temperature,
       stream: false,
+      tools: options.tools,
     });
   }
 }
