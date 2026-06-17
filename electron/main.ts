@@ -52,8 +52,6 @@ import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
 import { AgentPresetManager } from './agents/agent-presets';
 import { AgentSessionBridge } from './agents/session-bridge';
 import { ModelIdResolver, getModelIdResolver } from './providers/model-id-resolver';
-import { ProviderCatalog } from './providers/provider-catalog';
-import { GatewayRouter } from './providers/gateway-router';
 import { ConfigSetManager } from './providers/config-sets';
 import { ModelVariantManager } from './providers/model-variants';
 import { ProviderDiagnostics } from './providers/diagnostics';
@@ -177,8 +175,6 @@ let autoModeDetector: AutoModeDetector;
 let agentPresetManager: AgentPresetManager;
 let agentSessionBridge: AgentSessionBridge;
 let modelIdResolver: ModelIdResolver;
-let providerCatalog: ProviderCatalog;
-let gatewayRouter: GatewayRouter;
 let configSetManager: ConfigSetManager;
 let modelVariantManager: ModelVariantManager;
 let providerDiagnostics: ProviderDiagnostics;
@@ -1071,8 +1067,6 @@ async function initializeSubsystems(): Promise<void> {
 
     // Phase 2: Provider Overhaul
     modelIdResolver = getModelIdResolver();
-    providerCatalog = new ProviderCatalog();
-    gatewayRouter = new GatewayRouter();
     configSetManager = new ConfigSetManager();
     await configSetManager.initialize();
     modelVariantManager = new ModelVariantManager();
@@ -1177,28 +1171,9 @@ function registerIpcHandlers(): void {
 
   // ── Custom Provider IPC (Aether v2) ─────────────────────────────────────────
 
-  ipcMain.handle("custom-provider:list", wrapIPC(async () => {
-    return { success: true, data: await providerManager.list() };
-  }));
-
-  ipcMain.handle("custom-provider:add", wrapIPC(async (_event, config: Record<string, unknown>) => {
-    const provider = await providerManager.add(config);
-    return { success: true, data: provider };
-  }));
-
-  ipcMain.handle("custom-provider:remove", wrapIPC(async (_event, providerId: string) => {
-    await providerManager.remove(providerId);
-    return { success: true };
-  }));
-
-  ipcMain.handle("custom-provider:test", wrapIPC(async (_event, providerId: string) => {
-    const result = await providerManager.test(providerId);
-    return { success: true, data: result };
-  }));
-
-  ipcMain.handle("custom-provider:presets", wrapIPC(async () => {
-    return { success: true, data: providerManager.getCustomProviderPresets() };
-  }));
+  // Legacy custom-provider:* IPC handlers removed — replaced by providerv3:* above.
+  // The v2 ProviderManager methods they called (addCustomProvider, etc.) depended
+  // on the deleted custom-bridge / custom-provider/* modules.
 
   // ── Provider v3 IPC ──────────────────────────────────────────────────────────
   // The new opencode-style provider system. The renderer's ProvidersView calls
@@ -1728,18 +1703,13 @@ function registerIpcHandlers(): void {
         const providerId = session.providerId || appConfig.defaultProviderId;
         const model = session.model || appConfig.defaultModel;
 
-        const response = await providerManager.send(
-          providerId,
-          model,
-          session.messages,
-          message,
-          {
-            sessionId,
-            extensions: session.extensions,
-            sandboxManager,
-            traceCollector,
-          }
-        );
+        const response = await providerClient.chat({
+          model: `${providerId}/${model}`,
+          messages: [
+            ...session.messages.map((m: any) => ({ role: m.role, content: m.content })),
+            { role: 'user', content: message },
+          ],
+        });
 
         // Save the response to the session
         await sessionManager.addMessage(sessionId, {
@@ -1802,72 +1772,63 @@ function registerIpcHandlers(): void {
         const providerId = session.providerId || appConfig.defaultProviderId;
         const model = session.model || appConfig.defaultModel;
 
-        // Create a streaming response
-        const stream = await providerManager.stream(
-          providerId,
-          model,
-          session.messages,
-          message,
-          {
-            sessionId,
-            extensions: session.extensions,
-            sandboxManager,
-            traceCollector,
+        // Provider v3 streaming path. The legacy providerManager.stream returned
+        // an EventEmitter; v3's providerClient.chatStream is an async generator
+        // of StreamChunk objects. We bridge it to the existing IPC events so the
+        // renderer's useChat hook keeps working unchanged.
+        const send = (channel: string, data: unknown) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(channel, { sessionId, ...((typeof data === 'object' && data !== null) ? data : { data }) });
           }
-        );
+        };
 
-        // Set up stream event forwarding to the renderer
-        stream.on("data", (chunk: string) => {
-          mainWindow?.webContents.send("chat:stream-chunk", {
-            sessionId,
-            chunk,
-          });
-        });
-
-        stream.on("tool_call", (toolCall: Record<string, unknown>) => {
-          mainWindow?.webContents.send("chat:stream-tool-call", {
-            sessionId,
-            toolCall,
-          });
-        });
-
-        stream.on("tool_result", (toolResult: Record<string, unknown>) => {
-          mainWindow?.webContents.send("chat:stream-tool-result", {
-            sessionId,
-            toolResult,
-          });
-        });
-
-        stream.on("thinking", (thinking: string) => {
-          mainWindow?.webContents.send("chat:stream-thinking", {
-            sessionId,
-            thinking,
-          });
-        });
-
-        stream.on("error", (error: Error) => {
-          mainWindow?.webContents.send("chat:stream-error", {
-            sessionId,
-            error: error.message,
-          });
-        });
-
-        stream.on("end", async (fullResponse: string) => {
-          // Save messages
-          await sessionManager.addMessage(sessionId, {
-            role: "user",
-            content: message,
-          });
-          await sessionManager.addMessage(sessionId, {
-            role: "assistant",
-            content: fullResponse,
-          });
-
-          mainWindow?.webContents.send("chat:stream-end", {
-            sessionId,
-            content: fullResponse,
-          });
-        });
+        // Run the generator in the background and forward chunks to the renderer.
+        (async () => {
+          try {
+            let fullResponse = '';
+            for await (const chunk of providerClient.chatStream({
+              model: `${providerId}/${model}`,
+              messages: [
+                ...session.messages.map((m: any) => ({ role: m.role, content: m.content })),
+                { role: 'user', content: message },
+              ],
+            })) {
+              switch (chunk.type) {
+                case 'content':
+                  if (chunk.content) {
+                    fullResponse += chunk.content;
+                    send('chat:stream-chunk', { chunk: chunk.content });
+                  }
+                  break;
+                case 'thinking':
+                  if (chunk.content) send('chat:stream-thinking', { thinking: chunk.content });
+                  break;
+                case 'tool_call_start':
+                case 'tool_call_delta':
+                case 'tool_call_end':
+                  send('chat:stream-tool-call', { toolCall: chunk.toolCall });
+                  break;
+                case 'tool_result':
+                  send('chat:stream-tool-result', { toolResult: chunk.toolResult });
+                  break;
+                case 'usage':
+                  // Could be forwarded as a separate event if needed.
+                  break;
+                case 'error':
+                  send('chat:stream-error', { error: chunk.error?.message || 'Unknown stream error' });
+                  return;
+                case 'done':
+                  // Save messages and emit end.
+                  await sessionManager.addMessage(sessionId, { role: 'user', content: message });
+                  await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
+                  send('chat:stream-end', { content: fullResponse });
+                  return;
+              }
+            }
+          } catch (err: any) {
+            send('chat:stream-error', { error: err.message });
+          }
+        })();
 
         return { success: true, data: { streaming: true } };
       } catch (err: any) {
@@ -2235,10 +2196,7 @@ function registerIpcHandlers(): void {
   // Phase 2: Provider Overhaul IPC
   ipcMain.handle("provider:resolveModelId", wrapIPC(async (_e, modelId: string) => modelIdResolver.resolve(modelId)));
   ipcMain.handle("provider:listAliases", wrapIPC(async () => modelIdResolver.listAliases()));
-  ipcMain.handle("provider:catalog", wrapIPC(async () => providerCatalog.list()));
-  ipcMain.handle("provider:catalogByCategory", wrapIPC(async (_e, cat: string) => providerCatalog.getByCategory(cat as any)));
-  ipcMain.handle("provider:catalogPopular", wrapIPC(async () => providerCatalog.getPopular()));
-  ipcMain.handle("provider:route", wrapIPC(async (_e, modelId: string, strategy?: string) => gatewayRouter.route(modelId, strategy as any)));
+  // Provider catalog + gateway router removed — replaced by the v3 provider registry.
   ipcMain.handle("provider:configSets", wrapIPC(async () => configSetManager.list()));
   ipcMain.handle("provider:configSetActive", wrapIPC(async () => configSetManager.getActive()));
   ipcMain.handle("provider:configSetSwitch", wrapIPC(async (_e, id: string) => configSetManager.switch(id)));

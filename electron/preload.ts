@@ -460,19 +460,9 @@ const electronAPI = {
     getInstance: (): Promise<any> => invoke("sidecar:getInstance"),
   },
 
-  // ── Aether v2: Custom Providers ───────────────────────────────────────────
-
-  customProviders: {
-    list: (): Promise<any[]> => invoke("custom-provider:list"),
-    add: (config: any): Promise<any> => invoke("custom-provider:add", config),
-    remove: (id: string): Promise<void> => invoke("custom-provider:remove", id),
-    test: (id: string): Promise<any> => invoke("custom-provider:test", id),
-    presets: (): Promise<any[]> => invoke("custom-provider:presets"),
-  },
-
   // ── Provider v3 (opencode-style) ──────────────────────────────────────────
-  // The new provider system. Replaces customProviders in the long run; both
-  // are exposed during the transition.
+  // The new provider system. The legacy customProviders API below was removed
+  // because it depended on the deleted v2 custom-bridge / custom-provider modules.
 
   providersV3: {
     // Catalog
