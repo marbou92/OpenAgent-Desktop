@@ -444,6 +444,12 @@ const electronAPI = {
       invoke("skill:execute", skillId, variables, context),
   },
 
+  // ── Permissions (AgentRunner) ──────────────────────────────────────────────
+
+  permissions: {
+    respond: (requestId: string, response: string): Promise<void> => invoke("permission:respond", requestId, response),
+  },
+
   // ── Aether v2: Crash Logger ───────────────────────────────────────────────
 
   crash: {
@@ -630,6 +636,13 @@ const electronAPI = {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }) => callback(data);
       ipcRenderer.on("chat:stream-cancelled", handler);
       return () => ipcRenderer.removeListener("chat:stream-cancelled", handler);
+    },
+
+    // Permission request (AgentRunner asks the user to approve a tool call)
+    permissionRequest: (callback: (data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => callback(data);
+      ipcRenderer.on("chat:permission-request", handler);
+      return () => ipcRenderer.removeListener("chat:permission-request", handler);
     },
 
     // File events

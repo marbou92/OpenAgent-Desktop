@@ -902,7 +902,7 @@ declare global {
         projectActivated: (callback: (data: ProjectConfig) => void) => () => void;
         agentSwitched: (callback: (data: { from: string; to: string; agent: AgentDefinition }) => void) => () => void;
         configSetSwitched: (callback: (data: ProviderConfigSet) => void) => () => void;
-        permissionRequest: (callback: (data: PermissionRequest) => void) => () => void;
+        permissionRequest: (callback: (data: PermissionRequest & { sessionId: string }) => void) => () => void;
         contextCompacted: (callback: (data: { savedTokens: number }) => void) => () => void;
       };
     };

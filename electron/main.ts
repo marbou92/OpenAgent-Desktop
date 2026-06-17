@@ -19,6 +19,7 @@ import {
 import { autoUpdater } from "electron-updater";
 import * as path from "path";
 import * as fs from "fs";
+import * as crypto from "crypto";
 
 // ─── Subsystem Imports ────────────────────────────────────────────────────────
 import { SandboxManager } from "./sandbox/manager";
@@ -51,6 +52,9 @@ import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/regi
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
 import { AgentPresetManager } from './agents/agent-presets';
 import { AgentSessionBridge } from './agents/session-bridge';
+import { AgentRunner } from './agents/agent-runner';
+import { executeToolCall } from './agents/tool-executor';
+import { AgentMode, ToolPermissionLevel } from './agents/types';
 import { ModelIdResolver, getModelIdResolver } from './providers/model-id-resolver';
 import { ConfigSetManager } from './providers/config-sets';
 import { ModelVariantManager } from './providers/model-variants';
@@ -1659,6 +1663,137 @@ function registerIpcHandlers(): void {
     return { success: true };
   }));
 
+  // ── Agent Runner: Permission Request Infrastructure ──────────────────────────
+  //
+  // When AgentRunner needs user approval for a tool call (permission level 'ask'),
+  // it emits 'permission:request' with a resolve callback. We store the callback
+  // keyed by a generated requestId, forward the request to the renderer via
+  // 'chat:permission-request' IPC event, and wait for the renderer to call
+  // 'permission:respond' with the user's decision.
+
+  const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
+
+  ipcMain.handle("permission:respond", wrapIPC(async (_e, requestId: string, response: string) => {
+    const resolve = pendingPermissionRequests.get(requestId);
+    if (!resolve) {
+      return { success: false, error: 'No pending permission request for this id' };
+    }
+    pendingPermissionRequests.delete(requestId);
+    // Map the renderer's response to a ToolPermissionLevel.
+    const level: ToolPermissionLevel =
+      response === 'allow_once' || response === 'always_allow' ? 'allow' :
+      response === 'deny_once' || response === 'always_deny' ? 'deny' : 'ask';
+    resolve(level);
+    return { success: true };
+  }));
+
+  /**
+   * Run the agentic loop for a chat message. Used by chat:send and chat:stream
+   * when the session's agent mode is anything other than 'chat'.
+   *
+   * The agent loop: LLM → tool calls → permission check → tool execution →
+   * tool result → repeat, until the LLM stops requesting tools or maxSteps
+   * is reached.
+   *
+   * Events are forwarded to the renderer via the `send` callback so both
+   * chat:send (non-streaming) and chat:stream (streaming) can use it.
+   */
+  async function runAgent(opts: {
+    sessionId: string;
+    message: string;
+    session: any;
+    send: (channel: string, data: Record<string, unknown>) => void;
+    signal?: AbortSignal;
+  }): Promise<{ content: string; steps: number; status: string }> {
+    const { sessionId, message, session, send } = opts;
+
+    // Resolve the agent for this session.
+    const agentId = agentSessionBridge.getCurrentAgentId(sessionId);
+    const agent = agentRegistry.get(agentId) || agentRegistry.getActive();
+    if (!agent) {
+      throw new Error('No agent configured');
+    }
+
+    // Resolve the provider+model for this session.
+    const binding = sessionBinding.getBinding(sessionId);
+    const providerId = binding?.providerId || session.providerId || appConfig.defaultProviderId;
+    const modelId = binding?.modelId || session.model || appConfig.defaultModel;
+    const qualifiedModel = `${providerId}/${modelId}`;
+
+    // Build the agent context.
+    const context = {
+      agentId: agent.id,
+      sessionId,
+      workingDirectory: session.workingDirectory || process.cwd(),
+      extensions: session.extensions || [],
+      model: qualifiedModel,
+      providerId,
+    };
+
+    // Create the runner.
+    const runner = new AgentRunner(agent, context);
+    runner.setProviderClient(providerClient);
+    if (permissionPolicyEngine) {
+      runner.setPolicyEngine(permissionPolicyEngine);
+    }
+
+    // Wire permission requests → renderer.
+    runner.on('permission:request', (toolName: string, args: Record<string, unknown>, resolve: (level: ToolPermissionLevel) => void) => {
+      const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      pendingPermissionRequests.set(requestId, resolve);
+      send('chat:permission-request', { id: requestId, toolName, args });
+    });
+
+    // Build the messages array from session history.
+    const messages = [
+      ...(session.messages || []).map((m: any) => ({
+        id: m.id || crypto.randomUUID(),
+        role: m.role,
+        content: m.content || '',
+        toolCallId: m.toolCallId,
+        toolCalls: m.toolCalls,
+        timestamp: m.timestamp || new Date().toISOString(),
+      })),
+      { id: crypto.randomUUID(), role: 'user' as const, content: message, timestamp: new Date().toISOString() },
+    ];
+
+    // Run the loop.
+    const result = await runner.run(messages, {
+      maxSteps: agent.maxSteps,
+      systemPrompt: runner.getSystemPrompt(),
+      signal: opts.signal,
+      onStep: (step) => {
+        // Forward each step's assistant message to the renderer.
+        if (step.message.content) {
+          send('chat:stream-chunk', { chunk: step.message.content });
+        }
+        if (step.message.toolCalls) {
+          for (const tc of step.message.toolCalls) {
+            send('chat:stream-tool-call', { toolCall: tc });
+          }
+        }
+      },
+      onToolCall: async (toolCall) => {
+        // Execute the tool via the tool executor.
+        send('chat:stream-tool-call', { toolCall });
+        const result = await executeToolCall(toolCall, {
+          sandboxManager,
+          workingDirectory: context.workingDirectory,
+        });
+        send('chat:stream-tool-result', { toolResult: { id: toolCall.id, content: result.content, isError: result.isError } });
+        return result;
+      },
+    });
+
+    // Extract the final assistant message content.
+    const finalContent = result.finalMessage?.content || result.steps[result.steps.length - 1]?.message?.content || '';
+    return {
+      content: finalContent,
+      steps: result.steps.length,
+      status: result.status,
+    };
+  }
+
   ipcMain.handle("acp:status", wrapIPC(async () => {
     return { success: true, data: acpClient.getStatus() };
   }));
@@ -1699,17 +1834,34 @@ function registerIpcHandlers(): void {
           metadata: { source: "user" },
         });
 
-        // Get the provider and send the message
-        const providerId = session.providerId || appConfig.defaultProviderId;
-        const model = session.model || appConfig.defaultModel;
+        // Determine the agent mode for this session.
+        const agentMode = agentSessionBridge.getCurrentMode(sessionId);
 
-        const response = await providerClient.chat({
-          model: `${providerId}/${model}`,
-          messages: [
-            ...session.messages.map((m: any) => ({ role: m.role, content: m.content })),
-            { role: 'user', content: message },
-          ],
-        });
+        let responseContent: string;
+
+        if (agentMode === AgentMode.chat) {
+          // Chat mode: direct LLM call, no agentic loop, no tools.
+          const providerId = session.providerId || appConfig.defaultProviderId;
+          const model = session.model || appConfig.defaultModel;
+
+          const response = await providerClient.chat({
+            model: `${providerId}/${model}`,
+            messages: [
+              ...session.messages.map((m: any) => ({ role: m.role, content: m.content })),
+              { role: 'user', content: message },
+            ],
+          });
+          responseContent = response.content;
+        } else {
+          // Build / Plan / Smart mode: run the agentic loop.
+          const send = (channel: string, data: Record<string, unknown>) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send(channel, { sessionId, ...data });
+            }
+          };
+          const agentResult = await runAgent({ sessionId, message, session, send });
+          responseContent = agentResult.content;
+        }
 
         // Save the response to the session
         await sessionManager.addMessage(sessionId, {
@@ -1718,23 +1870,23 @@ function registerIpcHandlers(): void {
         });
         await sessionManager.addMessage(sessionId, {
           role: "assistant",
-          content: response.content,
+          content: responseContent,
         });
 
         // Trace the assistant response
         await traceCollector.addEntry(sessionId, {
           type: "info",
-          content: `Assistant: ${response.content.substring(0, 200)}...`,
-          metadata: { source: "assistant", model },
+          content: `Assistant: ${responseContent.substring(0, 200)}...`,
+          metadata: { source: "assistant" },
         });
 
         // Run post-session hooks
         await hookManager.trigger("PostSession", {
           sessionId,
-          response: response.content,
+          response: responseContent,
         });
 
-        return { success: true, data: response };
+        return { success: true, data: { content: responseContent } };
       } catch (err: any) {
         await traceCollector.addEntry(sessionId, {
           type: "error",
@@ -1769,18 +1921,36 @@ function registerIpcHandlers(): void {
         }
 
         const session = await sessionManager.load(sessionId);
-        const providerId = session.providerId || appConfig.defaultProviderId;
-        const model = session.model || appConfig.defaultModel;
+        const agentMode = agentSessionBridge.getCurrentMode(sessionId);
 
-        // Provider v3 streaming path. The legacy providerManager.stream returned
-        // an EventEmitter; v3's providerClient.chatStream is an async generator
-        // of StreamChunk objects. We bridge it to the existing IPC events so the
-        // renderer's useChat hook keeps working unchanged.
         const send = (channel: string, data: unknown) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send(channel, { sessionId, ...((typeof data === 'object' && data !== null) ? data : { data }) });
           }
         };
+
+        if (agentMode !== AgentMode.chat) {
+          // ── Agent mode (Build / Plan / Smart): run the agentic loop ──────────
+          // The loop runs in the background; each step's content and tool calls
+          // are forwarded to the renderer via the same chat:stream-* events
+          // that the direct streaming path uses, so useChat doesn't need to
+          // distinguish between the two paths.
+          (async () => {
+            try {
+              const agentResult = await runAgent({ sessionId, message, session, send });
+              await sessionManager.addMessage(sessionId, { role: 'user', content: message });
+              await sessionManager.addMessage(sessionId, { role: 'assistant', content: agentResult.content });
+              send('chat:stream-end', { content: agentResult.content });
+            } catch (err: any) {
+              send('chat:stream-error', { error: err.message });
+            }
+          })();
+          return { success: true, data: { streaming: true } };
+        }
+
+        // ── Chat mode: direct streaming via providerClient.chatStream ──────────
+        const providerId = session.providerId || appConfig.defaultProviderId;
+        const model = session.model || appConfig.defaultModel;
 
         // Run the generator in the background and forward chunks to the renderer.
         (async () => {
@@ -1812,13 +1982,11 @@ function registerIpcHandlers(): void {
                   send('chat:stream-tool-result', { toolResult: chunk.toolResult });
                   break;
                 case 'usage':
-                  // Could be forwarded as a separate event if needed.
                   break;
                 case 'error':
                   send('chat:stream-error', { error: chunk.error?.message || 'Unknown stream error' });
                   return;
                 case 'done':
-                  // Save messages and emit end.
                   await sessionManager.addMessage(sessionId, { role: 'user', content: message });
                   await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
                   send('chat:stream-end', { content: fullResponse });

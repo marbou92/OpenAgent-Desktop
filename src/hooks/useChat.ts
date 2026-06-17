@@ -289,6 +289,20 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       }
     });
 
+    // Listen for permission requests from AgentRunner (Build/Plan/Smart modes).
+    // When the agent loop needs user approval for a tool call, main.ts sends
+    // a chat:permission-request event with a requestId. The UI shows the
+    // PermissionDialog and the user's response is sent back via
+    // api.permissions.respond(requestId, response).
+    const unsubPermission = api.on.permissionRequest?.((data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => {
+      if (data.sessionId !== sessionId) return;
+      onPermissionRequestRef.current?.({
+        id: data.id,
+        toolName: data.toolName,
+        args: data.args,
+      });
+    }) ?? (() => {});
+
     unsubscribeRef.current = [
       unsubChunk,
       unsubThinking,
@@ -298,6 +312,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       unsubError,
       unsubCancelled,
       unsubTrace,
+      unsubPermission,
     ];
 
     return () => {

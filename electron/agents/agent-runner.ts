@@ -11,8 +11,8 @@ import * as crypto from 'crypto';
 import { AgentDefinition, AgentStep, AgentRunContext, AgentRunResult, SteerMessage, ToolPermissionLevel, ChatMessage, ToolCallRequest, ToolCallResult, AgentLoopStep, AgentLoopResult } from './types';
 import { PermissionEvaluator } from '../permissions/evaluator';
 import { PermissionPolicyEngine } from '../permissions/policy-engine';
-import { ProviderManager } from '../providers/manager';
-import { ChatResponse } from '../providers/types';
+import { ProviderClient } from '../providers/provider-client';
+import { ChatResponse } from '../providers/v3-types';
 
 export interface AgentRunnerEvents {
   'step:start': (step: AgentStep) => void;
@@ -34,7 +34,7 @@ export class AgentRunner extends EventEmitter {
   private pendingSteers: SteerMessage[] = [];
   private permissionEvaluator: PermissionEvaluator;
   private stepCounter = 0;
-  private providerManager: ProviderManager | null = null;
+  private providerClient: ProviderClient | null = null;
 
   constructor(agent: AgentDefinition, context: AgentRunContext) {
     super();
@@ -46,10 +46,11 @@ export class AgentRunner extends EventEmitter {
   }
 
   /**
-   * Set the provider manager for LLM calls in the agentic loop.
+   * Set the provider client for LLM calls in the agentic loop.
+   * Uses the v3 ProviderClient (opencode-style) instead of the legacy v2 ProviderManager.
    */
-  setProviderManager(manager: ProviderManager): void {
-    this.providerManager = manager;
+  setProviderClient(client: ProviderClient): void {
+    this.providerClient = client;
   }
 
   /**
@@ -286,14 +287,14 @@ export class AgentRunner extends EventEmitter {
         totalTokens.prompt += response.usage?.promptTokens ?? 0;
         totalTokens.completion += response.usage?.completionTokens ?? 0;
 
-        // Add assistant message
-        const msg = response.message ?? { content: response.content, toolCalls: undefined };
+        // Add assistant message — v3 ChatResponse has content + toolCalls directly
+        // (no nested .message field like v2).
         const assistantMessage: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: msg.content,
+          content: response.content,
           thinking: response.thinking,
-          toolCalls: msg.toolCalls?.map(tc => ({
+          toolCalls: response.toolCalls?.map((tc) => ({
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments,
@@ -311,12 +312,12 @@ export class AgentRunner extends EventEmitter {
         options.onStep?.(stepRecord);
 
         // If no tool calls, we're done
-        if (!msg.toolCalls || msg.toolCalls.length === 0) {
+        if (!response.toolCalls || response.toolCalls.length === 0) {
           return { steps: loopSteps, status: 'completed', totalTokens, finalMessage: assistantMessage };
         }
 
         // Process tool calls
-        for (const toolCall of msg.toolCalls) {
+        for (const toolCall of response.toolCalls) {
           const tcRequest: ToolCallRequest = {
             id: toolCall.id,
             name: toolCall.name,
@@ -392,8 +393,8 @@ export class AgentRunner extends EventEmitter {
     messages: ChatMessage[],
     options: { systemPrompt?: string; onStreamChunk?: (chunk: string) => void }
   ): Promise<ChatResponse> {
-    if (!this.providerManager) {
-      throw new Error('ProviderManager not set on AgentRunner. Call setProviderManager() before run().');
+    if (!this.providerClient) {
+      throw new Error('ProviderClient not set on AgentRunner. Call setProviderClient() before run().');
     }
 
     const chatMessages = messages.map(m => ({
@@ -410,7 +411,7 @@ export class AgentRunner extends EventEmitter {
       });
     }
 
-    return this.providerManager.chat({
+    return this.providerClient.chat({
       model: this.agent.model || this.context.model,
       messages: chatMessages,
       temperature: this.agent.temperature,
