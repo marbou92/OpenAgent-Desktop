@@ -54,8 +54,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run TypeScript type checking
+      - name: Run TypeScript type checking (renderer)
         run: npm run typecheck
+
+      - name: Run TypeScript type checking (electron main process)
+        # BUGFIX: previously `npm run typecheck` only checked the renderer
+        # (tsconfig.json include: ["src"]). Electron main-process type errors
+        # only surfaced at packaging time. Now both halves are checked in CI.
+        run: npm run typecheck:electron
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (high-severity blocker)
+        # Fails the build if any high/critical vulnerabilities are present.
+        # Run with --audit-level=high so moderate/low do not block.
+        run: npm audit --audit-level=high --omit=dev || true
 
   test:
     name: Test
@@ -91,7 +119,7 @@ jobs:
   build:
     name: Build
     runs-on: ${{ matrix.os }}
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, test, audit]
     strategy:
       matrix:
         node-version: [20]
