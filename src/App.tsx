@@ -260,6 +260,32 @@ const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Listen for main:ready — when all subsystems are initialized, re-fetch
+  // any data that may have returned empty on the first try (before the
+  // subsystems were ready). This fixes the "stuck on loading" bug where the
+  // renderer called IPC handlers before they had real data to return.
+  useEffect(() => {
+    if (!api?.on?.mainReady) return;
+    const unsub = api.on.mainReady(() => {
+      // Re-fetch everything that initializeApp tried to load.
+      Promise.allSettled([
+        api?.providers?.list?.(),
+        api?.extensions?.list?.(),
+        api?.sessions?.list?.(),
+        api?.recipes?.list?.(),
+        api?.hooks?.list?.(),
+      ]).then(([p, ext, s, r, h]) => {
+        if (p.status === 'fulfilled' && p.value) setProviders(p.value);
+        if (ext.status === 'fulfilled' && ext.value) setExtensions(ext.value);
+        if (s.status === 'fulfilled' && s.value) setSessions(s.value);
+        if (r.status === 'fulfilled' && r.value) setRecipes(r.value);
+        if (h.status === 'fulfilled' && h.value) setHooks(h.value);
+      });
+    });
+    return () => unsub?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const initializeApp = async () => {
     setLoading(true);
     try {

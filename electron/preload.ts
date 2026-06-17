@@ -638,6 +638,14 @@ const electronAPI = {
       return () => ipcRenderer.removeListener("chat:stream-cancelled", handler);
     },
 
+    // Main process is ready — all subsystems initialized. The renderer can
+    // re-fetch any data that returned empty on the first try.
+    mainReady: (callback: () => void): (() => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("main:ready", handler);
+      return () => ipcRenderer.removeListener("main:ready", handler);
+    },
+
     // Permission request (AgentRunner asks the user to approve a tool call)
     permissionRequest: (callback: (data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => callback(data);

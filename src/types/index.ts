@@ -903,6 +903,7 @@ declare global {
         agentSwitched: (callback: (data: { from: string; to: string; agent: AgentDefinition }) => void) => () => void;
         configSetSwitched: (callback: (data: ProviderConfigSet) => void) => () => void;
         permissionRequest: (callback: (data: PermissionRequest & { sessionId: string }) => void) => () => void;
+        mainReady: (callback: () => void) => () => void;
         contextCompacted: (callback: (data: { savedTokens: number }) => void) => () => void;
       };
     };

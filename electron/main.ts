@@ -53,7 +53,7 @@ import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
 import { AgentPresetManager } from './agents/agent-presets';
 import { AgentSessionBridge } from './agents/session-bridge';
 import { AgentRunner } from './agents/agent-runner';
-import { executeToolCall } from './agents/tool-executor';
+import { executeToolCall, listAvailableTools } from './agents/tool-executor';
 import { AgentMode, ToolPermissionLevel } from './agents/types';
 import { ModelIdResolver, getModelIdResolver } from './providers/model-id-resolver';
 import { ConfigSetManager } from './providers/config-sets';
@@ -1132,6 +1132,9 @@ function registerIpcHandlers(): void {
   // ── Provider IPC ──────────────────────────────────────────────────────────
 
   ipcMain.handle("provider:list", wrapIPC(async () => {
+    // Null-guard: if providerManager isn't initialized yet (handlers are
+    // registered before initializeSubsystems completes), return empty.
+    if (!providerManager) return { success: true, data: [] };
     return { success: true, data: await providerManager.list() };
   }));
 
@@ -1456,6 +1459,7 @@ function registerIpcHandlers(): void {
   // ── Extension IPC ─────────────────────────────────────────────────────────
 
   ipcMain.handle("extension:list", wrapIPC(async () => {
+    if (!extensionRegistry) return { success: true, data: [] };
     return { success: true, data: await extensionRegistry.list() };
   }));
 
@@ -1522,6 +1526,7 @@ function registerIpcHandlers(): void {
   // ── Session IPC ───────────────────────────────────────────────────────────
 
   ipcMain.handle("session:list", wrapIPC(async () => {
+    if (!sessionManager) return { success: true, data: [] };
     return { success: true, data: await sessionManager.list() };
   }));
 
@@ -1562,6 +1567,7 @@ function registerIpcHandlers(): void {
   // ── Recipe IPC ────────────────────────────────────────────────────────────
 
   ipcMain.handle("recipe:list", wrapIPC(async () => {
+    if (!recipeEngine) return { success: true, data: [] };
     return { success: true, data: await recipeEngine.list() };
   }));
 
@@ -1758,9 +1764,19 @@ function registerIpcHandlers(): void {
     ];
 
     // Run the loop.
+    // Build the tool catalog: built-in tools + extension-registered (MCP) tools.
+    // The LLM needs this list so it knows what it can call.
+    const toolDeps = {
+      sandboxManager,
+      workingDirectory: context.workingDirectory,
+      extensionRegistry, // enables MCP tools via ExtensionRegistry.executeTool
+    };
+    const tools = listAvailableTools(toolDeps);
+
     const result = await runner.run(messages, {
       maxSteps: agent.maxSteps,
       systemPrompt: runner.getSystemPrompt(),
+      tools,
       signal: opts.signal,
       onStep: (step) => {
         // Forward each step's assistant message to the renderer.
@@ -1774,12 +1790,9 @@ function registerIpcHandlers(): void {
         }
       },
       onToolCall: async (toolCall) => {
-        // Execute the tool via the tool executor.
+        // Execute the tool via the tool executor (built-in or MCP).
         send('chat:stream-tool-call', { toolCall });
-        const result = await executeToolCall(toolCall, {
-          sandboxManager,
-          workingDirectory: context.workingDirectory,
-        });
+        const result = await executeToolCall(toolCall, toolDeps);
         send('chat:stream-tool-result', { toolResult: { id: toolCall.id, content: result.content, isError: result.isError } });
         return result;
       },
@@ -2661,11 +2674,22 @@ if (!gotTheLock) {
     // Create the main window
     createMainWindow();
 
+    // BUGFIX: Register IPC handlers BEFORE initializeSubsystems(). Previously
+    // the renderer would start calling IPC methods (provider:list, sessions:list,
+    // etc.) as soon as the window loaded, but the handlers weren't registered
+    // yet because initializeSubsystems() was still running. ipcRenderer.invoke()
+    // for an unregistered channel never resolves — the promise hangs forever —
+    // so initializeApp() in the renderer never reached setLoading(false) and the
+    // app was stuck on the "Loading your AI workspace..." spinner.
+    registerIpcHandlers();
+
     // Initialize all subsystems
     await initializeSubsystems();
 
-    // Register all IPC handlers
-    registerIpcHandlers();
+    // Notify the renderer that all subsystems are ready. The renderer can
+    // re-fetch any data that returned empty on the first try (before the
+    // subsystems were initialized).
+    mainWindow?.webContents.send("main:ready");
 
     // Set up subsystem event forwarding
     setupSubsystemEventForwarding();
