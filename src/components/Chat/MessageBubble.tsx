@@ -6,9 +6,9 @@
  * tool call display with expand/collapse, timestamp, and retry button.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ChatMessage, ToolCall } from '../../types';
-import { renderMarkdown, sanitizeHtml } from '../../utils/markdown';
+import { renderMarkdown, sanitizeHtml, attachCopyCodeHandlers } from '../../utils/markdown';
 import { formatFileSize } from '../../utils/format';
 
 interface MessageBubbleProps {
@@ -22,12 +22,21 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   const renderedContent = useMemo(() => {
     if (!message.content) return '';
     const html = renderMarkdown(message.content);
     return sanitizeHtml(html);
   }, [message.content]);
+
+  // Attach a single delegated click handler for [data-copy-code] buttons.
+  // Replaces the previous inline onclick attribute that required whitelisting
+  // onclick in DOMPurify (which opened an XSS vector).
+  useEffect(() => {
+    const cleanup = attachCopyCodeHandlers(contentRef.current);
+    return cleanup;
+  }, [renderedContent]);
 
   const handleCopyCode = useCallback((code: string, id: string) => {
     navigator.clipboard.writeText(code).then(() => {
@@ -159,6 +168,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
         >
           {message.content ? (
             <div
+              ref={contentRef}
               className="markdown-content text-sm break-words"
               dangerouslySetInnerHTML={{ __html: renderedContent }}
             />

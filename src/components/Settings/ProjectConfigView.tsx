@@ -18,6 +18,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 
 const api = (window as any).openagent;
 
@@ -324,20 +325,29 @@ const ProjectConfigView: React.FC<ProjectConfigViewProps> = ({
   };
 
   const renderMarkdownPreview = (content: string) => {
-    // Simple markdown-to-HTML for preview
-    const html = content
-      .replace(/^### (.+)$/gm, '<h3 style="font-size:16px;font-weight:600;margin:8px 0 4px;color:var(--color-text-primary)">$1</h3>')
-      .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:600;margin:12px 0 6px;color:var(--color-text-primary)">$1</h2>')
-      .replace(/^# (.+)$/gm, '<h1 style="font-size:20px;font-weight:700;margin:16px 0 8px;color:var(--color-text-primary)">$1</h1>')
+    // Simple markdown-to-HTML for preview — then run through DOMPurify before injecting.
+    // Previously this used dangerouslySetInnerHTML with no sanitization at all, which
+    // allowed a malicious .openagent/project.json (e.g. from a cloned repo) to execute
+    // arbitrary JS in the renderer and pivot to RCE via the sandbox.execute IPC sink.
+    const rawHtml = content
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/`(.+?)`/g, '<code style="background:var(--color-bg-tertiary);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
-      .replace(/^- (.+)$/gm, '<li style="margin-left:16px;color:var(--color-text-secondary)">$1</li>')
-      .replace(/^<!--(.+?)-->$/gm, '<span style="color:var(--color-text-muted);font-style:italic"><!--$1--></span>')
+      .replace(/`(.+?)`/g, '<code>$1</code>')
+      .replace(/^- (.+)$/gm, '<li>$1</li>')
+      .replace(/^<!--(.+?)-->$/gm, '<span>$1</span>')
       .replace(/\n\n/g, '<br/><br/>')
       .replace(/\n/g, '<br/>');
 
-    return <div dangerouslySetInnerHTML={{ __html: html }} />;
+    const safeHtml = DOMPurify.sanitize(rawHtml, {
+      ALLOWED_TAGS: ['h1', 'h2', 'h3', 'strong', 'em', 'code', 'li', 'span', 'br'],
+      ALLOWED_ATTR: [],
+      ALLOW_DATA_ATTR: false,
+    });
+
+    return <div dangerouslySetInnerHTML={{ __html: safeHtml }} />;
   };
 
   // ─── Tab Content ───────────────────────────────────────────────────────────

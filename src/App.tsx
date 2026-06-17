@@ -36,6 +36,7 @@ import SkillsView from './components/Skills/SkillsView';
 import HooksView from './components/Hooks/HooksView';
 import FileDropZone from './components/Chat/FileDropZone';
 import ThinkingTrace from './components/Chat/ThinkingTrace';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { getAPI } from './utils/api';
 
 const api = getAPI();
@@ -665,7 +666,13 @@ const App: React.FC = () => {
             {loading ? (
               <LoadingScreen />
             ) : (
-              renderMainContent()
+              // BUGFIX: previously there was no ErrorBoundary anywhere in src/,
+              // so any uncaught render error in any view blank-screened the
+              // whole app. Now the main content area is wrapped so a view
+              // crash shows a recoverable error UI.
+              <ErrorBoundary label="Main view">
+                {renderMainContent()}
+              </ErrorBoundary>
             )}
           </div>
 

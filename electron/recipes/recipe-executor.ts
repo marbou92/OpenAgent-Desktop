@@ -7,6 +7,7 @@
  */
 
 import * as crypto from "crypto";
+import * as vm from "vm";
 import {
   Recipe,
   RecipeSettings,
@@ -459,7 +460,16 @@ export class RecipeExecutor {
   }
 
   /**
-   * Evaluate a condition expression
+   * Evaluate a condition expression safely using vm.runInNewContext.
+   *
+   * Previously this used `new Function(...)` which is effectively `eval` — a
+   * malicious imported recipe could execute arbitrary JS in the main process
+   * by setting a `condition` like `globalThis.process.mainModule.require(...)`.
+   *
+   * The vm-based context provides a frozen sandbox with only the explicitly
+   * allowed helper functions and variables; globals like `process`, `require`,
+   * `globalThis`, and `Function` are not present. A 100ms timeout prevents
+   * infinite loops / ReDoS.
    */
   evaluateCondition(
     condition: string,
@@ -467,29 +477,30 @@ export class RecipeExecutor {
     context?: string
   ): boolean {
     try {
-      // Create a safe evaluation context
       const sandbox: Record<string, unknown> = {
         ...variables,
         context,
         result: context,
-        // Safe utility functions
+        // Safe utility functions only — no access to globals.
         includes: (str: string, search: string) => str.includes(search),
         startsWith: (str: string, search: string) => str.startsWith(search),
         endsWith: (str: string, search: string) => str.endsWith(search),
         length: (str: string) => str.length,
         isEmpty: (str: string) => !str || str.trim().length === 0,
-        isNotEmpty: (str: string) => str && str.trim().length > 0,
+        isNotEmpty: (str: string) => Boolean(str) && str.trim().length > 0,
       };
 
-      // Use Function constructor for simple evaluation
-      const fn = new Function(
-        ...Object.keys(sandbox),
-        `"use strict"; return (${condition});`
-      );
-
-      return fn(...Object.values(sandbox)) as boolean;
-    } catch {
-      console.warn(`[RecipeExecutor] Condition evaluation failed: ${condition}`);
+      // Wrap in parens so the expression is evaluated as a value, not a statement.
+      const code = `(${condition});`;
+      const script = new vm.Script(code, { filename: 'recipe-condition.js' });
+      const contextObj = vm.createContext(sandbox);
+      const result = script.runInContext(contextObj, {
+        timeout: 100,
+        breakOnSigint: true,
+      });
+      return Boolean(result);
+    } catch (err) {
+      console.warn(`[RecipeExecutor] Condition evaluation failed: ${condition}`, err);
       return false;
     }
   }

@@ -236,16 +236,24 @@ export class MCPClient extends EventEmitter {
 
   private async spawnProcess(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const env: Record<string, string> = {
-        ...(process.env as Record<string, string>),
-        ...(this.config.env || {}),
-      };
+      // Only pass through a minimal, allow-listed subset of process.env to the
+      // spawned MCP server. Previously this spread `process.env` wholesale,
+      // leaking OPENAGENT_MACHINE_ID / HOSTNAME / API keys to every server.
+      const envAllowList = ['PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'LANG', 'LC_ALL', 'TERM', 'SystemRoot', 'TEMP', 'TMP'];
+      const filteredEnv: Record<string, string> = {};
+      for (const key of envAllowList) {
+        if (process.env[key] !== undefined) filteredEnv[key] = process.env[key] as string;
+      }
+      Object.assign(filteredEnv, this.config.env || {});
 
+      // Use shell:false so that args containing shell metacharacters are not
+      // interpreted. Previously this used `shell: true` which let a malicious
+      // extension config run arbitrary shell as the Electron main-process user.
       this.process = spawn(this.config.command, this.config.args, {
-        env,
+        env: filteredEnv,
         cwd: this.config.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
+        shell: false,
       });
 
       if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {

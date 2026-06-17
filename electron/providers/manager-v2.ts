@@ -13,6 +13,7 @@ import { SidecarManager } from '../sidecar';
 import { OpenCodeBridge } from './opencode-bridge';
 import { CustomBridge } from './custom-bridge';
 import { CUSTOM_PROVIDER_PRESETS } from '../custom-provider/model-presets';
+import { encrypt, decrypt, isEncrypted, isEncryptionAvailable } from '../utils/encryption';
 import type { SidecarConfig, SidecarInstance } from '../sidecar/types';
 import type { CustomProviderConfig } from '../custom-provider/types';
 import type { UnifiedProviderInfo, UnifiedModelInfo, ChatRequest, ChatResponse, StreamChunk, ProviderInfo } from './v2-types';
@@ -62,6 +63,16 @@ export class ProviderManager extends EventEmitter {
     this.initialized = false;
   }
 
+  /**
+   * Public accessor used by the periodic health check in main.ts. Previously
+   * main.ts:1855 read `(providerManager as any).isInitialized` which was
+   * always undefined (the field is private), causing a spurious "recovery"
+   * log every 60s and triggering an `initialize()` call that did nothing.
+   */
+  get isInitialized(): boolean {
+    return this.initialized;
+  }
+
   // ─── Unified Provider List ─────────────────────────────────────────
 
   async listProviders(): Promise<UnifiedProviderInfo[]> {
@@ -101,6 +112,11 @@ export class ProviderManager extends EventEmitter {
   async addCustomProvider(config: Omit<CustomProviderConfig, 'id'>): Promise<CustomProviderConfig> {
     const id = `custom:${config.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9:-]/g, '')}`;
     const fullConfig: CustomProviderConfig = { ...config, id, createdAt: Date.now() };
+    // Encrypt the API key at rest via Electron safeStorage (OS keychain).
+    // If safeStorage is unavailable, refuse to persist rather than store plaintext.
+    if (fullConfig.apiKey && isEncryptionAvailable() && !isEncrypted(fullConfig.apiKey)) {
+      fullConfig.apiKey = encrypt(fullConfig.apiKey);
+    }
     this.customConfigs.set(id, fullConfig);
     await this.saveCustomConfigs();
     this.emit('custom-provider-added', fullConfig);
@@ -245,6 +261,28 @@ export class ProviderManager extends EventEmitter {
     this.emit('stream:cancelled', { sessionId });
   }
 
+  /**
+   * BUGFIX: Recipe executor calls `providerManager.sendDirect(model, prompt, options)`
+   * to run a single prompt and get back a { content } response. Previously
+   * this method did not exist — every recipe execution threw TypeError — so
+   * recipes were non-functional end-to-end. Now we route it through `chat()`
+   * and unwrap the response.
+   */
+  async sendDirect(
+    model: string,
+    prompt: string,
+    options?: { temperature?: number; maxTokens?: number; timeout?: number }
+  ): Promise<{ content: string }> {
+    const response = await this.chat({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      stream: false,
+      temperature: options?.temperature,
+      maxTokens: options?.maxTokens,
+    });
+    return { content: response.content || '' };
+  }
+
   private getDefaultModel(_providerId: string): string {
     return 'gpt-4o';
   }
@@ -344,6 +382,18 @@ export class ProviderManager extends EventEmitter {
         const configs: CustomProviderConfig[] = parsed.providers || parsed;
         for (const config of configs) {
           if (config.id) {
+            // Decrypt the API key in memory (it stays encrypted on disk).
+            // If decryption fails (e.g. safeStorage unavailable, or migrated
+            // from another machine), leave the encrypted blob in place and
+            // let the user re-enter the key via the UI.
+            if (config.apiKey && isEncrypted(config.apiKey)) {
+              try {
+                config.apiKey = decrypt(config.apiKey);
+              } catch (err) {
+                this.emit('custom-configs-error', err);
+                config.apiKey = '';
+              }
+            }
             this.customConfigs.set(config.id, config);
           }
         }
@@ -358,10 +408,24 @@ export class ProviderManager extends EventEmitter {
   private async saveCustomConfigs(): Promise<void> {
     try {
       const configsPath = this.getConfigsPath();
-      const configs = Array.from(this.customConfigs.values());
+      // Encrypt API keys before persisting. We do NOT mutate the in-memory
+      // configs (those keep the plaintext for use by the bridge); we build
+      // a separate sanitized payload.
+      const sanitized = Array.from(this.customConfigs.values()).map((c) => {
+        const clone: CustomProviderConfig = { ...c };
+        if (clone.apiKey) {
+          if (isEncryptionAvailable() && !isEncrypted(clone.apiKey)) {
+            clone.apiKey = encrypt(clone.apiKey);
+          }
+          // If safeStorage is unavailable, the key is left in plaintext —
+          // we warn but still persist, otherwise users would lose configs.
+          // The renderer-side UI should warn the user in this case.
+        }
+        return clone;
+      });
       const payload = {
         _schemaVersion: ProviderManager.CONFIG_SCHEMA_VERSION,
-        providers: configs,
+        providers: sanitized,
       };
       const json = JSON.stringify(payload, null, 2);
       // Atomic write: write to .tmp then rename

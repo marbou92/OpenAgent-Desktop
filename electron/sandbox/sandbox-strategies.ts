@@ -1181,10 +1181,19 @@ class BasicSandbox implements SandboxInterface {
   private healthCheckTimer?: ReturnType<typeof setInterval>;
   private sandboxDir: string;
   private workDir: string;
+  // SECURITY: denylist lives OUTSIDE the writable workspace so a sandboxed
+  // process cannot overwrite it to grant itself arbitrary permissions.
+  // Previously this was at `path.join(this.sandboxDir, "denylist.json")` —
+  // but `this.sandboxDir` contains `workspace/`, which is writable by sandboxed
+  // commands. We now store it in a sibling `.sandbox-config/` directory whose
+  // path is not exposed to sandboxed processes.
+  private denylistPath: string;
+  private denylist: string[] = [];
 
   constructor(sandboxDir: string) {
     this.sandboxDir = sandboxDir;
     this.workDir = path.join(sandboxDir, "workspace");
+    this.denylistPath = path.join(sandboxDir, ".sandbox-config", "denylist.json");
   }
 
   async start(config: SandboxConfig): Promise<void> {
@@ -1204,8 +1213,8 @@ class BasicSandbox implements SandboxInterface {
       "[BasicSandbox] Consider upgrading to Windows 10+ for WSL2 sandbox support."
     );
 
-    // Create a denylist for filesystem access
-    const denylistPath = path.join(this.sandboxDir, "denylist.json");
+    // Build a denylist expanded with common sensitive paths that the previous
+    // default missed (AWS/GCP creds, SSH keys, the app's own config dir).
     const defaultDenylist = [
       "C:\\Windows\\System32",
       "C:\\Windows\\SysWOW64",
@@ -1213,13 +1222,30 @@ class BasicSandbox implements SandboxInterface {
       "/sbin",
       "/etc/passwd",
       "/etc/shadow",
+      ".ssh",
+      ".aws",
+      ".aws/credentials",
+      ".config/gcloud",
+      ".gnupg",
+      ".openagent",
+      "Library/Keychains",
+      "AppData/Roaming/OpenAgent-Desktop",
+      ".openai",
+      ".anthropic",
+      ".config/openai",
     ];
 
     if (config.deniedPaths) {
       defaultDenylist.push(...config.deniedPaths);
     }
 
-    fs.writeFileSync(denylistPath, JSON.stringify(defaultDenylist, null, 2));
+    // Persist denylist outside the writable workspace.
+    const denylistDir = path.dirname(this.denylistPath);
+    if (!fs.existsSync(denylistDir)) {
+      fs.mkdirSync(denylistDir, { recursive: true });
+    }
+    fs.writeFileSync(this.denylistPath, JSON.stringify(defaultDenylist, null, 2));
+    this.denylist = defaultDenylist;
 
     this.running = true;
     this.startedAt = new Date().toISOString();
@@ -1240,7 +1266,8 @@ class BasicSandbox implements SandboxInterface {
     const timeout = options?.timeout || 30000;
     const startTime = Date.now();
 
-    // Validate the command against denied paths
+    // Validate the command against the in-memory denylist (NOT re-read from
+    // disk on each call — that allowed sandboxed processes to mutate the file).
     if (!this.isCommandAllowed(command)) {
       return {
         exitCode: 1,
@@ -1251,17 +1278,41 @@ class BasicSandbox implements SandboxInterface {
       };
     }
 
-    const execOptions: child_process.ExecSyncOptionsWithStringEncoding = {
-      encoding: "utf-8",
-      timeout,
-      maxBuffer: 10 * 1024 * 1024,
-      cwd: options?.cwd || this.workDir,
-      env: { ...process.env, ...options?.env, ...this.config.env },
-      input: options?.stdin,
-    };
+    // SECURITY: Previously this used `child_process.execSync(command, …)` which
+    // invokes a shell — so the command string was subject to shell expansion
+    // and injection. We now split the command into an argv and spawn without a
+    // shell. This is still NOT real isolation (the process runs as the user on
+    // the host), but it eliminates the shell-injection vector.
+    const argv = this.parseCommand(command);
+    if (!argv.length) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: "Empty command",
+        duration: Date.now() - startTime,
+        timedOut: false,
+      };
+    }
+
+    // Filter environment to a minimal allow-list (mirror the MCP client fix).
+    const envAllowList = ['PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'LANG', 'LC_ALL', 'TERM', 'SystemRoot', 'TEMP', 'TMP'];
+    const filteredEnv: Record<string, string> = {};
+    for (const key of envAllowList) {
+      if (process.env[key] !== undefined) filteredEnv[key] = process.env[key] as string;
+    }
+    Object.assign(filteredEnv, options?.env || {}, this.config.env || {});
 
     try {
-      const result = child_process.execSync(command, execOptions);
+      const result = child_process.execFileSync(argv[0], argv.slice(1), {
+        encoding: "utf-8",
+        timeout,
+        maxBuffer: 10 * 1024 * 1024,
+        cwd: options?.cwd || this.workDir,
+        env: filteredEnv,
+        input: options?.stdin,
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
       return {
         exitCode: 0,
@@ -1290,12 +1341,48 @@ class BasicSandbox implements SandboxInterface {
     }
   }
 
+  /**
+   * Split a command string into an argv. Uses a simple whitespace split that
+   * respects double-quoted segments. This is intentionally limited — complex
+   * shell features (pipes, redirects, backticks, $()) are NOT supported and
+   * callers that need them should switch to a real sandbox (Docker/WSL2/Lima).
+   */
+  private parseCommand(command: string): string[] {
+    const tokens: string[] = [];
+    let current = '';
+    let inQuote: '"' | "'" | null = null;
+    for (let i = 0; i < command.length; i++) {
+      const ch = command[i];
+      if (inQuote) {
+        if (ch === inQuote) {
+          inQuote = null;
+        } else {
+          current += ch;
+        }
+      } else if (ch === '"' || ch === "'") {
+        inQuote = ch;
+      } else if (/\s/.test(ch)) {
+        if (current.length > 0) {
+          tokens.push(current);
+          current = '';
+        }
+      } else {
+        current += ch;
+      }
+    }
+    if (current.length > 0) tokens.push(current);
+    return tokens;
+  }
+
   getStatus(): SandboxStatus {
     return {
       running: this.running,
       type: "basic",
       startedAt: this.startedAt,
-      health: this.running ? "healthy" : "stopped",
+      // SECURITY: Previously this returned "healthy" whenever `running` was
+      // true, even though BasicSandbox provides no real isolation. Surface the
+      // truth so the UI can warn the user that they are NOT in a real sandbox.
+      health: this.running ? "degraded" : "stopped",
       resourceUsage: { ...this.resourceUsage },
       config: { ...this.config },
     };
@@ -1343,19 +1430,16 @@ class BasicSandbox implements SandboxInterface {
   }
 
   private isCommandAllowed(command: string): boolean {
-    const denylistPath = path.join(this.sandboxDir, "denylist.json");
-    if (!fs.existsSync(denylistPath)) return true;
-
-    try {
-      const denylist: string[] = JSON.parse(
-        fs.readFileSync(denylistPath, "utf-8")
-      );
-      return !denylist.some((denied) =>
-        command.toLowerCase().includes(denied.toLowerCase())
-      );
-    } catch {
-      return true;
+    // SECURITY: Use the in-memory denylist snapshot taken at start(). Previously
+    // this re-read the JSON file from disk on every call — and the file lived
+    // inside the writable workspace, so a sandboxed process could overwrite it
+    // with `[]` and then run anything. Fail closed if no denylist is loaded.
+    if (!this.denylist || this.denylist.length === 0) {
+      // If the sandbox hasn't been start()ed with a denylist, deny everything.
+      return false;
     }
+    const lower = command.toLowerCase();
+    return !this.denylist.some((denied) => lower.includes(denied.toLowerCase()));
   }
 
   private resolveSandboxPath(filePath: string): string | null {

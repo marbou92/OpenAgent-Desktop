@@ -363,8 +363,13 @@ export class WildcardMatcher {
           break;
         case 'single-wildcard':
           if (segment.value === '*') {
-            // Single segment wildcard — match anything except separator
-            regexStr += '[^:]*';
+            // SECURITY: A bare '*' pattern is intended as "match any tool
+            // identifier" by the built-in "Full Autonomy" template. Previously
+            // this compiled to `[^:]*` which did NOT match identifiers
+            // containing ':' (e.g. `bash:rm -rf /`), so the allow rule was
+            // effectively dead and all tools fell through to `ask`. Match
+            // across colons so the documented semantics hold.
+            regexStr += '.*';
           } else {
             // Mixed * and literals, e.g., "src/*.ts" or "git *"
             regexStr += this.wildcardSegmentToRegex(segment.value);
@@ -372,10 +377,8 @@ export class WildcardMatcher {
           break;
         case 'multi-wildcard':
           if (segment.value === '**') {
-            // Multi-segment wildcard — match anything including separators
             regexStr += '.*';
           } else {
-            // Mixed ** and literals, e.g., "src/**/*.ts"
             regexStr += this.wildcardSegmentToRegex(segment.value);
           }
           break;
@@ -383,9 +386,6 @@ export class WildcardMatcher {
           regexStr += this.wildcardSegmentToRegex(segment.value);
           break;
       }
-
-      // Add colon separator between segments (if not already at end)
-      // The tokenizer strips colons, so we add them back as optional separators
     }
 
     // Also try matching just the tool type if pattern is just a tool name
@@ -406,7 +406,12 @@ export class WildcardMatcher {
         result += '.*';
         i += 2;
       } else if (segment[i] === '*') {
-        result += '[^:]*';
+        // SECURITY: Previously this was `[^:]*` which matched any character
+        // except ':' — including shell metacharacters like ';', '|', '&', '`'.
+        // So `bash:git *` would also match `bash:git;rm -rf /`. We now exclude
+        // common shell metacharacters so a wildcarded command argument cannot
+        // silently expand into a shell injection payload.
+        result += '[^:;&|`$\\n\\r]*';
         i++;
       } else if (segment[i] === '?') {
         result += '[^:]';

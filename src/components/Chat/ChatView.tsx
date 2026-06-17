@@ -44,7 +44,7 @@ const ChatView: React.FC<ChatViewProps> = ({
   sessionId,
   session,
   providers,
-  messages: _externalMessages,
+  messages: externalMessages,
   isStreaming: _externalIsStreaming,
   onMessagesUpdate,
   onNewSession,
@@ -74,6 +74,8 @@ const ChatView: React.FC<ChatViewProps> = ({
       onMessagesUpdate,
       onTraceEntry: addTraceEntry,
       onPermissionRequest: (req) => setPermissionRequest(req),
+      // BUGFIX: pass messages through so loading a saved session shows them.
+      externalMessages,
     });
 
   const { droppedFiles, removeFile, clearFiles, fileError } = useFileDrop({

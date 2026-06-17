@@ -216,8 +216,10 @@ function renderToken(token: MarkdownToken): string {
     case 'code_block': {
       const escaped = escapeHtml(token.content);
       const langAttr = token.language ? ` class="language-${token.language}"` : '';
+      // Note: no inline onclick handler — copy-code is wired via event delegation
+      // in MessageBubble (see attachCopyCodeHandlers) to avoid whitelisting onclick.
       const langLabel = token.language
-        ? `<div class="code-block-header"><span>${token.language}</span><button class="copy-code-btn" onclick="navigator.clipboard.writeText(this.closest('pre').querySelector('code').textContent)" title="Copy code">Copy</button></div>`
+        ? `<div class="code-block-header"><span>${escapeHtml(token.language)}</span><button class="copy-code-btn" data-copy-code title="Copy code">Copy</button></div>`
         : '';
       return `<pre>${langLabel}<code${langAttr}>${escaped}</code></pre>`;
     }
@@ -278,6 +280,36 @@ export function extractCodeBlocks(markdown: string): { language: string; code: s
 }
 
 /**
+ * Attach a single delegated click handler to a container element that copies
+ * the code from any `[data-copy-code]` button inside it. Replaces the previous
+ * inline `onclick` attribute (which required whitelisting `onclick` in DOMPurify
+ * and opened an XSS vector). Returns a cleanup function.
+ */
+export function attachCopyCodeHandlers(container: HTMLElement | null): () => void {
+  if (!container) return () => {};
+  const onClick = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+    const btn = target.closest('[data-copy-code]') as HTMLElement | null;
+    if (!btn) return;
+    const pre = btn.closest('pre');
+    const codeEl = pre?.querySelector('code');
+    const code = codeEl?.textContent ?? '';
+    try {
+      navigator.clipboard.writeText(code).then(() => {
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      }).catch(() => { /* clipboard blocked — silent */ });
+    } catch {
+      // clipboard API may be unavailable; ignore
+    }
+  };
+  container.addEventListener('click', onClick);
+  return () => container.removeEventListener('click', onClick);
+}
+
+/**
  * Sanitize HTML content using DOMPurify for robust XSS protection.
  * Removes dangerous elements, attributes, and JavaScript URIs.
  */
@@ -290,11 +322,13 @@ export function sanitizeHtml(html: string): string {
       'tr', 'th', 'td', 'div', 'span', 'button',
     ],
     ALLOWED_ATTR: [
-      'href', 'src', 'alt', 'class', 'style', 'target', 'rel',
-      'colspan', 'rowspan', 'id', 'title', 'onclick',
+      'href', 'src', 'alt', 'class', 'target', 'rel',
+      'colspan', 'rowspan', 'id', 'title',
     ],
-    ALLOW_DATA_ATTR: false,
+    ALLOW_DATA_ATTR: true, // needed for data-copy-code on copy-code button
     ADD_ATTR: ['target'],
+    // Forbid event-handler attributes and style — they enable XSS and CSS-based exfiltration.
+    FORBID_ATTR: ['style', 'onclick', 'onload', 'onerror', 'onmouseover', 'onfocus', 'onblur'],
   });
 }
 

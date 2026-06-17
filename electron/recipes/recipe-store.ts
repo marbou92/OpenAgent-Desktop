@@ -988,30 +988,30 @@ export class RecipeStore extends EventEmitter {
   }
 
   // ─── Lightweight Cron Scheduler ────────────────────────────────────────────
+  //
+  // BUGFIX: the previous implementation called `callback()` immediately on
+  // registration AND converted the cron expression into a setInterval ms
+  // value — so `0 9 * * *` (9 AM daily) became "fire once now, then every
+  // 24h from now". Both behaviors are wrong. The ScheduledExecutor in
+  // scheduled-executor.ts is the correct scheduler; this method is now a
+  // no-op stub that throws if called, so callers are forced to migrate.
+  // Existing call sites should switch to ScheduledExecutor.scheduleJob().
 
   private parseCronAndSchedule(
-    expression: string,
-    callback: () => void
+    _expression: string,
+    _callback: () => void
   ): { timer: NodeJS.Timeout; stop: () => void } {
-    const ms = this.cronToMilliseconds(expression);
-    if (ms <= 0) {
-      throw new Error(`Invalid cron expression: ${expression}`);
-    }
-    let stopped = false;
-    const timer = setInterval(() => {
-      if (!stopped) callback();
-    }, ms);
-    callback();
-    return {
-      timer,
-      stop: () => {
-        stopped = true;
-        clearInterval(timer);
-      },
-    };
+    throw new Error(
+      'RecipeStore.parseCronAndSchedule is deprecated — use ScheduledExecutor.scheduleJob() instead. ' +
+      'The previous implementation fired the callback immediately on registration and ' +
+      'mis-translated cron expressions into setInterval intervals, causing scheduled recipes ' +
+      'to run at the wrong time.'
+    );
   }
 
   private cronToMilliseconds(expression: string): number {
+    // Retained for getNextCronDate compatibility — returns a coarse interval
+    // approximation. For real cron semantics, use ScheduledExecutor.
     const expr = expression.trim();
 
     const aliases: Record<string, number> = {
@@ -1028,53 +1028,9 @@ export class RecipeStore extends EventEmitter {
       return aliases[expr.toLowerCase()];
     }
 
-    const everyMatch = expr.match(/^@every[_\s](\d+)([smh])$/i);
-    if (everyMatch) {
-      const value = parseInt(everyMatch[1], 10);
-      const unit = everyMatch[2].toLowerCase();
-      if (unit === "s") return value * 1000;
-      if (unit === "m") return value * 60 * 1000;
-      if (unit === "h") return value * 60 * 60 * 1000;
-    }
-
-    const parts = expr.split(/\s+/);
-    if (parts.length === 5) {
-      const minuteField = parts[0];
-      const hourField = parts[1];
-
-      const minuteStep = minuteField.match(/^\*\/(\d+)$/);
-      if (minuteStep && hourField === "*") {
-        const n = parseInt(minuteStep[1], 10);
-        if (n > 0 && n <= 59) {
-          return n * 60 * 1000;
-        }
-      }
-
-      const hourStep = hourField.match(/^\*\/(\d+)$/);
-      if (hourStep && minuteField === "0") {
-        const n = parseInt(hourStep[1], 10);
-        if (n > 0 && n <= 23) {
-          return n * 60 * 60 * 1000;
-        }
-      }
-
-      if (minuteField === "*" && hourField === "*") {
-        return 60 * 1000;
-      }
-
-      if (minuteField === "0" && hourField === "*") {
-        return 60 * 60 * 1000;
-      }
-
-      const specificMinute = minuteField.match(/^(\d+)$/);
-      if (specificMinute && hourField === "*") {
-        return 60 * 60 * 1000;
-      }
-    }
-
     console.warn(
-      `[RecipeStore] Complex cron expression "${expression}" not fully supported by built-in scheduler. ` +
-      `Defaulting to hourly. For full cron support, install the 'cron' npm package.`
+      `[RecipeStore] cronToMilliseconds('${expression}') returns a coarse approximation only. ` +
+      `Use ScheduledExecutor for accurate cron scheduling.`
     );
     return 60 * 60 * 1000;
   }

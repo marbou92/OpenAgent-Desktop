@@ -311,6 +311,16 @@ export class ScheduledExecutor extends EventEmitter {
   /**
    * Parse a simplified 5-field cron expression
    * Format: minute hour day-of-month month day-of-week
+   *
+   * BUGFIX: previously this only supported STAR, STAR-slash-N, and bare
+   * integers - so "0 9 * * MON" parsed MON as NaN -> null -> "every",
+   * meaning the job fired every minute of every hour of every day. We now
+   * also support:
+   *   - comma-separated lists (1,30)
+   *   - ranges (1-5)
+   *   - day/month names (MON, JAN)
+   *   - ranges with step (1-10/2)
+   * Anything we still can't parse returns null (caller falls back to "every").
    */
   parseCron(expression: string): ParsedCron | null {
     if (!expression || typeof expression !== "string") return null;
@@ -318,31 +328,90 @@ export class ScheduledExecutor extends EventEmitter {
     const parts = expression.trim().split(/\s+/);
     if (parts.length !== 5) return null;
 
-    const parseField = (field: string): { value: number | null; interval: number } => {
-      if (field === "*") return { value: null, interval: 0 };
-      if (field.startsWith("*/")) {
-        const interval = parseInt(field.slice(2), 10);
-        return { value: null, interval: isNaN(interval) ? 0 : interval };
+    // Expand a single field into a list of matching integers.
+    // Returns null if the field is invalid.
+    const expandField = (field: string, min: number, max: number, names?: Record<string, number>): number[] | null => {
+      if (field === "*") {
+        // All values in range.
+        const out: number[] = [];
+        for (let i = min; i <= max; i++) out.push(i);
+        return out;
       }
-      const val = parseInt(field, 10);
-      return { value: isNaN(val) ? null : val, interval: 0 };
+      // Handle */N
+      const everyN = field.match(/^\*\/(\d+)$/);
+      if (everyN) {
+        const step = parseInt(everyN[1], 10);
+        if (isNaN(step) || step <= 0) return null;
+        const out: number[] = [];
+        for (let i = min; i <= max; i += step) out.push(i);
+        return out;
+      }
+      // Handle comma-separated list of values/ranges
+      const out: number[] = [];
+      for (const piece of field.split(",")) {
+        // Range with optional step: `1-5` or `1-10/2`
+        const rangeStep = piece.match(/^(\d+)-(\d+)\/(\d+)$/);
+        if (rangeStep) {
+          const lo = parseInt(rangeStep[1], 10);
+          const hi = parseInt(rangeStep[2], 10);
+          const step = parseInt(rangeStep[3], 10);
+          if (isNaN(lo) || isNaN(hi) || isNaN(step) || step <= 0 || lo < min || hi > max || lo > hi) return null;
+          for (let i = lo; i <= hi; i += step) out.push(i);
+          continue;
+        }
+        // Plain range: `1-5`
+        const range = piece.match(/^(\d+)-(\d+)$/);
+        if (range) {
+          const lo = parseInt(range[1], 10);
+          const hi = parseInt(range[2], 10);
+          if (isNaN(lo) || isNaN(hi) || lo < min || hi > max || lo > hi) return null;
+          for (let i = lo; i <= hi; i++) out.push(i);
+          continue;
+        }
+        // Named value (e.g. MON, JAN)
+        if (names) {
+          const upper = piece.toUpperCase();
+          if (upper in names) {
+            out.push(names[upper]);
+            continue;
+          }
+        }
+        // Plain integer
+        const val = parseInt(piece, 10);
+        if (isNaN(val) || val < min || val > max) return null;
+        out.push(val);
+      }
+      return out.length > 0 ? out : null;
     };
 
-    const minute = parseField(parts[0]);
-    const hour = parseField(parts[1]);
-    const dayOfMonth = parseField(parts[2]);
-    const month = parseField(parts[3]);
-    const dayOfWeek = parseField(parts[4]);
+    const DOW_NAMES: Record<string, number> = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
+    const MONTH_NAMES: Record<string, number> = {
+      JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
+      JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+    };
+
+    const minutes = expandField(parts[0], 0, 59);
+    const hours = expandField(parts[1], 0, 23);
+    const doms = expandField(parts[2], 1, 31);
+    const months = expandField(parts[3], 1, 12, MONTH_NAMES);
+    const dows = expandField(parts[4], 0, 6, DOW_NAMES);
+    if (!minutes || !hours || !doms || !months || !dows) return null;
 
     return {
-      minute: minute.value,
-      hour: hour.value,
-      dayOfMonth: dayOfMonth.value,
-      month: month.value,
-      dayOfWeek: dayOfWeek.value,
-      minuteInterval: minute.interval,
-      hourInterval: hour.interval,
-    };
+      minute: minutes[0], // first value (used for the old API)
+      hour: hours[0],
+      dayOfMonth: doms[0],
+      month: months[0],
+      dayOfWeek: dows[0],
+      minuteInterval: 0,
+      hourInterval: 0,
+      // Stash the full lists for cronMatches to use.
+      _minutes: minutes,
+      _hours: hours,
+      _doms: doms,
+      _months: months,
+      _dows: dows,
+    } as ParsedCron & { _minutes: number[]; _hours: number[]; _doms: number[]; _months: number[]; _dows: number[] };
   }
 
   // ─── Private: Job Execution ─────────────────────────────────────────────
@@ -478,98 +547,156 @@ export class ScheduledExecutor extends EventEmitter {
     if (job.status !== "active" || !job.nextRunAt) return;
 
     const nextRun = new Date(job.nextRunAt).getTime();
-    const delay = nextRun - Date.now();
+    const initialDelay = nextRun - Date.now();
 
-    if (delay <= 0) {
+    if (initialDelay <= 0) {
       // Already due, will be picked up by checkInterval
       return;
     }
 
-    // Cap delay at 24 hours (re-setup will happen after execution)
-    const cappedDelay = Math.min(delay, 24 * 60 * 60 * 1000);
-
-    const timer = setTimeout(() => {
-      this.executeJob(job).catch((err) => {
-        console.error(`[ScheduledExecutor] Error executing job ${job.id}:`, err);
-      });
-    }, cappedDelay);
-
-    this.timers.set(job.id, timer);
+    // BUGFIX: previously the delay was capped at 24h, so a job scheduled
+    // >24h out would fire at 24h — running the recipe a day early. We now
+    // schedule a recursive re-arm at 24h intervals (only re-arming, never
+    // executing) until the real nextRunAt is within reach.
+    const MAX_TIMER_MS = 24 * 60 * 60 * 1000;
+    const arm = (): void => {
+      const remaining = new Date(job.nextRunAt!).getTime() - Date.now();
+      if (remaining <= 0) {
+        // Due now — execute.
+        this.executeJob(job).catch((err) => {
+          console.error(`[ScheduledExecutor] Error executing job ${job.id}:`, err);
+        });
+        return;
+      }
+      const wait = Math.min(remaining, MAX_TIMER_MS);
+      const timer = setTimeout(() => {
+        // Re-evaluate remaining at fire time. If still > MAX_TIMER_MS,
+        // re-arm without executing.
+        const stillRemaining = new Date(job.nextRunAt!).getTime() - Date.now();
+        if (stillRemaining > MAX_TIMER_MS) {
+          arm();
+          return;
+        }
+        if (stillRemaining <= 0) {
+          // Already past due — execute.
+          this.executeJob(job).catch((err) => {
+            console.error(`[ScheduledExecutor] Error executing job ${job.id}:`, err);
+          });
+          return;
+        }
+        // Final short stretch — wait it out, then execute.
+        const finalTimer = setTimeout(() => {
+          this.executeJob(job).catch((err) => {
+            console.error(`[ScheduledExecutor] Error executing job ${job.id}:`, err);
+          });
+        }, stillRemaining);
+        this.timers.set(job.id, finalTimer);
+      }, wait);
+      this.timers.set(job.id, timer);
+    };
+    arm();
   }
 
   /**
-   * Calculate the next run time for a job
+   * Calculate the next run time for a job.
+   * BUGFIX: previously the cron matcher used local time exclusively, ignoring
+   * `job.timezone`. We now compute matches in the configured timezone by
+   * formatting the candidate date via `Intl.DateTimeFormat` with `timeZone`
+   * and extracting the parts. Falls back to local time if the timezone is
+   * invalid or unsupported.
    */
   private calculateNextRun(job: ScheduledJob): string {
     if (job.type === "one_time") {
-      return job.schedule; // The schedule IS the next (and only) run time
+      return job.schedule;
     }
 
-    // Parse cron and find next occurrence
     const cron = this.parseCron(job.schedule);
     if (!cron) {
-      return new Date(Date.now() + 60_000).toISOString(); // Fallback: 1 minute from now
+      return new Date(Date.now() + 60_000).toISOString();
     }
 
+    // Resolve the timezone once. If invalid, fall back to local.
+    let tz: string | undefined;
+    try {
+      if (job.timezone) {
+        // Probe by formatting a known date; throws if tz is invalid.
+        new Intl.DateTimeFormat('en-US', { timeZone: job.timezone }).format(new Date());
+        tz = job.timezone;
+      }
+    } catch {
+      console.warn(`[ScheduledExecutor] Invalid timezone '${job.timezone}', falling back to local time`);
+      tz = undefined;
+    }
+
+    const partsInTz = (d: Date): { minute: number; hour: number; dom: number; month: number; dow: number } => {
+      if (!tz) {
+        return {
+          minute: d.getMinutes(),
+          hour: d.getHours(),
+          dom: d.getDate(),
+          month: d.getMonth() + 1,
+          dow: d.getDay(),
+        };
+      }
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        minute: '2-digit', hour: '2-digit',
+        day: '2-digit', month: '2-digit',
+        weekday: 'short', hour12: false,
+      });
+      const parts = fmt.formatToParts(d);
+      const get = (t: string): string => {
+        const p = parts.find(p => p.type === t);
+        return p ? p.value : '';
+      };
+      const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+      return {
+        minute: parseInt(get('minute'), 10) % 60,
+        hour: parseInt(get('hour'), 10) % 24,
+        dom: parseInt(get('day'), 10),
+        month: parseInt(get('month'), 10),
+        dow: weekdayMap[get('weekday')] ?? 0,
+      };
+    };
+
     const now = new Date();
-    // Start from the next minute
     const candidate = new Date(now);
     candidate.setSeconds(0, 0);
     candidate.setMinutes(candidate.getMinutes() + 1);
 
-    // Find the next matching time (search up to 1 year ahead)
     const maxIterations = 525600; // minutes in a year
     for (let i = 0; i < maxIterations; i++) {
-      if (this.cronMatches(cron, candidate)) {
+      if (this.cronMatchesTz(cron, partsInTz(candidate))) {
         return candidate.toISOString();
       }
       candidate.setMinutes(candidate.getMinutes() + 1);
     }
 
-    // Fallback: 1 hour from now
     return new Date(Date.now() + 3600_000).toISOString();
   }
 
   /**
-   * Check if a parsed cron expression matches a given date
+   * Check if a parsed cron expression matches the date parts.
+   * BUGFIX: previously this used the old single-value ParsedCron fields, which
+   * meant `0 9 * * MON` only ever matched `dow === 1` (the first list entry);
+   * any other valid dow value was rejected. We now check membership in the
+   * expanded lists stored on the parsed cron.
    */
-  private cronMatches(cron: ParsedCron, date: Date): boolean {
-    const minute = date.getMinutes();
-    const hour = date.getHours();
-    const dayOfMonth = date.getDate();
-    const month = date.getMonth() + 1; // 1-based
-    const dayOfWeek = date.getDay();    // 0 = Sunday
+  private cronMatchesTz(
+    cron: ParsedCron & { _minutes?: number[]; _hours?: number[]; _doms?: number[]; _months?: number[]; _dows?: number[] },
+    parts: { minute: number; hour: number; dom: number; month: number; dow: number }
+  ): boolean {
+    const mins = cron._minutes ?? (cron.minute !== null ? [cron.minute] : []);
+    const hrs = cron._hours ?? (cron.hour !== null ? [cron.hour] : []);
+    const doms = cron._doms ?? (cron.dayOfMonth !== null ? [cron.dayOfMonth] : []);
+    const months = cron._months ?? (cron.month !== null ? [cron.month] : []);
+    const dows = cron._dows ?? (cron.dayOfWeek !== null ? [cron.dayOfWeek] : []);
 
-    // Check minute
-    if (cron.minuteInterval > 0) {
-      if (minute % cron.minuteInterval !== 0) return false;
-    } else if (cron.minute !== null && cron.minute !== minute) {
-      return false;
-    }
-
-    // Check hour
-    if (cron.hourInterval > 0) {
-      if (hour % cron.hourInterval !== 0) return false;
-      if (cron.minute === null && minute !== 0) return false;
-    } else if (cron.hour !== null && cron.hour !== hour) {
-      return false;
-    }
-
-    // Check day of month
-    if (cron.dayOfMonth !== null && cron.dayOfMonth !== dayOfMonth) {
-      return false;
-    }
-
-    // Check month
-    if (cron.month !== null && cron.month !== month) {
-      return false;
-    }
-
-    // Check day of week
-    if (cron.dayOfWeek !== null && cron.dayOfWeek !== dayOfWeek) {
-      return false;
-    }
-
+    if (mins.length && !mins.includes(parts.minute)) return false;
+    if (hrs.length && !hrs.includes(parts.hour)) return false;
+    if (doms.length && !doms.includes(parts.dom)) return false;
+    if (months.length && !months.includes(parts.month)) return false;
+    if (dows.length && !dows.includes(parts.dow)) return false;
     return true;
   }
 
@@ -632,15 +759,21 @@ export class ScheduledExecutor extends EventEmitter {
 
   private saveJobs(): void {
     const filePath = path.join(this.dataDir, SCHEDULED_JOBS_FILE);
+    const tmpPath = filePath + '.tmp';
 
     try {
       const data = {
         jobs: Array.from(this.jobs.values()),
         runLogs: this.runLogs.slice(-MAX_RUN_LOGS),
       };
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+      // BUGFIX: previously this used direct fs.writeFileSync, so a crash
+      // mid-write would truncate the file and lose all jobs on next startup.
+      // Now we write to a .tmp file and rename atomically.
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, filePath);
     } catch (err) {
-      console.error("[ScheduledExecutor] Failed to save jobs:", err);
+      console.error('[ScheduledExecutor] Failed to save jobs:', err);
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
     }
   }
 

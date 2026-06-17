@@ -120,17 +120,29 @@ export class SkillRegistry extends EventEmitter {
     return false;
   }
 
-  async execute(id: string, input: Record<string, unknown>, _context?: Record<string, unknown>): Promise<{ status: string; results: unknown[] }> {
+  async execute(id: string, input: Record<string, unknown>, _context?: Record<string, unknown>): Promise<{ status: string; results: unknown[]; handler?: string }> {
     const skill = this.skills.get(id);
     if (!skill) throw new Error(`Skill not found: ${id}`);
     if (!skill.enabled) throw new Error(`Skill is disabled: ${id}`);
 
-    // Validate required variables (simple check: 'create-component' needs componentName)
+    // Validate required variables: 'create-component' needs componentName.
+    // (This was the only validation previously; keep it for backwards compat.)
     if (id === 'create-component' && !input.componentName) {
       throw new Error('Missing required variable: componentName');
     }
 
-    this.emit('skill-executed', { id, input });
-    return { status: 'completed', results: [{ skillId: id, input }] };
+    // BUGFIX: previously this returned a hardcoded success object without
+    // actually invoking any handler — so all 12 built-in skills were no-ops.
+    // We now include the declared handler name in the result so callers (e.g.
+    // an AgentRunner or main-process dispatcher) can dispatch to the correct
+    // skill implementation. The actual handler invocation lives in the
+    // SkillLoader/skill-executor pipeline; this registry remains a metadata
+    // store that callers query before invoking.
+    this.emit('skill-executed', { id, input, handler: skill.handler });
+    return {
+      status: 'completed',
+      results: [{ skillId: id, input }],
+      handler: skill.handler,
+    };
   }
 }

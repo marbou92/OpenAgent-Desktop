@@ -7,7 +7,9 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/marbou92/OpenAgent-Desktop/ci.yml?style=for-the-badge&branch=main)](https://github.com/marbou92/OpenAgent-Desktop/actions)
 [![Downloads](https://img.shields.io/github/downloads/marbou92/OpenAgent-Desktop/total?style=for-the-badge)](https://github.com/marbou92/OpenAgent-Desktop/releases)
 
-**The open-source AI Agent desktop platform that connects you to 35+ LLM providers and 60+ extensions.**
+**The open-source AI Agent desktop platform — multi-provider LLM access, an extensible skill system, and a configurable sandbox.**
+
+> **Note:** the previously-advertised "35+ providers" / "60+ extensions" / gVisor / 80% coverage / Prettier claims were corrected in this revision to match what the codebase actually ships. See the relevant sections below for the current, accurate counts.
 
 [Download](#installation) · [Documentation](#architecture-overview) · [Providers](#provider-configuration) · [Extensions](#extension-catalog) · [Contributing](#contributing)
 
@@ -18,7 +20,7 @@
 ## Features
 
 ### Multi-Provider Support
-Connect to **35+ LLM providers** with a unified interface:
+Connect to **LLM providers** with a unified interface (the custom-provider system supports OpenAI-, Anthropic-, and Gemini-protocol compatible endpoints; built-in provider presets are defined in `electron/custom-provider/model-presets.ts`):
 
 | Provider | Environment Variable | Description |
 |----------|---------------------|-------------|
@@ -61,7 +63,9 @@ Connect to **35+ LLM providers** with a unified interface:
 | Stepfun | `STEPFUN_API_KEY` | Step-1V, Step-2 |
 | Databricks | `DATABRICKS_API_KEY` | DBRX, Dolly |
 
-### 60+ Extensions
+### Extensions
+
+The codebase ships a set of built-in extensions under `electron/extensions/builtin/` (e.g. `code-mode`, `developer`, `memory`, `summon`, `computer-controller`, `apps`, `todo`, `top-of-mind`, `chat-recall`, `document-generators`, `auto-visualiser`, `extension-manager`). The hard-coded marketplace catalog (`electron/extensions/marketplace.ts`) lists a larger set of installable MCP-server configs — but actual on-disk extensions are user-installed.
 
 Extend your AI agent with powerful tools and integrations:
 
@@ -131,7 +135,7 @@ Extend your AI agent with powerful tools and integrations:
 - **Azure** — Blob Storage, Functions, Cognitive Services
 
 ### Sandboxing & Security
-- **Isolated Execution** — All code runs in sandboxed containers (Docker/gVisor)
+- **Isolated Execution** — Optional sandboxing via Docker (Linux), WSL2 (Windows 10+), Lima (macOS), or a `basic` fallback (no true isolation — runs commands directly on the host with an in-memory denylist). gVisor is **not** bundled.
 - **Permission System** — Granular control over what each agent can access
 - **Audit Log** — Complete log of all agent actions and tool invocations
 - **Secrets Vault** — Encrypted storage for API keys and credentials
@@ -766,11 +770,11 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ### Code Style
 
-- **TypeScript** strict mode with no `any` types
-- **ESLint** + **Prettier** for formatting
+- **TypeScript** strict mode is on; `any` types are permitted by ESLint config (`@typescript-eslint/no-explicit-any: off`) — work to tighten this is in progress.
+- **ESLint** for linting. (Prettier is **not** currently configured.)
 - **React** functional components with hooks
 - **Tailwind CSS** for styling (no inline styles)
-- Minimum **80% test coverage** for new features
+- Minimum test coverage targets are aspirational; current line coverage is low (single-digit percent). Contributions that add tests — especially for `electron/permissions`, `electron/sandbox`, `electron/utils/encryption`, and `electron/recipes` — are very welcome.
 
 ### Pull Request Process
 

@@ -25,6 +25,11 @@ interface UseChatOptions {
   onMessagesUpdate?: (messages: ChatMessage[]) => void;
   onTraceEntry?: (entry: TraceEntry) => void;
   onPermissionRequest?: (request: PermissionRequest) => void;
+  // BUGFIX: previously useChat ignored external messages, so loading a saved
+  // session showed an empty chat. Now we accept an externalMessages array and
+  // sync it into local state whenever it changes (typically when App.tsx loads
+  // a session from disk).
+  externalMessages?: ChatMessage[];
 }
 
 interface UseChatReturn {
@@ -38,6 +43,7 @@ interface UseChatReturn {
   stopStreaming: () => Promise<void>;
   clearMessages: () => void;
   retryLastMessage: () => Promise<void>;
+  loadSession: (messages: ChatMessage[]) => void;
 }
 
 export function useChat(options: UseChatOptions): UseChatReturn {
@@ -48,6 +54,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onMessagesUpdate,
     onTraceEntry,
     onPermissionRequest,
+    externalMessages,
   } = options;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -70,6 +77,43 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     messagesRef.current = messages;
   }, [messages]);
 
+  // BUGFIX: previously useChat never picked up messages loaded by App.tsx —
+  // calling handleLoadSession set the Zustand store but useChat still showed
+  // an empty list. Now we sync externalMessages into local state when the
+  // array reference changes (App sets it on session load).
+  useEffect(() => {
+    if (externalMessages && externalMessages.length > 0) {
+      // Mark any streaming messages as finalized since we are loading from disk.
+      const sanitized = externalMessages.map(m => ({ ...m, isStreaming: false }));
+      setMessages(sanitized);
+      streamingContentRef.current = '';
+      streamingThinkingRef.current = '';
+      setActiveToolCalls([]);
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+    } else if (externalMessages && externalMessages.length === 0 && sessionId === null) {
+      // App cleared the session — clear local messages too.
+      setMessages([]);
+    }
+    // We intentionally depend only on externalMessages, not sessionId, so that
+    // re-mounting the same session does not wipe state. App.tsx passes a fresh
+    // array on each load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalMessages]);
+
+  // Stable callbacks: wrap onTraceEntry / onPermissionRequest in refs so that
+  // the streaming subscription effect does not re-subscribe on every render
+  // of the parent component. Previously, inline arrows in ChatView caused the
+  // subscription to be torn down and re-created on every streaming token,
+  // risking dropped events.
+  const onTraceEntryRef = useRef(onTraceEntry);
+  const onPermissionRequestRef = useRef(onPermissionRequest);
+  useEffect(() => {
+    onTraceEntryRef.current = onTraceEntry;
+  }, [onTraceEntry]);
+  useEffect(() => {
+    onPermissionRequestRef.current = onPermissionRequest;
+  }, [onPermissionRequest]);
   // Cleanup listeners on unmount or session change
   useEffect(() => {
     return () => {
@@ -134,7 +178,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       // If permission mode requires approval, emit a permission request
       if (permissionMode === 'approve' || permissionMode === 'smart_approve') {
-        onPermissionRequest?.({
+        onPermissionRequestRef.current?.({
           id: newToolCall.id,
           toolName: newToolCall.name,
           args: newToolCall.arguments,
@@ -241,7 +285,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubTrace = api.on.traceEntry((entry: TraceEntry) => {
       if (entry.sessionId === sessionId) {
-        onTraceEntry?.(entry);
+        onTraceEntryRef.current?.(entry);
       }
     });
 
@@ -260,7 +304,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       unsubscribeRef.current.forEach(fn => fn());
       unsubscribeRef.current = [];
     };
-  }, [sessionId, permissionMode, onTraceEntry, onPermissionRequest]);
+  }, [sessionId, permissionMode]);
 
   // Notify parent when messages change
   useEffect(() => {
@@ -398,6 +442,19 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     streamingThinkingRef.current = '';
   }, []);
 
+  // Exposed imperative API to load a session's messages from the parent.
+  // Useful when the parent has the messages but didn't pass them via
+  // externalMessages (e.g. for backward compatibility).
+  const loadSession = useCallback((loaded: ChatMessage[]) => {
+    const sanitized = loaded.map(m => ({ ...m, isStreaming: false }));
+    setMessages(sanitized);
+    streamingContentRef.current = '';
+    streamingThinkingRef.current = '';
+    setActiveToolCalls([]);
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+  }, []);
+
   const retryLastMessage = useCallback(async () => {
     if (!lastUserMessageRef.current) return;
 
@@ -428,5 +485,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     stopStreaming,
     clearMessages,
     retryLastMessage,
+    loadSession,
   };
 }

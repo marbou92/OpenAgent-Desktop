@@ -152,15 +152,20 @@ export class MCPTransport extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
-      const fullEnv: Record<string, string> = {
-        ...process.env as Record<string, string>,
-        ...this.env,
-      };
+      // Allow-list env vars to avoid leaking OPENAGENT_MACHINE_ID / HOSTNAME /
+      // API keys to spawned extension processes.
+      const envAllowList = ['PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'LANG', 'LC_ALL', 'TERM', 'SystemRoot', 'TEMP', 'TMP'];
+      const filteredEnv: Record<string, string> = {};
+      for (const key of envAllowList) {
+        if (process.env[key] !== undefined) filteredEnv[key] = process.env[key] as string;
+      }
+      Object.assign(filteredEnv, this.env);
 
+      // shell:false so that args containing shell metacharacters are not interpreted.
       this.process = spawn(this.command, this.args, {
-        env: fullEnv,
+        env: filteredEnv,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
+        shell: false,
       });
 
       if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {

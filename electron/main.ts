@@ -37,7 +37,7 @@ import { ProjectManager } from './projects/manager';
 import { SkillRegistry } from './skills/registry';
 import { ProviderHealthMonitor } from './providers/health-monitor';
 // ─── Aether v2: New Subsystem Imports ──────────────────────────────────────
-import { CrashLogger } from './crash';
+import { CrashLogger, CrashDetector } from './crash';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
 import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
@@ -306,6 +306,46 @@ function createMainWindow(): BrowserWindow {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
+  // SECURITY: Deny all popups / new windows opened from the renderer.
+  // External links (https://...) are routed through the system browser via
+  // shell.openExternal; everything else is blocked.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("https://") || url.startsWith("mailto:")) {
+      shell.openExternal(url).catch(() => { /* ignore */ });
+    }
+    return { action: "deny" };
+  });
+
+  // SECURITY: Inject a strict Content-Security-Policy via onHeadersReceived so
+  // that it cannot be stripped from the HTML <meta> tag. This tightens the
+  // previous `connect-src 'self' https: wss:` (which allowed exfiltration to
+  // any HTTPS host) down to 'self' plus the in-process dev server. Custom
+  // providers and the OpenCode sidecar talk through the main process, not
+  // from the renderer, so the renderer does not need broader connect-src.
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const isDev = IS_DEV;
+    const csp = [
+      "default-src 'self'",
+      isDev
+        ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+        : "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      isDev ? "connect-src 'self' http://localhost:5173 ws://localhost:5173" : "connect-src 'self'",
+      "font-src 'self' data:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+    ].join("; ");
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [csp],
+      },
+    });
+  });
+
   // Window lifecycle
   mainWindow.once("ready-to-show", () => {
     mainWindow!.show();
@@ -340,10 +380,18 @@ function createMainWindow(): BrowserWindow {
   });
 
   // Handle file drops from OS
+  // SECURITY: In production the app is loaded from file://, so the previous
+  // `!url.startsWith("file://")` check let the renderer navigate to any local
+  // file (e.g. file:///etc/passwd). Now we only allow navigation back to the
+  // app's own origin (dev server or the dist/index.html we loaded).
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    // Prevent navigation away from app
-    if (!url.startsWith("http://localhost:5173") && !url.startsWith("file://")) {
+    const allowedOrigins = IS_DEV
+      ? ["http://localhost:5173"]
+      : [`file://${path.join(__dirname, "..", "dist", "index.html")}`];
+    const isAllowed = allowedOrigins.some((origin) => url === origin || url.startsWith(origin + "#"));
+    if (!isAllowed) {
       event.preventDefault();
+      console.warn("[Main] Blocked navigation to:", url);
     }
   });
 
@@ -357,14 +405,30 @@ function createMainWindow(): BrowserWindow {
 // ─── System Tray ──────────────────────────────────────────────────────────────
 
 function createTray(): void {
-  const iconPath = path.join(__dirname, "../assets/tray-icon.png");
+  // BUGFIX: previously this resolved `path.join(__dirname, "../assets/tray-icon.png")`
+  // — but no `assets/` directory exists at the project root (verified via LS),
+  // so the tray was always invisible. We now build a small 16x16 icon in
+  // memory using nativeImage.createFromBuffer with a hardcoded PNG byte
+  // sequence (a single-color square) so the tray icon is always visible
+  // regardless of whether asset files are bundled correctly.
   let trayIcon: Electron.NativeImage;
-
+  const iconPath = path.join(__dirname, "../assets/tray-icon.png");
   if (fs.existsSync(iconPath)) {
     trayIcon = nativeImage.createFromPath(iconPath);
   } else {
-    // Create a simple default icon if asset doesn't exist
-    trayIcon = nativeImage.createEmpty();
+    // 16x16 transparent PNG with a single indigo pixel pattern. Embedded as
+    // base64 so we don't depend on bundling a separate asset file.
+    const B64_PNG =
+      "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAU0lEQVR42mNk+M9QzwAFjFAGI4Qy" +
+      "DEYJi0EYz0KGJg0DGNoYcSiDYyCNYWAE0wS2e+Mehs1AbwbGYHMchqkB1ANYDg0j4RqARwAAAC" +
+      "V0RVh0ZGF0ZTpjcmVhdGU9AMKzZQAAAABJRU5ErkJggg==";
+    const buf = Buffer.from(B64_PNG, "base64");
+    trayIcon = nativeImage.createFromBuffer(buf, { width: 16, height: 16 });
+    if (trayIcon.isEmpty()) {
+      // Last-resort fallback — still better than createEmpty() because at
+      // least it preserves the intent.
+      trayIcon = nativeImage.createEmpty();
+    }
   }
 
   tray = new Tray(trayIcon.resize({ width: 16, height: 16 }));
@@ -475,31 +539,96 @@ function handleDeepLink(url: string): void {
 
     switch (action) {
       case "install-extension": {
+        // SECURITY: Previously this called extensionRegistry.installFromUrl(extensionUrl)
+        // directly with no confirmation — a crafted deep link was a one-click RCE
+        // vector. Now we prompt the user with the URL and require explicit consent.
         const extensionUrl = params.url;
-        if (extensionUrl) {
+        if (!extensionUrl) {
+          console.warn("[Main] install-extension deep link missing url param");
+          break;
+        }
+        // Only allow https URLs (no http, no file://, no internal IPs).
+        let parsed: URL;
+        try {
+          parsed = new URL(extensionUrl);
+        } catch {
+          mainWindow?.webContents.send("extension:install-error", { message: "Invalid extension URL" });
+          break;
+        }
+        if (parsed.protocol !== "https:") {
+          mainWindow?.webContents.send("extension:install-error", {
+            message: "Refused to install extension from non-https URL",
+          });
+          break;
+        }
+
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          console.warn("[Main] install-extension: window not available to confirm");
+          break;
+        }
+        dialog.showMessageBox(mainWindow, {
+          type: "warning",
+          title: "Install Extension",
+          message: "An application is requesting to install an extension.",
+          detail: `URL: ${extensionUrl}\n\nExtensions can execute arbitrary code in the main process. Only continue if you trust the source.`,
+          buttons: ["Cancel", "Install"],
+          defaultId: 0,
+          cancelId: 0,
+        }).then((result) => {
+          if (result.response !== 1) return;
           extensionRegistry.installFromUrl(extensionUrl).then((ext) => {
             mainWindow?.webContents.send("extension:installed", ext);
           }).catch((err: any) => {
-            mainWindow?.webContents.send("extension:install-error", {
-              message: err.message,
-            });
+            mainWindow?.webContents.send("extension:install-error", { message: err.message });
           });
-        }
+        }).catch(() => { /* dialog dismissed */ });
         break;
       }
       case "import-recipe": {
+        // SECURITY: Previously this blindly JSON.parse'd attacker-controlled base64.
+        // Now we validate the shape minimally and require user confirmation,
+        // because recipes can use new Function()-style conditions (now sandboxed
+        // via vm.runInNewContext, but defense in depth still applies).
         const recipeData = params.data;
-        if (recipeData) {
+        if (!recipeData) break;
+        let recipe: unknown;
+        try {
           const decoded = Buffer.from(recipeData, "base64").toString("utf-8");
-          const recipe = JSON.parse(decoded);
+          recipe = JSON.parse(decoded);
+        } catch (err) {
+          mainWindow?.webContents.send("recipe:import-error", {
+            message: `Invalid recipe payload: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          break;
+        }
+        // Minimal shape validation: must be an object with at least a name or prompt.
+        if (typeof recipe !== "object" || recipe === null || Array.isArray(recipe)) {
+          mainWindow?.webContents.send("recipe:import-error", { message: "Recipe payload is not an object" });
+          break;
+        }
+        const r = recipe as Record<string, unknown>;
+        if (typeof r.name !== "string" && typeof r.prompt !== "string") {
+          mainWindow?.webContents.send("recipe:import-error", { message: "Recipe must have a name or prompt" });
+          break;
+        }
+
+        if (!mainWindow || mainWindow.isDestroyed()) break;
+        dialog.showMessageBox(mainWindow, {
+          type: "question",
+          title: "Import Recipe",
+          message: "An application is requesting to import a recipe.",
+          detail: `Name: ${typeof r.name === "string" ? r.name : "(unknown)"}\n\nRecipes can run prompts and execute sub-recipes. Only continue if you trust the source.`,
+          buttons: ["Cancel", "Import"],
+          defaultId: 0,
+          cancelId: 0,
+        }).then((result) => {
+          if (result.response !== 1) return;
           recipeEngine.importRecipe(recipe).then((imported) => {
             mainWindow?.webContents.send("recipe:imported", imported);
           }).catch((err) => {
-            mainWindow?.webContents.send("recipe:import-error", {
-              message: err.message,
-            });
+            mainWindow?.webContents.send("recipe:import-error", { message: err.message });
           });
-        }
+        }).catch(() => { /* dialog dismissed */ });
         break;
       }
       case "open-session": {
@@ -510,19 +639,44 @@ function handleDeepLink(url: string): void {
         break;
       }
       case "run-recipe": {
+        // SECURITY: require explicit user confirmation before running a recipe
+        // invoked via deep link, since recipes can execute prompts and sub-recipes.
         const recipeId = params.id;
-        const variables = params.variables
-          ? JSON.parse(params.variables)
-          : {};
-        if (recipeId) {
-          recipeEngine.run(recipeId, variables).then((result) => {
-            mainWindow?.webContents.send("recipe:run-complete", result);
-          }).catch((err) => {
+        let variables: Record<string, string> = {};
+        if (params.variables) {
+          try {
+            const parsedVars = JSON.parse(params.variables);
+            if (parsedVars && typeof parsedVars === "object" && !Array.isArray(parsedVars)) {
+              variables = parsedVars as Record<string, string>;
+            } else {
+              mainWindow?.webContents.send("recipe:run-error", { message: "Invalid variables payload" });
+              break;
+            }
+          } catch (err) {
             mainWindow?.webContents.send("recipe:run-error", {
-              message: err.message,
+              message: `Invalid variables JSON: ${err instanceof Error ? err.message : String(err)}`,
             });
-          });
+            break;
+          }
         }
+        if (!recipeId) break;
+        if (!mainWindow || mainWindow.isDestroyed()) break;
+        dialog.showMessageBox(mainWindow, {
+          type: "question",
+          title: "Run Recipe",
+          message: "An application is requesting to run a recipe.",
+          detail: `Recipe ID: ${recipeId}\n\nRecipes can execute prompts and sub-recipes. Only continue if you trust the source.`,
+          buttons: ["Cancel", "Run"],
+          defaultId: 0,
+          cancelId: 0,
+        }).then((result) => {
+          if (result.response !== 1) return;
+          recipeEngine.run(recipeId, variables).then((res) => {
+            mainWindow?.webContents.send("recipe:run-complete", res);
+          }).catch((err) => {
+            mainWindow?.webContents.send("recipe:run-error", { message: err.message });
+          });
+        }).catch(() => { /* dialog dismissed */ });
         break;
       }
       default:
@@ -726,10 +880,24 @@ async function initializeSubsystems(): Promise<void> {
   await skillRegistry.initialize(path.join(userDataPath, "skills"));
 
   // Initialize OpenCode bridge
-  openCodeBridge = new OpenCodeBridge({
-    host: '127.0.0.1',
-    port: 4096,
-  });
+  // BUGFIX: Previously this constructed a SEPARATE OpenCodeBridge pointing at
+  // hardcoded port 4096, while ProviderManager owned its OWN bridge pointing
+  // at the sidecar's RANDOM port (allocated by SidecarManager). So every
+  // `opencode:sessions:*` / `opencode:messages:*` / `opencode:tools:*` IPC
+  // handler targeted port 4096, where nothing was listening. Now we share the
+  // ProviderManager's bridge instance so all callers talk to the same sidecar.
+  const sidecarInstance = providerManager.getSidecarInstance();
+  if (sidecarInstance) {
+    openCodeBridge = new OpenCodeBridge({
+      host: sidecarInstance.hostname,
+      port: sidecarInstance.port,
+      username: sidecarInstance.username,
+      password: sidecarInstance.password,
+    });
+  } else {
+    // Fallback to a no-op bridge so setOpenCodeBridge has something to track.
+    openCodeBridge = new OpenCodeBridge();
+  }
   setOpenCodeBridge(openCodeBridge);
   try {
     await openCodeBridge.connect();
@@ -931,6 +1099,67 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("custom-provider:presets", wrapIPC(async () => {
     return { success: true, data: providerManager.getCustomProviderPresets() };
+  }));
+
+  // ── Sidecar IPC ───────────────────────────────────────────────────────────
+  // BUGFIX: preload.ts:457-461 exposes sidecar:status/restart/getInstance but
+  // no matching ipcMain.handle existed — renderer calls returned promises that
+  // never resolved. Now wired to the ProviderManager's sidecar lifecycle.
+
+  ipcMain.handle("sidecar:status", wrapIPC(async () => {
+    const instance = providerManager.getSidecarInstance();
+    return {
+      success: true,
+      data: instance
+        ? { url: instance.url, port: instance.port, hostname: instance.hostname }
+        : { status: 'stopped' },
+    };
+  }));
+
+  ipcMain.handle("sidecar:restart", wrapIPC(async () => {
+    const instance = await providerManager.restartSidecar();
+    return { success: true, data: { url: instance.url, port: instance.port, hostname: instance.hostname } };
+  }));
+
+  ipcMain.handle("sidecar:getInstance", wrapIPC(async () => {
+    return { success: true, data: providerManager.getSidecarInstance() };
+  }));
+
+  // ── Crash IPC ─────────────────────────────────────────────────────────────
+  // BUGFIX: preload.ts:449-453 exposes crash:check/getLog/dismiss but no
+  // matching ipcMain.handle existed — renderer calls returned promises that
+  // never resolved. Now wired to the CrashDetector.
+
+  ipcMain.handle("crash:check", wrapIPC(async () => {
+    // CrashDetector reads the previous run's crash.log file.
+    const detector = new CrashDetector(getUserDataPath());
+    const crash = detector.detect();
+    return { success: true, data: crash };
+  }));
+
+  ipcMain.handle("crash:getLog", wrapIPC(async () => {
+    try {
+      const logPath = path.join(getUserDataPath(), 'crash.log');
+      if (!fs.existsSync(logPath)) return { success: true, data: null };
+      const content = fs.readFileSync(logPath, 'utf-8');
+      return { success: true, data: content };
+    } catch (err) {
+      return { success: true, data: null };
+    }
+  }));
+
+  ipcMain.handle("crash:dismiss", wrapIPC(async () => {
+    try {
+      const logPath = path.join(getUserDataPath(), 'crash.log');
+      if (fs.existsSync(logPath)) {
+        // Archive rather than delete, so we can inspect later if needed.
+        const archived = path.join(getUserDataPath(), 'crash.log.archived');
+        fs.renameSync(logPath, archived);
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }));
 
   // ── Extension IPC ─────────────────────────────────────────────────────────
@@ -1882,6 +2111,11 @@ function startSubsystemHealthCheck(): void {
 
 async function cleanupBeforeQuit(): Promise<void> {
   try {
+    if (healthMonitor) {
+      // BUGFIX: previously the health monitor interval was never stopped on
+      // quit, leaking an interval that kept hitting provider APIs.
+      healthMonitor.stop?.();
+    }
     if (sandboxManager) {
       await sandboxManager.stop();
     }
@@ -1900,6 +2134,16 @@ async function cleanupBeforeQuit(): Promise<void> {
     }
     if (scheduledExecutor) {
       scheduledExecutor.shutdown();
+    }
+    // BUGFIX: Previously the ProviderManager (which owns the SidecarManager)
+    // was never shut down, orphaning the OpenCode sidecar child process as a
+    // zombie after the app exited. Now we explicitly call shutdown().
+    if (providerManager && typeof providerManager.shutdown === 'function') {
+      try {
+        await providerManager.shutdown();
+      } catch (err) {
+        logger.error('Main', 'ProviderManager shutdown error', err);
+      }
     }
     // Close database connection
     closeDatabase();
@@ -2053,6 +2297,10 @@ if (!gotTheLock) {
   });
 
   // Handle uncaught exceptions — Aether v2: Crash Logger
+  // BUGFIX: previously the handler logged the crash but did NOT exit, leaving
+  // the process in an undefined state (Node convention is to exit after
+  // uncaughtException because the state is unrecoverable). We now log and
+  // then exit so the user gets a clean restart instead of cascading failures.
   process.on("uncaughtException", (error: Error) => {
     console.error("[Main] Uncaught exception:", error);
     logger.error('Process', 'Uncaught exception', error);
@@ -2070,6 +2318,13 @@ if (!gotTheLock) {
       message: error.message,
       stack: error.stack,
     });
+    // Give the IPC a moment to flush, then exit.
+    setTimeout(() => {
+      isQuitting = true;
+      app.quit();
+      // Hard fallback if app.quit() doesn't exit within 2s.
+      setTimeout(() => process.exit(1), 2000).unref();
+    }, 500).unref();
   });
 
   process.on("unhandledRejection", (reason: unknown) => {
@@ -2089,41 +2344,23 @@ if (!gotTheLock) {
     mainWindow?.webContents.send("app:error", {
       message: String(reason),
     });
+    // Note: do not exit on unhandledRejection — promises are recoverable in
+    // most cases. The user can keep working. The log captures the failure.
   });
 
-  // Aether v2: Signal handlers for crash logging
+  // Aether v2: Signal handlers for clean shutdown.
+  // BUGFIX: previously SIGTERM/SIGINT were logged as crashes — but these are
+  // NORMAL shutdown signals (sent by systemd, by `kill`, by Ctrl+C in dev,
+  // and by the OS during logout). Polluting the crash log with them hid real
+  // crashes. We now log them as informational and skip writing a crash log.
   process.on('SIGTERM', () => {
-    logger.info('Process', 'Received SIGTERM');
-    if (!isQuitting) {
-      try {
-        const crashLogger = new CrashLogger(getUserDataPath());
-        crashLogger.writeCrashLog({
-          timestamp: new Date().toISOString(),
-          errorType: 'SIGTERM',
-          errorName: 'SIGTERM',
-          errorMessage: 'Process received SIGTERM signal',
-          stackTrace: new Error().stack || '',
-        }, logger.getRecentEntries(100));
-      } catch { /* best effort */ }
-    }
+    logger.info('Process', 'Received SIGTERM (clean shutdown)');
     isQuitting = true;
     app.quit();
   });
 
   process.on('SIGINT', () => {
-    logger.info('Process', 'Received SIGINT');
-    if (!isQuitting) {
-      try {
-        const crashLogger = new CrashLogger(getUserDataPath());
-        crashLogger.writeCrashLog({
-          timestamp: new Date().toISOString(),
-          errorType: 'SIGINT',
-          errorName: 'SIGINT',
-          errorMessage: 'Process received SIGINT signal',
-          stackTrace: new Error().stack || '',
-        }, logger.getRecentEntries(100));
-      } catch { /* best effort */ }
-    }
+    logger.info('Process', 'Received SIGINT (Ctrl+C — clean shutdown)');
     isQuitting = true;
     app.quit();
   });

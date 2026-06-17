@@ -546,10 +546,19 @@ export class RecipeImporter {
 
   /**
    * Normalize a migrated raw object into a proper Recipe
+   *
+   * SECURITY: The recipe ID is ALWAYS regenerated as `imported:${uuid}` — we
+   * never trust `raw.id` from imported recipes. Previously, a malicious recipe
+   * could claim `id: "builtin:code-review"` and overwrite a built-in recipe via
+   * `recipe-store.ts:621` (which sets by ID unconditionally on create()).
    */
   private normalizeRecipe(raw: any): Recipe {
     const now = new Date().toISOString();
-    const recipeId = raw.id || `imported:${crypto.randomUUID()}`;
+    // SECURITY: The recipe ID is ALWAYS regenerated as `imported:${uuid}` — we
+    // never trust `raw.id` from imported recipes. Previously, a malicious recipe
+    // could claim `id: "builtin:code-review"` and overwrite a built-in recipe via
+    // `recipe-store.ts:621` (which sets by ID unconditionally on create()).
+    const recipeId = `imported:${crypto.randomUUID()}`;
 
     return {
       id: recipeId,
