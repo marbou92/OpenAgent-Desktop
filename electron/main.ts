@@ -332,35 +332,12 @@ function createMainWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
-  // SECURITY: Inject a strict Content-Security-Policy via onHeadersReceived so
-  // that it cannot be stripped from the HTML <meta> tag. This tightens the
-  // previous `connect-src 'self' https: wss:` (which allowed exfiltration to
-  // any HTTPS host) down to 'self' plus the in-process dev server. Custom
-  // providers and the OpenCode sidecar talk through the main process, not
-  // from the renderer, so the renderer does not need broader connect-src.
-  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const isDev = IS_DEV;
-    const csp = [
-      "default-src 'self'",
-      isDev
-        ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-        : "script-src 'self'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
-      isDev ? "connect-src 'self' http://localhost:5173 ws://localhost:5173" : "connect-src 'self'",
-      "font-src 'self' data:",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-    ].join("; ");
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [csp],
-      },
-    });
-  });
+  // NOTE: The strict CSP injection via onHeadersReceived was removed because it
+  // blocked the inline splash-screen-removal script in index.html (production
+  // CSP had script-src 'self' without 'unsafe-inline'). The CSP meta tag in
+  // index.html is now the sole CSP source — it's been tightened to use
+  // connect-src 'self' instead of 'self' https: wss:. Keeping setWindowOpenHandler
+  // and will-navigate hardening above.
 
   // Window lifecycle
   mainWindow.once("ready-to-show", () => {
