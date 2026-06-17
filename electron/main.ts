@@ -1569,13 +1569,11 @@ function registerIpcHandlers(): void {
     return { success: true };
   }));
 
-  ipcMain.handle(
-    "recipe:import",
-    wrapIPC(async (_event, source: string, format?: string) => {
-      const recipe = await recipeEngine.importFromSource(source, format);
-      return { success: true, data: recipe };
-    })
-  );
+  // NOTE: "recipe:import" is registered below in the Phase 7 section — it uses
+  // the dedicated RecipeImporter (with the security fix that regenerates IDs).
+  // Previously there was a duplicate registration here that called
+  // recipeEngine.importFromSource, which caused:
+  //   "Attempted to register a second handler for 'recipe:import'" crash.
 
   // ── Sandbox IPC ───────────────────────────────────────────────────────────
 
