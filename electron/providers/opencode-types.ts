@@ -48,8 +48,17 @@ export interface ModelCost {
   output: number;
   cache_read?: number;
   cache_write?: number;
+  cache_input?: number;
+  cached_input?: number;
+  cached_write?: number;
+  input_audio?: number;
+  output_audio?: number;
+  reasoning?: number;
+  image?: number;
+  citation?: number;
+  request?: number;
   context_over_200k?: { input: number; output: number; cache_read?: number; cache_write?: number };
-  /** Allow additional cost fields from .toml files (input_audio, reasoning, etc.) */
+  /** Allow future cost fields from .toml files. */
   [key: string]: unknown;
 }
 
@@ -63,6 +72,7 @@ export interface ModelLimit {
 export interface ModelModalities {
   input?: Array<'text' | 'audio' | 'image' | 'video' | 'pdf'>;
   output?: Array<'text' | 'audio' | 'image' | 'video' | 'pdf'>;
+  [key: string]: unknown;
 }
 
 export interface ModelConfig {
@@ -70,11 +80,18 @@ export interface ModelConfig {
   name?: string;
   family?: string;
   release_date?: string;
+  last_updated?: string;
+  knowledge?: string;
   attachment?: boolean;
   reasoning?: boolean;
   temperature?: boolean;
   tool_call?: boolean;
   structured_output?: boolean;
+  open_weights?: boolean;
+  base_model?: string;
+  base_model_omit?: boolean;
+  interleaved?: boolean | { field: string };
+  reasoning_options?: unknown;
   cost?: ModelCost;
   limit?: ModelLimit;
   modalities?: ModelModalities;
@@ -82,7 +99,7 @@ export interface ModelConfig {
   provider?: { npm?: string; api?: string };
   options?: Record<string, unknown>;
   headers?: Record<string, string>;
-  /** Which catalog source this model came from: 'toml' (build-time), 'models.json' (runtime), 'github-live' (runtime GitHub fetch). */
+  /** Which catalog source this model came from: 'toml' (build-time), 'models.json' (runtime), 'github-live' (runtime GitHub fetch), 'ai-sdk' (ai-sdk.dev docs). */
   source?: string;
 }
 
@@ -117,6 +134,8 @@ export interface ProviderDefinition {
   icon?: string;
   /** Documentation URL. */
   docsUrl?: string;
+  /** ai-sdk.dev documentation URL (if this provider is documented there). */
+  aiSdkDocsUrl?: string;
   /**
    * If set, models.dev entries for this provider ID are used instead of
    * looking up the provider's own ID. Useful for providers that host the

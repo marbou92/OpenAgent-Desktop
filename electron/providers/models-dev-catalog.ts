@@ -1,10 +1,13 @@
 /**
  * OpenAgent-Desktop - models.dev Provider Catalog (auto-generated)
  *
- * Source: https://github.com/anomalyco/models.dev/tree/dev/providers
- * 145 providers with their provider.toml definitions.
- * 94 providers with embedded model .toml data (2357 models total).
- * 128 providers have SVG logos.
+ * Sources:
+ *   - Provider definitions: https://github.com/anomalyco/models.dev/tree/dev/providers
+ *   - Model .toml data: https://github.com/anomalyco/models.dev/tree/dev/providers/{asterisk}/models
+ *   - ai-sdk.dev docs: https://ai-sdk.dev/providers
+ *
+ * 145 providers, 94 with embedded model data (2357 models), 128 with logos.
+ * 48 providers have ai-sdk.dev documentation links.
  *
  * This file is auto-generated. Do not edit manually.
  * Regenerate: python3 scripts/fetch-providers.py
@@ -57923,7 +57926,7 @@ export const EMBEDDED_MODELS: Record<string, Record<string, ModelConfig>> =
   }
 };
 
-// ─── Provider definitions (from provider.toml files) ─────────────────────
+// ─── Provider definitions (from provider.toml files + ai-sdk.dev docs) ───
 
 export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
   {
@@ -57971,6 +57974,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:aihubmix',
     docsUrl: 'https://docs.aihubmix.com',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/aihubmix',
     models: EMBEDDED_MODELS['aihubmix'],
   },
   {
@@ -57983,6 +57987,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:alibaba',
     docsUrl: 'https://www.alibabacloud.com/help/en/model-studio/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/alibaba',
     models: EMBEDDED_MODELS['alibaba'],
   },
   {
@@ -58054,6 +58059,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:amazon-bedrock',
     docsUrl: 'https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/amazon-bedrock',
     models: EMBEDDED_MODELS['amazon-bedrock'],
   },
   {
@@ -58076,6 +58082,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:anthropic',
     docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/anthropic',
     models: EMBEDDED_MODELS['anthropic'],
   },
   {
@@ -58122,6 +58129,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:azure',
     docsUrl: 'https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/azure',
     models: EMBEDDED_MODELS['azure'],
     modelSource: 'openai',
   },
@@ -58134,6 +58142,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:azure-cognitive-services',
     docsUrl: 'https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/azure-cognitive-services',
     models: EMBEDDED_MODELS['azure-cognitive-services'],
     modelSource: 'openai',
   },
@@ -58159,6 +58168,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:baseten',
     docsUrl: 'https://docs.baseten.co/inference/model-apis/overview',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/baseten',
   },
   {
     id: 'berget',
@@ -58180,6 +58190,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:cerebras',
     docsUrl: 'https://inference-docs.cerebras.ai/models/overview',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/cerebras',
     models: EMBEDDED_MODELS['cerebras'],
   },
   {
@@ -58203,6 +58214,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://docs.clarifai.com/compute/inference/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/clarifai',
   },
   {
     id: 'claudinio',
@@ -58236,6 +58248,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:cloudflare-ai-gateway',
     docsUrl: 'https://developers.cloudflare.com/ai-gateway/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/cloudflare-ai-gateway',
   },
   {
     id: 'cloudflare-workers-ai',
@@ -58247,6 +58260,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:cloudflare-workers-ai',
     docsUrl: 'https://developers.cloudflare.com/workers-ai/models/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/cloudflare-workers-ai',
   },
   {
     id: 'cohere',
@@ -58257,6 +58271,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:cohere',
     docsUrl: 'https://docs.cohere.com/docs/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/cohere',
     models: EMBEDDED_MODELS['cohere'],
   },
   {
@@ -58293,6 +58308,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://docs.databricks.com/aws/en/machine-learning/foundation-models/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/databricks',
     models: EMBEDDED_MODELS['databricks'],
   },
   {
@@ -58304,6 +58320,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:deepinfra',
     docsUrl: 'https://deepinfra.com/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/deepinfra',
   },
   {
     id: 'deepseek',
@@ -58315,6 +58332,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:deepseek',
     docsUrl: 'https://api-docs.deepseek.com/quick_start/pricing',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/deepseek',
     models: EMBEDDED_MODELS['deepseek'],
   },
   {
@@ -58327,6 +58345,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:digitalocean',
     docsUrl: 'https://docs.digitalocean.com/products/gradient-ai-platform/details/models/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/digitalocean',
     models: EMBEDDED_MODELS['digitalocean'],
   },
   {
@@ -58395,6 +58414,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:fireworks-ai',
     docsUrl: 'https://fireworks.ai/docs/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/fireworks-ai',
   },
   {
     id: 'freemodel',
@@ -58418,6 +58438,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:friendli',
     docsUrl: 'https://friendli.ai/docs/guides/serverless_endpoints/introduction',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/friendli',
   },
   {
     id: 'frogbot',
@@ -58453,6 +58474,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:github-models',
     docsUrl: 'https://docs.github.com/en/github-models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/github-models',
   },
   {
     id: 'gitlab',
@@ -58485,6 +58507,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:google',
     docsUrl: 'https://ai.google.dev/gemini-api/docs/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/google',
     models: EMBEDDED_MODELS['google'],
   },
   {
@@ -58496,6 +58519,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:google-vertex',
     docsUrl: 'https://cloud.google.com/vertex-ai/generative-ai/docs/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/google-vertex',
     models: EMBEDDED_MODELS['google-vertex'],
     modelSource: 'google',
   },
@@ -58519,6 +58543,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:groq',
     docsUrl: 'https://console.groq.com/docs/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/groq',
     models: EMBEDDED_MODELS['groq'],
   },
   {
@@ -58554,6 +58579,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:huggingface',
     docsUrl: 'https://huggingface.co/docs/inference-providers',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/huggingface',
   },
   {
     id: 'iflowcn',
@@ -58716,6 +58742,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://lmstudio.ai/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/lmstudio',
   },
   {
     id: 'lucidquery',
@@ -58760,6 +58787,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:minimax',
     docsUrl: 'https://platform.minimax.io/docs/guides/quickstart',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/minimax',
     models: EMBEDDED_MODELS['minimax'],
   },
   {
@@ -58807,6 +58835,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:mistral',
     docsUrl: 'https://docs.mistral.ai/getting-started/models/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/mistral',
     models: EMBEDDED_MODELS['mistral'],
   },
   {
@@ -58842,6 +58871,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:modelscope',
     docsUrl: 'https://modelscope.cn/docs/model-service/API-Inference/intro',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/modelscope',
   },
   {
     id: 'moonshotai',
@@ -58853,6 +58883,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:moonshotai',
     docsUrl: 'https://platform.moonshot.ai/docs/api/chat',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/moonshotai',
     models: EMBEDDED_MODELS['moonshotai'],
   },
   {
@@ -58901,6 +58932,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:nearai',
     docsUrl: 'https://docs.near.ai/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/nearai',
   },
   {
     id: 'nebius',
@@ -58912,6 +58944,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:nebius',
     docsUrl: 'https://docs.tokenfactory.nebius.com/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/nebius',
   },
   {
     id: 'neon',
@@ -58992,6 +59025,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:openai',
     docsUrl: 'https://platform.openai.com/docs/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/openai',
     models: EMBEDDED_MODELS['openai'],
   },
   {
@@ -59028,6 +59062,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:openrouter',
     docsUrl: 'https://openrouter.ai/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/openrouter',
     modelSource: '*',
   },
   {
@@ -59051,6 +59086,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:ovhcloud',
     docsUrl: 'https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog//',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/ovhcloud',
     models: EMBEDDED_MODELS['ovhcloud'],
   },
   {
@@ -59062,6 +59098,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:perplexity',
     docsUrl: 'https://docs.perplexity.ai',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/perplexity',
     models: EMBEDDED_MODELS['perplexity'],
   },
   {
@@ -59155,6 +59192,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://requesty.ai/solution/llm-routing/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/requesty',
   },
   {
     id: 'routing-run',
@@ -59176,6 +59214,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://help.sap.com/docs/sap-ai-core',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/sap-ai-core',
     models: EMBEDDED_MODELS['sap-ai-core'],
   },
   {
@@ -59188,6 +59227,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://docs.sarvam.ai/api-reference-docs/getting-started/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/sarvam',
     models: EMBEDDED_MODELS['sarvam'],
   },
   {
@@ -59200,6 +59240,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:scaleway',
     docsUrl: 'https://www.scaleway.com/en/docs/generative-apis/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/scaleway',
     models: EMBEDDED_MODELS['scaleway'],
   },
   {
@@ -59212,6 +59253,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:siliconflow',
     docsUrl: 'https://cloud.siliconflow.com/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/siliconflow',
   },
   {
     id: 'siliconflow-cn',
@@ -59234,6 +59276,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:snowflake-cortex',
     docsUrl: 'https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-rest-api',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/snowflake-cortex',
     models: EMBEDDED_MODELS['snowflake-cortex'],
   },
   {
@@ -59338,6 +59381,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:togetherai',
     docsUrl: 'https://docs.together.ai/docs/serverless-models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/togetherai',
   },
   {
     id: 'umans-ai',
@@ -59373,6 +59417,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://developers.upstage.ai/docs/apis/chat',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/upstage',
     models: EMBEDDED_MODELS['upstage'],
   },
   {
@@ -59384,6 +59429,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:v0',
     docsUrl: 'https://sdk.vercel.ai/providers/ai-sdk-providers/vercel',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/v0',
     models: EMBEDDED_MODELS['v0'],
   },
   {
@@ -59395,6 +59441,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:venice',
     docsUrl: 'https://docs.venice.ai',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/venice',
     models: EMBEDDED_MODELS['venice'],
   },
   {
@@ -59406,6 +59453,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:vercel',
     docsUrl: 'https://github.com/vercel/ai/tree/5eb85cc45a259553501f535b8ac79a77d0e79223/packages/gateway',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/vercel',
   },
   {
     id: 'vivgrid',
@@ -59429,6 +59477,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:vultr',
     docsUrl: 'https://api.vultrinference.com/',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/vultr',
   },
   {
     id: 'wafer.ai',
@@ -59462,6 +59511,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:xai',
     docsUrl: 'https://docs.x.ai/docs/models',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/xai',
     models: EMBEDDED_MODELS['xai'],
   },
   {
@@ -59581,6 +59631,7 @@ export const MODELS_DEV_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'logo:zhipuai',
     docsUrl: 'https://docs.z.ai/guides/overview/pricing',
+    aiSdkDocsUrl: 'https://ai-sdk.dev/providers/zhipuai',
     models: EMBEDDED_MODELS['zhipuai'],
   },
   {
