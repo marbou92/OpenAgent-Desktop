@@ -1,20 +1,20 @@
 /**
- * OpenAgent-Desktop - Provider Detail (right panel)
+ * OpenAgent-Desktop - Provider Detail (opencode-style)
  *
  * Shows everything about the selected provider:
  *   - Header (icon, name, protocol, docs link)
- *   - Connect section (auth — api key / oauth / azure ad / env var)
- *   - Base URL override (for proxies / Azure deployments)
- *   - Model list with refresh / add custom / set default
- *   - Health check (Run + last result)
- *   - Danger zone (disable / remove provider)
+ *   - Connect section (auth — api key / GitHub Copilot)
+ *   - Base URL override
+ *   - Model list
+ *   - Health check
+ *   - Danger zone (remove auth)
  */
 
 import React, { useState, useEffect } from 'react';
 import { ExternalLink, Trash2, Power, Activity } from 'lucide-react';
 import {
   ProviderDefinition,
-  ConfiguredProvider,
+  AuthProvider,
   ResolvedModel,
   DiscoveredModel,
   HealthCheckResult,
@@ -26,7 +26,7 @@ import { ModelList } from './ModelList';
 
 export interface ProviderDetailProps {
   definition: ProviderDefinition;
-  configured: ConfiguredProvider | undefined;
+  configured: AuthProvider | undefined;
   models: ResolvedModel[];
   discovered: DiscoveredModel[] | undefined;
   discoveredFetchedAt: string | undefined;
@@ -34,16 +34,11 @@ export interface ProviderDetailProps {
   isRefreshing: boolean;
   isHealthChecking: boolean;
   onApiKeySubmit: (apiKey: string) => void;
-  onOAuthStart: () => void;
-  onAzureAdStart: (tenantId: string, clientId: string) => void;
+  onCopilotStart: () => void;
   onDisconnect: () => void;
-  onSetBaseUrlOverride: (baseUrl: string) => void;
+  onSetBaseUrl: (baseUrl: string) => void;
   onRefreshModels: () => void;
-  onAddCustomModel: (model: { id: string; displayName: string; contextWindow?: number }) => void;
-  onRemoveCustomModel: (modelId: string) => void;
-  onSetDefaultModel: (modelId: string) => void;
   onRunHealthCheck: () => void;
-  onToggleEnabled: (enabled: boolean) => void;
   onRemove: () => void;
 }
 
@@ -57,26 +52,20 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
   isRefreshing,
   isHealthChecking,
   onApiKeySubmit,
-  onOAuthStart,
-  onAzureAdStart,
+  onCopilotStart,
   onDisconnect,
-  onSetBaseUrlOverride,
+  onSetBaseUrl,
   onRefreshModels,
-  onAddCustomModel,
-  onRemoveCustomModel,
-  onSetDefaultModel,
   onRunHealthCheck,
-  onToggleEnabled,
   onRemove,
 }) => {
-  const [baseUrlOverride, setBaseUrlOverride] = useState(configured?.baseUrlOverride || '');
+  const [baseUrl, setBaseUrl] = useState(definition.options?.baseURL || '');
 
   useEffect(() => {
-    setBaseUrlOverride(configured?.baseUrlOverride || '');
-  }, [configured?.providerId, configured?.baseUrlOverride]);
+    setBaseUrl(definition.options?.baseURL || '');
+  }, [definition.id, definition.options?.baseURL]);
 
   const isConfigured = Boolean(configured);
-  const isEnabled = configured?.enabled ?? false;
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -96,9 +85,9 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
             {isConfigured && <ProviderHealthBadge health={health} />}
           </div>
           <div className="text-xs flex items-center gap-2 mt-1" style={{ color: 'var(--color-text-muted)' }}>
-            <span className="font-mono uppercase">{definition.protocol}</span>
-            <span>·</span>
-            <span>{definition.modelPresets.length} preset models</span>
+            {definition.protocol && <span className="font-mono uppercase">{definition.protocol}</span>}
+            {definition.protocol && <span>·</span>}
+            <span>{Object.keys(definition.models || {}).length} models</span>
             {definition.docsUrl && (
               <>
                 <span>·</span>
@@ -115,19 +104,6 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
             )}
           </div>
         </div>
-        {isConfigured && (
-          <button
-            onClick={() => onToggleEnabled(!isEnabled)}
-            className="text-xs px-2 py-1 rounded flex items-center gap-1"
-            style={{
-              background: isEnabled ? 'rgba(34,197,94,0.10)' : 'var(--color-bg-tertiary)',
-              color: isEnabled ? '#22c55e' : 'var(--color-text-muted)',
-              border: `1px solid ${isEnabled ? 'rgba(34,197,94,0.30)' : 'var(--color-border-primary)'}`,
-            }}
-          >
-            <Power size={12} /> {isEnabled ? 'Enabled' : 'Disabled'}
-          </button>
-        )}
       </div>
 
       {/* Connect section */}
@@ -139,8 +115,7 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
           definition={definition}
           configured={configured}
           onApiKeySubmit={onApiKeySubmit}
-          onOAuthStart={onOAuthStart}
-          onAzureAdStart={onAzureAdStart}
+          onCopilotStart={onCopilotStart}
           onDisconnect={onDisconnect}
           isConnecting={false}
         />
@@ -156,19 +131,19 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
           style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-primary)' }}
         >
           <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Default: <code>{definition.defaultBaseUrl || '(none — set per call)'}</code>
+            Default: <code>{definition.api || definition.options?.baseURL || '(none — set per call)'}</code>
           </div>
           <div className="flex gap-2">
             <input
               type="text"
               placeholder="Override base URL (e.g. for proxies or Azure deployments)"
-              value={baseUrlOverride}
-              onChange={(e) => setBaseUrlOverride(e.target.value)}
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
               className="flex-1 px-2 py-1.5 rounded text-sm"
               style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-secondary)' }}
             />
             <button
-              onClick={() => onSetBaseUrlOverride(baseUrlOverride.trim())}
+              onClick={() => onSetBaseUrl(baseUrl.trim())}
               className="text-xs px-3 py-1.5 rounded"
               style={{ background: 'var(--color-accent)', color: 'white' }}
             >
@@ -188,12 +163,9 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
           models={models}
           discovered={discovered}
           discoveredFetchedAt={discoveredFetchedAt}
-          defaultModelId={configured?.defaultModelId}
           isRefreshing={isRefreshing}
           onRefresh={onRefreshModels}
-          onAddCustomModel={onAddCustomModel}
-          onRemoveCustomModel={onRemoveCustomModel}
-          onSetDefault={onSetDefaultModel}
+          onSetDefault={() => {}}
         />
       </section>
 
@@ -252,7 +224,7 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
             style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.20)' }}
           >
             <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              Remove this provider's configuration and stored credentials.
+              Remove stored credentials for this provider.
             </div>
             <button
               onClick={onRemove}

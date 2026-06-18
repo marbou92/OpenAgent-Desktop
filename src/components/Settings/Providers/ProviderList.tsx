@@ -1,19 +1,18 @@
 /**
- * OpenAgent-Desktop - Provider List (left sidebar)
+ * OpenAgent-Desktop - Provider List (opencode-style)
  *
- * Shows all builtin + configured providers. Configured providers have a
- * status dot and label. Clicking selects; a separate "Add Provider" button
- * opens the catalog of builtins to add.
+ * Shows all providers from the catalog. Configured providers have a
+ * status dot. Clicking selects.
  */
 
 import React from 'react';
-import { ProviderDefinition, ConfiguredProvider, HealthCheckResult } from './types';
+import { ProviderDefinition, AuthProvider, HealthCheckResult } from './types';
 import { ProviderIcon } from './ProviderIcon';
 import { ProviderHealthBadge } from './ProviderHealthBadge';
 
 export interface ProviderListProps {
   definitions: ProviderDefinition[];
-  configured: ConfiguredProvider[];
+  configured: Array<{ providerId: string; auth: AuthProvider }>;
   health: Record<string, HealthCheckResult>;
   selectedProviderId: string | null;
   onSelect: (providerId: string) => void;
@@ -28,15 +27,16 @@ export const ProviderList: React.FC<ProviderListProps> = ({
   onSelect,
   onAddProvider,
 }) => {
-  const configuredMap = new Map(configured.map((c) => [c.providerId, c]));
+  const configuredMap = new Map(configured.map((c) => [c.providerId, c.auth]));
 
-  // Show configured providers first, then unconfigured builtins.
+  // Show configured providers first, then unconfigured builtins, then custom.
   const configuredList = definitions.filter((d) => configuredMap.has(d.id));
-  const availableList = definitions.filter((d) => !configuredMap.has(d.id) && d.isBuiltin);
+  const availableList = definitions.filter((d) => !configuredMap.has(d.id) && d.isBuiltin !== false);
+  const customList = definitions.filter((d) => !configuredMap.has(d.id) && d.isBuiltin === false);
 
   const renderRow = (def: ProviderDefinition) => {
     const isSelected = def.id === selectedProviderId;
-    const cfg = configuredMap.get(def.id);
+    const auth = configuredMap.get(def.id);
     const h = health[def.id];
 
     return (
@@ -61,10 +61,10 @@ export const ProviderList: React.FC<ProviderListProps> = ({
             className="text-xs truncate"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            {cfg ? (cfg.label || def.name) : 'Not configured'}
+            {auth ? `${auth.type} auth` : 'Not configured'}
           </div>
         </div>
-        {cfg && <ProviderHealthBadge health={h} />}
+        {auth && <ProviderHealthBadge health={h} />}
       </button>
     );
   };
@@ -106,11 +106,18 @@ export const ProviderList: React.FC<ProviderListProps> = ({
           </div>
         )}
 
-        {configuredList.length === 0 && availableList.length === 0 && (
+        {customList.length > 0 && (
+          <div>
+            <div className="text-[10px] uppercase tracking-wide px-2 py-1" style={{ color: 'var(--color-text-muted)' }}>
+              Custom
+            </div>
+            <div className="space-y-1">{customList.map(renderRow)}</div>
+          </div>
+        )}
+
+        {configuredList.length === 0 && availableList.length === 0 && customList.length === 0 && (
           <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
-            No providers configured.
-            <br />
-            Click "Add" to get started.
+            No providers available.
           </div>
         )}
       </div>

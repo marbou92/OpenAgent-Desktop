@@ -1,25 +1,18 @@
 /**
- * OpenAgent-Desktop - Provider Connect
+ * OpenAgent-Desktop - Provider Connect (opencode-style)
  *
- * Button + flow UI for OAuth and Azure AD authentication. When clicked:
- *   - For OAuth: calls oauth:startFlow IPC; main process opens browser.
- *   - For Azure AD: shows a small form for tenantId/clientId, then calls
- *     azure-ad:startFlow IPC.
- *
- * While a flow is in progress, shows a spinner. On success/failure, shows a
- * toast (via the parent).
+ * Button + flow UI for API key and GitHub Copilot device-flow auth.
  */
 
 import React, { useState } from 'react';
-import { KeyRound, LogIn, Loader2 } from 'lucide-react';
-import { ProviderDefinition, ConfiguredProvider } from './types';
+import { KeyRound, LogIn, Loader2, Github } from 'lucide-react';
+import { ProviderDefinition, AuthProvider } from './types';
 
 export interface ProviderConnectProps {
   definition: ProviderDefinition;
-  configured: ConfiguredProvider | undefined;
+  configured: AuthProvider | undefined;
   onApiKeySubmit: (apiKey: string) => void;
-  onOAuthStart: () => void;
-  onAzureAdStart: (tenantId: string, clientId: string) => void;
+  onCopilotStart: () => void;
   onDisconnect: () => void;
   isConnecting: boolean;
 }
@@ -28,18 +21,14 @@ export const ProviderConnect: React.FC<ProviderConnectProps> = ({
   definition,
   configured,
   onApiKeySubmit,
-  onOAuthStart,
-  onAzureAdStart,
+  onCopilotStart,
   onDisconnect,
   isConnecting,
 }) => {
   const [apiKey, setApiKey] = useState('');
-  const [showAzureForm, setShowAzureForm] = useState(false);
-  const [tenantId, setTenantId] = useState('');
-  const [clientId, setClientId] = useState('');
 
-  const methods = definition.supportedAuthMethods;
-  const currentMethod = configured?.auth?.method;
+  const methods = definition.authMethods || ['api'];
+  const currentMethod = configured?.type;
   const isAuthed = currentMethod !== undefined;
 
   // Already authenticated — show status + disconnect.
@@ -55,9 +44,9 @@ export const ProviderConnect: React.FC<ProviderConnectProps> = ({
             <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
               Connected via {currentMethod}
             </div>
-            {configured?.auth?.expiresAt && (
+            {configured?.expires && (
               <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Token expires {new Date(configured.auth.expiresAt).toLocaleString()}
+                Token expires {new Date(configured.expires).toLocaleString()}
               </div>
             )}
           </div>
@@ -90,7 +79,7 @@ export const ProviderConnect: React.FC<ProviderConnectProps> = ({
   return (
     <div className="space-y-3">
       {/* API key */}
-      {methods.includes('api_key') && (
+      {methods.includes('api') && (
         <div
           className="p-3 rounded-lg space-y-2"
           style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-primary)' }}
@@ -116,90 +105,35 @@ export const ProviderConnect: React.FC<ProviderConnectProps> = ({
               Save
             </button>
           </div>
-          {definition.envVarName && (
+          {definition.env && definition.env.length > 0 && (
             <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Tip: set <code>${definition.envVarName}</code> env var to skip this field.
+              Tip: set <code>${definition.env[0]}</code> env var to skip this field.
             </div>
           )}
         </div>
       )}
 
-      {/* OAuth */}
-      {methods.includes('oauth') && (
+      {/* GitHub Copilot device flow */}
+      {methods.includes('wellknown') && (
         <div
           className="p-3 rounded-lg flex items-center justify-between"
           style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-primary)' }}
         >
           <div>
-            <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-              Sign in with {definition.name}
+            <div className="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--color-text-primary)' }}>
+              <Github size={14} /> Sign in with GitHub
             </div>
             <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Opens your browser for OAuth authorization.
+              Opens your browser for device-flow authorization.
             </div>
           </div>
           <button
-            onClick={onOAuthStart}
+            onClick={onCopilotStart}
             className="text-xs px-3 py-1.5 rounded flex items-center gap-1"
             style={{ background: 'var(--color-accent)', color: 'white' }}
           >
             <LogIn size={14} /> Connect
           </button>
-        </div>
-      )}
-
-      {/* Azure AD */}
-      {methods.includes('azure_ad') && (
-        <div
-          className="p-3 rounded-lg space-y-2"
-          style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-primary)' }}
-        >
-          <button
-            onClick={() => setShowAzureForm(!showAzureForm)}
-            className="text-sm font-medium flex items-center gap-2"
-            style={{ color: 'var(--color-text-primary)' }}
-          >
-            <LogIn size={14} /> Sign in with Azure AD
-          </button>
-          {showAzureForm && (
-            <div className="space-y-2">
-              <input
-                type="text"
-                placeholder="Tenant ID (or 'common')"
-                value={tenantId}
-                onChange={(e) => setTenantId(e.target.value)}
-                className="w-full px-2 py-1.5 rounded text-sm"
-                style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-secondary)' }}
-              />
-              <input
-                type="text"
-                placeholder="Client ID (app registration)"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                className="w-full px-2 py-1.5 rounded text-sm"
-                style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-secondary)' }}
-              />
-              <button
-                onClick={() => tenantId.trim() && clientId.trim() && onAzureAdStart(tenantId.trim(), clientId.trim())}
-                disabled={!tenantId.trim() || !clientId.trim()}
-                className="text-xs px-3 py-1.5 rounded disabled:opacity-50"
-                style={{ background: 'var(--color-accent)', color: 'white' }}
-              >
-                Open browser to authenticate
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Env var fallback */}
-      {methods.includes('env_var') && definition.envVarName && (
-        <div
-          className="p-3 rounded-lg text-xs"
-          style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-primary)', color: 'var(--color-text-muted)' }}
-        >
-          Alternatively, set <code>${definition.envVarName}</code> in your environment.
-          OpenAgent-Desktop will pick it up automatically on next launch.
         </div>
       )}
     </div>

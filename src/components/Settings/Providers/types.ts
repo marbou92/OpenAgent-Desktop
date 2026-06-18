@@ -1,58 +1,64 @@
 /**
  * OpenAgent-Desktop - Provider Definition (renderer-side types)
  *
- * Mirrors the main-process ProviderDefinition so the UI can render the
+ * Mirrors the main-process opencode-types so the UI can render the
  * catalog without making an IPC call per item.
  */
 
-export type AuthMethod = 'api_key' | 'oauth' | 'azure_ad' | 'env_var';
-export type ProviderProtocol = 'openai' | 'anthropic' | 'gemini' | 'bedrock' | 'vertex';
+export type AuthMethod = 'api' | 'oauth' | 'wellknown';
+export type ProviderProtocol = 'openai' | 'anthropic' | 'gemini' | 'bedrock' | 'vertex' | 'github-copilot' | 'openai-compatible';
 
-export interface ProviderModelPreset {
+export interface ModelConfig {
   id: string;
-  displayName: string;
-  contextWindow?: number;
-  supportsStreaming?: boolean;
-  supportsToolUse?: boolean;
-  supportsThinking?: boolean;
-  maxOutputTokens?: number;
+  name?: string;
+  family?: string;
+  release_date?: string;
+  attachment?: boolean;
+  reasoning?: boolean;
+  temperature?: boolean;
+  tool_call?: boolean;
+  structured_output?: boolean;
+  cost?: { input: number; output: number; cache_read?: number; cache_write?: number };
+  limit?: { context: number; input?: number; output: number };
+  modalities?: { input?: string[]; output?: string[] };
+  status?: string;
+}
+
+export interface ProviderOptions {
+  apiKey?: string;
+  baseURL?: string;
+  timeout?: number | false;
+  headerTimeout?: number | false;
+  chunkTimeout?: number;
 }
 
 export interface ProviderDefinition {
   id: string;
   name: string;
+  npm?: string;
+  api?: string;
+  env?: string[];
+  disabled?: boolean;
+  options?: ProviderOptions;
+  models?: Record<string, ModelConfig>;
+  whitelist?: string[];
+  blacklist?: string[];
+  authMethods?: AuthMethod[];
+  isBuiltin?: boolean;
   icon?: string;
-  protocol: ProviderProtocol;
-  defaultBaseUrl: string;
-  supportedAuthMethods: AuthMethod[];
-  envVarName?: string;
-  modelsEndpoint?: string;
-  modelPresets: ProviderModelPreset[];
   docsUrl?: string;
-  isBuiltin: boolean;
-  customBaseUrl?: string;
+  protocol?: string;
 }
 
-export interface ConfiguredProvider {
-  providerId: string;
-  label: string;
-  auth: {
-    method: AuthMethod;
-    apiKey?: string;
-    accessToken?: string;
-    refreshToken?: string;
-    expiresAt?: number;
-    scope?: string;
-    tenantId?: string;
-    clientId?: string;
-    clientSecret?: string;
-    envVarName?: string;
-  };
-  customModels?: ProviderModelPreset[];
-  baseUrlOverride?: string;
-  defaultModelId?: string;
-  enabled: boolean;
-  updatedAt: string;
+export interface AuthProvider {
+  type: AuthMethod;
+  key?: string;
+  access?: string;
+  refresh?: string;
+  expires?: number;
+  token?: string;
+  accountId?: string;
+  metadata?: Record<string, string>;
 }
 
 export interface DiscoveredModel {
@@ -62,7 +68,6 @@ export interface DiscoveredModel {
   supportsStreaming?: boolean;
   supportsToolUse?: boolean;
   supportsThinking?: boolean;
-  fetchedAt?: string;
 }
 
 export interface ResolvedModel {
@@ -71,10 +76,14 @@ export interface ResolvedModel {
   providerId: string;
   displayName: string;
   contextWindow?: number;
+  maxOutput?: number;
   supportsStreaming: boolean;
   supportsToolUse: boolean;
   supportsThinking: boolean;
-  source: 'preset' | 'discovered' | 'custom';
+  supportsAttachment?: boolean;
+  cost?: { input: number; output: number };
+  status?: string;
+  source: 'models-dev' | 'preset' | 'custom';
 }
 
 export interface HealthCheckResult {
@@ -84,12 +93,4 @@ export interface HealthCheckResult {
   lastCheckedAt: string;
   error?: string;
   modelCount?: number;
-}
-
-export interface SessionProviderBinding {
-  sessionId: string;
-  providerId: string;
-  modelId: string;
-  systemPromptOverride?: string;
-  temperatureOverride?: number;
 }

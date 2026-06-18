@@ -1,13 +1,12 @@
 /**
- * OpenAgent-Desktop - Model List
+ * OpenAgent-Desktop - Model List (opencode-style)
  *
- * Shows all models available for a provider: presets (from the registry) +
- * user-added custom models + cached discovered models. Includes a "Refresh
- * from provider" button that calls the discoverer.
+ * Shows all models available for a provider from the merged provider
+ * definition (which includes models.dev entries).
  */
 
 import React, { useState } from 'react';
-import { RefreshCw, Plus, Trash2, Check } from 'lucide-react';
+import { RefreshCw, Check } from 'lucide-react';
 import { ProviderDefinition, ResolvedModel, DiscoveredModel } from './types';
 
 export interface ModelListProps {
@@ -15,11 +14,8 @@ export interface ModelListProps {
   models: ResolvedModel[];
   discovered: DiscoveredModel[] | undefined;
   discoveredFetchedAt: string | undefined;
-  defaultModelId?: string;
   isRefreshing: boolean;
   onRefresh: () => void;
-  onAddCustomModel: (model: { id: string; displayName: string; contextWindow?: number }) => void;
-  onRemoveCustomModel: (modelId: string) => void;
   onSetDefault: (modelId: string) => void;
 }
 
@@ -28,34 +24,19 @@ export const ModelList: React.FC<ModelListProps> = ({
   models,
   discovered,
   discoveredFetchedAt,
-  defaultModelId,
   isRefreshing,
   onRefresh,
-  onAddCustomModel,
-  onRemoveCustomModel,
   onSetDefault,
 }) => {
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newModelId, setNewModelId] = useState('');
-  const [newModelName, setNewModelName] = useState('');
+  const [showAll, setShowAll] = useState(false);
 
-  const canRefresh = Boolean(definition.modelsEndpoint);
-
-  const handleAdd = () => {
-    if (!newModelId.trim()) return;
-    onAddCustomModel({
-      id: newModelId.trim(),
-      displayName: newModelName.trim() || newModelId.trim(),
-    });
-    setNewModelId('');
-    setNewModelName('');
-    setShowAddForm(false);
-  };
+  // Show top 8 by default; toggle reveals all.
+  const displayedModels = showAll ? models : models.slice(0, 8);
 
   const formatFetchedAt = (iso?: string) => {
     if (!iso) return null;
     try {
-      return `Refreshed ${new Date(iso).toLocaleString()}`;
+      return `Catalog refreshed ${new Date(iso).toLocaleString()}`;
     } catch {
       return null;
     }
@@ -68,27 +49,29 @@ export const ModelList: React.FC<ModelListProps> = ({
           Models ({models.length})
         </h4>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="text-xs px-2 py-1 rounded flex items-center gap-1"
-            style={{
-              background: 'var(--color-bg-tertiary)',
-              color: 'var(--color-text-secondary)',
-              border: '1px solid var(--color-border-primary)',
-            }}
-          >
-            <Plus size={12} /> Custom
-          </button>
+          {models.length > 8 && (
+            <button
+              onClick={() => setShowAll(!showAll)}
+              className="text-xs px-2 py-1 rounded"
+              style={{
+                background: 'var(--color-bg-tertiary)',
+                color: 'var(--color-text-secondary)',
+                border: '1px solid var(--color-border-primary)',
+              }}
+            >
+              {showAll ? 'Show less' : `Show all (${models.length})`}
+            </button>
+          )}
           <button
             onClick={onRefresh}
-            disabled={!canRefresh || isRefreshing}
+            disabled={isRefreshing}
             className="text-xs px-2 py-1 rounded flex items-center gap-1 disabled:opacity-50"
             style={{
               background: 'var(--color-bg-tertiary)',
               color: 'var(--color-text-secondary)',
               border: '1px solid var(--color-border-primary)',
             }}
-            title={canRefresh ? 'Fetch latest models from provider' : 'This provider does not support model discovery'}
+            title="Refresh model catalog from models.dev"
           >
             <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
             Refresh
@@ -98,127 +81,52 @@ export const ModelList: React.FC<ModelListProps> = ({
 
       {formatFetchedAt(discoveredFetchedAt) && (
         <div className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>
-          {formatFetchedAt(discoveredFetchedAt)} · {discovered?.length ?? 0} models discovered
-        </div>
-      )}
-
-      {showAddForm && (
-        <div
-          className="mb-3 p-3 rounded-lg space-y-2"
-          style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border-primary)' }}
-        >
-          <input
-            type="text"
-            placeholder="Model id (e.g. gpt-4o-2024-08-06)"
-            value={newModelId}
-            onChange={(e) => setNewModelId(e.target.value)}
-            className="w-full px-2 py-1.5 rounded text-sm"
-            style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-secondary)' }}
-          />
-          <input
-            type="text"
-            placeholder="Display name (optional)"
-            value={newModelName}
-            onChange={(e) => setNewModelName(e.target.value)}
-            className="w-full px-2 py-1.5 rounded text-sm"
-            style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-secondary)' }}
-          />
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={() => setShowAddForm(false)}
-              className="text-xs px-2 py-1 rounded"
-              style={{ color: 'var(--color-text-secondary)' }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleAdd}
-              className="text-xs px-2 py-1 rounded"
-              style={{ background: 'var(--color-accent)', color: 'white' }}
-            >
-              Add
-            </button>
-          </div>
+          {formatFetchedAt(discoveredFetchedAt)}
         </div>
       )}
 
       <div className="space-y-1 max-h-80 overflow-y-auto">
         {models.length === 0 && (
           <div className="text-center py-4 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            No models available. Add a custom model or refresh from the provider.
+            No models available. The catalog may still be loading.
           </div>
         )}
-        {models.map((m) => {
-          const isCustom = m.source === 'custom';
-          const isDefault = m.id === defaultModelId;
-          const isDiscovered = m.source === 'discovered';
-          return (
-            <div
-              key={m.qualifiedId}
-              className="flex items-center gap-2 px-3 py-2 rounded text-sm"
-              style={{
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border-secondary)',
-              }}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span style={{ color: 'var(--color-text-primary)' }}>{m.displayName}</span>
-                  {isDefault && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded"
-                      style={{ background: 'var(--color-accent-soft)', color: 'var(--color-accent)' }}
-                    >
-                      DEFAULT
-                    </span>
-                  )}
-                  {isCustom && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
-                    >
-                      CUSTOM
-                    </span>
-                  )}
-                  {isDiscovered && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}
-                    >
-                      DISCOVERED
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs font-mono" style={{ color: 'var(--color-text-muted)' }}>
-                  {m.id}
-                  {m.contextWindow && ` · ${Math.round(m.contextWindow / 1000)}K ctx`}
-                </div>
+        {displayedModels.map((m) => (
+          <div
+            key={m.qualifiedId}
+            className="flex items-center gap-2 px-3 py-2 rounded text-sm"
+            style={{
+              background: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border-secondary)',
+            }}
+          >
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span style={{ color: 'var(--color-text-primary)' }}>{m.displayName}</span>
+                {m.supportsThinking && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded"
+                    style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--color-accent)' }}
+                  >
+                    REASONING
+                  </span>
+                )}
+                {m.supportsToolUse && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded"
+                    style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}
+                  >
+                    TOOLS
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-1">
-                {!isDefault && (
-                  <button
-                    onClick={() => onSetDefault(m.id)}
-                    className="p-1 rounded hover:bg-black/10"
-                    title="Set as default"
-                    style={{ color: 'var(--color-text-muted)' }}
-                  >
-                    <Check size={14} />
-                  </button>
-                )}
-                {isCustom && (
-                  <button
-                    onClick={() => onRemoveCustomModel(m.id)}
-                    className="p-1 rounded hover:bg-black/10"
-                    title="Remove custom model"
-                    style={{ color: 'var(--color-text-muted)' }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
+              <div className="text-xs font-mono" style={{ color: 'var(--color-text-muted)' }}>
+                {m.id}
+                {m.contextWindow && ` · ${Math.round(m.contextWindow / 1000)}K ctx`}
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );
