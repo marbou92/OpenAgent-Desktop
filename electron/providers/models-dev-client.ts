@@ -16,23 +16,40 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as https from 'https';
 import { app } from 'electron';
 import { ModelsDevEntry, ProviderDefinition, ModelConfig } from './opencode-types';
 import { getOpencodeRegistry, OPENCODE_PROVIDERS } from './opencode-registry';
 
-// Use node-fetch for Node 16 / Electron 22 compatibility (no global fetch).
-// On newer Node (18+), global fetch exists but node-fetch also works.
-let _fetch: typeof fetch;
-try {
-  // Node 18+ has global fetch — use it.
-  if (typeof globalThis.fetch === 'function') {
-    _fetch = globalThis.fetch;
-  } else {
-    // Node 16 / Electron 22 — use node-fetch.
-    _fetch = require('node-fetch');
-  }
-} catch {
-  _fetch = require('node-fetch');
+/**
+ * Fetch JSON from a URL using Node's built-in https module.
+ * Works on all Node versions (including Node 16 / Electron 22 where
+ * global fetch is not available and node-fetch v3 is ESM-only).
+ */
+function fetchJson(url: string, timeoutMs: number = 30000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'OpenAgent-Desktop' } }, (res) => {
+      if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+        reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+        res.resume();
+        return;
+      }
+      let data = '';
+      res.setEncoding('utf-8');
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (err) {
+          reject(new Error(`Failed to parse JSON from ${url}: ${err}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+  });
 }
 
 const MODELS_DEV_URL = 'https://models.dev/models.json';
@@ -73,14 +90,7 @@ export class ModelsDevClient extends EventEmitter {
    * Returns the grouped entries. Throws on network error.
    */
   async refresh(): Promise<Map<string, ModelsDevEntry[]>> {
-    const response = await _fetch(MODELS_DEV_URL, {
-      signal: AbortSignal.timeout(30_000),
-      headers: { 'User-Agent': 'OpenAgent-Desktop' },
-    });
-    if (!response.ok) {
-      throw new Error(`models.dev returned ${response.status}`);
-    }
-    const data = (await response.json()) as Record<string, ModelsDevEntry>;
+    const data = await fetchJson(MODELS_DEV_URL, 30_000) as Record<string, ModelsDevEntry>;
     this.cache = this.groupByProvider(data);
     this.fetchedAt = new Date().toISOString();
 
