@@ -243,7 +243,7 @@ const App: React.FC = () => {
     const refreshProviders = async () => {
       if (api?.providers?.list) {
         try {
-          const p = await api.providers.list();
+          const p = await (api as any).providersLegacy.list();
           setProviders(p);
         } catch { /* ignore stale refresh */ }
       }
@@ -302,7 +302,7 @@ const App: React.FC = () => {
       // Load providers
       if (api?.providers?.list) {
         try {
-          const p = await api.providers.list();
+          const p = await (api as any).providersLegacy.list();
           setProviders(p);
         } catch (err) {
           console.error('Failed to load providers:', err);
@@ -579,7 +579,7 @@ const App: React.FC = () => {
             onUpdateSettings={updateSettings}
             onProvidersChange={async () => {
               if (api?.providers?.list) {
-                const p = await api.providers.list();
+                const p = await (api as any).providersLegacy.list();
                 setProviders(p);
               }
             }}

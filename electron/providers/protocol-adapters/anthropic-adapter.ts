@@ -15,28 +15,26 @@
  */
 
 import {
-  AuthEntry,
+  AuthProvider,
   ChatRequest,
   ChatResponse,
   DiscoveredModel,
   StreamChunk,
   ToolCallInfo,
-} from '../v3-types';
+} from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const ANTHROPIC_VERSION = '2023-06-01';
 
-function resolveApiKey(auth: AuthEntry): string | null {
-  switch (auth.method) {
-    case 'api_key':
-      return auth.apiKey || null;
-    case 'env_var':
-      return process.env[auth.envVarName] || null;
+function resolveApiKey(auth: AuthProvider): string | null {
+  switch (auth.type) {
+    case 'api':
+      return auth.key || null;
     case 'oauth':
-      return auth.accessToken || null;
-    case 'azure_ad':
-      return auth.accessToken || null;
+      return auth.access || null;
+    case 'wellknown':
+      return auth.token || null;
   }
 }
 
@@ -93,7 +91,7 @@ function toAnthropicMessages(request: ChatRequest): { system: string | undefined
 export class AnthropicAdapter implements ProtocolAdapter {
   protocol = 'anthropic' as const;
 
-  buildAuth(auth: AuthEntry, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
+  buildAuth(auth: AuthProvider, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
     const key = resolveApiKey(auth);
     const headers: Record<string, string> = {
       'anthropic-version': ANTHROPIC_VERSION,

@@ -12,15 +12,15 @@
  */
 
 import {
-  AuthEntry,
+  AuthProvider,
   ChatRequest,
   ChatResponse,
   DiscoveredModel,
   StreamChunk,
-} from '../v3-types';
+} from '../opencode-types';
 
 export interface AdapterCallContext {
-  auth: AuthEntry;
+  auth: AuthProvider;
   baseUrl: string;
   /** Optional AbortSignal for cancellation. */
   signal?: AbortSignal;
@@ -30,7 +30,7 @@ export interface AdapterCallContext {
 
 export interface ProtocolAdapter {
   /** Protocol family this adapter handles. */
-  protocol: 'openai' | 'anthropic' | 'gemini' | 'bedrock' | 'vertex';
+  protocol: 'openai' | 'anthropic' | 'gemini' | 'bedrock' | 'vertex' | 'github-copilot' | 'openai-compatible';
 
   /** Non-streaming chat completion. */
   chat(request: ChatRequest, ctx: AdapterCallContext): Promise<ChatResponse>;
@@ -43,5 +43,5 @@ export interface ProtocolAdapter {
 
   /** Build the auth headers / query params for a given auth entry.
    *  Returns { headers, query } — either may be empty. */
-  buildAuth(auth: AuthEntry, baseUrl: string): { headers: Record<string, string>; query: Record<string, string> };
+  buildAuth(auth: AuthProvider, baseUrl: string): { headers: Record<string, string>; query: Record<string, string> };
 }

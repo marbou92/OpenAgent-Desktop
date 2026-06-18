@@ -9,12 +9,12 @@
  */
 
 import {
-  AuthEntry,
+  AuthProvider,
   ChatRequest,
   ChatResponse,
   DiscoveredModel,
   StreamChunk,
-} from '../v3-types';
+} from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 import { AnthropicAdapter } from './anthropic-adapter';
 
@@ -26,9 +26,9 @@ interface VertexContext {
   accessToken: string;
 }
 
-function resolveVertexContext(auth: AuthEntry): VertexContext | null {
-  if (auth.method !== 'env_var') return null;
-  const projectId = process.env.GOOGLE_VERTEX_PROJECT || process.env[auth.envVarName];
+function resolveVertexContext(auth: AuthProvider): VertexContext | null {
+  if (auth.type !== 'api') return null;
+  const projectId = process.env.GOOGLE_VERTEX_PROJECT || process.env.GOOGLE_VERTEX_PROJECT;
   const region = process.env.GOOGLE_VERTEX_REGION || 'us-central1';
   // Vertex typically uses gcloud's application-default credentials, which set
   // GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON file. We can't
@@ -46,7 +46,7 @@ export class VertexAdapter implements ProtocolAdapter {
   protocol = 'vertex' as const;
   private anthropicAdapter = new AnthropicAdapter();
 
-  buildAuth(auth: AuthEntry, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
+  buildAuth(auth: AuthProvider, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
     const ctx = resolveVertexContext(auth);
     if (!ctx) return { headers: {}, query: {} };
     return { headers: { 'Authorization': `Bearer ${ctx.accessToken}` }, query: {} };

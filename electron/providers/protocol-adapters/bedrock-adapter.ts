@@ -17,13 +17,13 @@
 
 import * as crypto from 'crypto';
 import {
-  AuthEntry,
+  AuthProvider,
   ChatRequest,
   ChatResponse,
   DiscoveredModel,
   StreamChunk,
   ToolCallInfo,
-} from '../v3-types';
+} from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -34,9 +34,9 @@ interface BedrockCredentials {
   region: string;
 }
 
-function resolveCredentials(auth: AuthEntry): BedrockCredentials | null {
-  if (auth.method !== 'env_var') return null;
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID || process.env[auth.envVarName];
+function resolveCredentials(auth: AuthProvider): BedrockCredentials | null {
+  if (auth.type !== 'api') return null;
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
   const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1';
   if (!accessKeyId || !secretAccessKey) return null;
@@ -135,7 +135,7 @@ function toBedrockAnthropicRequest(request: ChatRequest): BedrockAnthropicReques
 export class BedrockAdapter implements ProtocolAdapter {
   protocol = 'bedrock' as const;
 
-  buildAuth(_auth: AuthEntry, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
+  buildAuth(_auth: AuthProvider, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
     // Bedrock signs every request individually via SigV4 — no static headers.
     return { headers: {}, query: {} };
   }

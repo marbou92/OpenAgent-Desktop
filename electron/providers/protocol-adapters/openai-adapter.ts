@@ -13,27 +13,25 @@
  */
 
 import {
-  AuthEntry,
+  AuthProvider,
   ChatRequest,
   ChatResponse,
   DiscoveredModel,
   StreamChunk,
   ToolCallInfo,
-} from '../v3-types';
+} from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-function resolveApiKey(auth: AuthEntry): string | null {
-  switch (auth.method) {
-    case 'api_key':
-      return auth.apiKey || null;
-    case 'env_var':
-      return process.env[auth.envVarName] || null;
+function resolveApiKey(auth: AuthProvider): string | null {
+  switch (auth.type) {
+    case 'api':
+      return auth.key || null;
     case 'oauth':
-      return auth.accessToken || null;
-    case 'azure_ad':
-      return auth.accessToken || null;
+      return auth.access || null;
+    case 'wellknown':
+      return auth.token || null;
   }
 }
 
@@ -67,13 +65,13 @@ function toOpenAIMessages(request: ChatRequest): OpenAIMessage[] {
 export class OpenAIAdapter implements ProtocolAdapter {
   protocol = 'openai' as const;
 
-  buildAuth(auth: AuthEntry, baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
+  buildAuth(auth: AuthProvider, baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
     const key = resolveApiKey(auth);
     const headers: Record<string, string> = {};
     const query: Record<string, string> = {};
 
     // Azure OpenAI uses api-key header + api-version query param.
-    if (auth.method === 'azure_ad' || (auth.method === 'api_key' && baseUrl.includes('openai.azure.com'))) {
+    if (baseUrl.includes('openai.azure.com')) {
       if (key) headers['api-key'] = key;
       query['api-version'] = '2024-10-21';
       return { headers, query };

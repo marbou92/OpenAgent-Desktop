@@ -15,28 +15,26 @@
  */
 
 import {
-  AuthEntry,
+  AuthProvider,
   ChatRequest,
   ChatResponse,
   DiscoveredModel,
   StreamChunk,
   ToolCallInfo,
   ToolDefinition,
-} from '../v3-types';
+} from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-function resolveApiKey(auth: AuthEntry): string | null {
-  switch (auth.method) {
-    case 'api_key':
-      return auth.apiKey || null;
-    case 'env_var':
-      return process.env[auth.envVarName] || null;
+function resolveApiKey(auth: AuthProvider): string | null {
+  switch (auth.type) {
+    case 'api':
+      return auth.key || null;
     case 'oauth':
-      return auth.accessToken || null;
-    case 'azure_ad':
-      return auth.accessToken || null;
+      return auth.access || null;
+    case 'wellknown':
+      return auth.token || null;
   }
 }
 
@@ -99,7 +97,7 @@ function geminiTools(tools: ToolDefinition[] | undefined): { functionDeclaration
 export class GeminiAdapter implements ProtocolAdapter {
   protocol = 'gemini' as const;
 
-  buildAuth(auth: AuthEntry, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
+  buildAuth(auth: AuthProvider, _baseUrl: string): { headers: Record<string, string>; query: Record<string, string> } {
     const key = resolveApiKey(auth);
     const headers: Record<string, string> = {};
     if (key) headers['x-goog-api-key'] = key; // header, not URL param — safer

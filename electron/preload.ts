@@ -200,23 +200,17 @@ async function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise
 // ─── API Object Construction ──────────────────────────────────────────────────
 
 const electronAPI = {
-  // ── Providers ──────────────────────────────────────────────────────────────
+  // ── Providers (legacy v2 — replaced by the opencode providers block below) ──
+  // The old provider:list/add/remove/test/setDefault handlers still exist in
+  // main.ts for backward compat with the v2 ProviderManager, but the UI should
+  // use the new opencode providers API below.
 
-  providers: {
+  providersLegacy: {
     list: (): Promise<ProviderInfo[]> => invoke<ProviderInfo[]>("provider:list"),
-
-    add: (config: ProviderConfig): Promise<ProviderInfo> =>
-      invoke<ProviderInfo>("provider:add", config),
-
-    remove: (providerId: string): Promise<void> =>
-      invoke<void>("provider:remove", providerId),
-
-    test: (providerId: string): Promise<{ working: boolean; latency: number; models: string[] }> =>
-      invoke<{ working: boolean; latency: number; models: string[] }>("provider:test", providerId),
-
-    setDefault: (providerId: string, model: string): Promise<void> =>
-      invoke<void>("provider:setDefault", providerId, model),
-
+    add: (config: ProviderConfig): Promise<ProviderInfo> => invoke<ProviderInfo>("provider:add", config),
+    remove: (providerId: string): Promise<void> => invoke<void>("provider:remove", providerId),
+    test: (providerId: string): Promise<{ working: boolean; latency: number; models: string[] }> => invoke<{ working: boolean; latency: number; models: string[] }>("provider:test", providerId),
+    setDefault: (providerId: string, model: string): Promise<void> => invoke<void>("provider:setDefault", providerId, model),
     health: {
       check: (providerId: string): Promise<any> => invoke("provider:health:check", providerId),
       dashboard: (): Promise<any> => invoke("provider:health:dashboard"),
@@ -466,43 +460,39 @@ const electronAPI = {
     getInstance: (): Promise<any> => invoke("sidecar:getInstance"),
   },
 
-  // ── Provider v3 (opencode-style) ──────────────────────────────────────────
-  // The new provider system. The legacy customProviders API below was removed
-  // because it depended on the deleted v2 custom-bridge / custom-provider modules.
+  // ── Provider opencode ────────────────────────────────────────────────────────
+  // The opencode-compatible provider system. Replaces the old customProviders +
+  // providersV3 APIs.
 
-  providersV3: {
+  providers: {
     // Catalog
-    listDefinitions: (): Promise<any[]> => invoke("providerv3:list-definitions"),
-    listConfigured: (): Promise<any[]> => invoke("providerv3:list-configured"),
-    listModels: (providerId: string): Promise<any[]> => invoke("providerv3:list-models", providerId),
-    getDiscovered: (providerId: string): Promise<any> => invoke("providerv3:get-discovered", providerId),
-    refreshModels: (providerId: string): Promise<any[]> => invoke("providerv3:refresh-models", providerId),
+    listProviders: (): Promise<any[]> => invoke("provider:list-providers"),
+    listAuth: (): Promise<any[]> => invoke("provider:list-auth"),
+    listModels: (providerId: string): Promise<any[]> => invoke("provider:list-models", providerId),
+    refreshCatalog: (): Promise<any> => invoke("provider:refresh-catalog"),
+    getCatalogInfo: (): Promise<any> => invoke("provider:get-catalog-info"),
 
-    // CRUD
-    setApiKey: (providerId: string, apiKey: string): Promise<void> => invoke("providerv3:set-api-key", providerId, apiKey),
-    setBaseUrlOverride: (providerId: string, baseUrl: string): Promise<void> => invoke("providerv3:set-base-url-override", providerId, baseUrl),
-    setDefaultModel: (providerId: string, modelId: string): Promise<void> => invoke("providerv3:set-default-model", providerId, modelId),
-    addCustomModel: (providerId: string, model: { id: string; displayName: string; contextWindow?: number }): Promise<void> => invoke("providerv3:add-custom-model", providerId, model),
-    removeCustomModel: (providerId: string, modelId: string): Promise<void> => invoke("providerv3:remove-custom-model", providerId, modelId),
-    setEnabled: (providerId: string, enabled: boolean): Promise<void> => invoke("providerv3:set-enabled", providerId, enabled),
-    remove: (providerId: string): Promise<void> => invoke("providerv3:remove", providerId),
-    disconnect: (providerId: string): Promise<void> => invoke("providerv3:disconnect", providerId),
+    // Auth
+    setApiKey: (providerId: string, apiKey: string): Promise<void> => invoke("provider:set-api-key", providerId, apiKey),
+    removeAuth: (providerId: string): Promise<void> => invoke("provider:remove-auth", providerId),
 
-    // Auth flows
-    startOAuth: (providerId: string): Promise<void> => invoke("providerv3:start-oauth", providerId),
-    startAzureAd: (providerId: string, tenantId: string, clientId: string): Promise<void> => invoke("providerv3:start-azure-ad", providerId, tenantId, clientId),
+    // Config
+    setBaseUrl: (providerId: string, baseUrl: string): Promise<void> => invoke("provider:set-base-url", providerId, baseUrl),
+
+    // Custom providers
+    getPresets: (): Promise<any[]> => invoke("provider:get-presets"),
+    addCustom: (def: any): Promise<void> => invoke("provider:add-custom", def),
+    removeCustom: (providerId: string): Promise<void> => invoke("provider:remove-custom", providerId),
+
+    // GitHub Copilot device flow
+    startCopilot: (): Promise<any> => invoke("provider:start-copilot"),
+    cancelCopilot: (): Promise<void> => invoke("provider:cancel-copilot"),
 
     // Health
-    runHealthCheck: (providerId: string): Promise<any> => invoke("providerv3:run-health-check", providerId),
-    listHealth: (): Promise<Record<string, any>> => invoke("providerv3:list-health"),
+    runHealthCheck: (providerId: string): Promise<any> => invoke("provider:run-health-check", providerId),
 
-    // Session binding
-    getBinding: (sessionId: string): Promise<any> => invoke("providerv3:get-binding", sessionId),
-    setBinding: (sessionId: string, providerId: string, modelId: string, overrides?: { systemPromptOverride?: string; temperatureOverride?: number }): Promise<void> => invoke("providerv3:set-binding", sessionId, providerId, modelId, overrides),
-    clearBinding: (sessionId: string): Promise<void> => invoke("providerv3:clear-binding", sessionId),
-
-    // Chat (non-stream)
-    chat: (request: any): Promise<any> => invoke("providerv3:chat", request),
+    // Chat
+    chat: (request: any): Promise<any> => invoke("provider:chat", request),
   },
 
   // ── Platform ───────────────────────────────────────────────────────────────

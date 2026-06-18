@@ -1,45 +1,37 @@
 /**
- * OpenAgent-Desktop - Provider Client
+ * OpenAgent-Desktop - Provider Client (opencode-compatible)
  *
  * The unified entry point for chat / chatStream / discoverModels. Routes each
- * request to the correct protocol adapter based on the model's qualified id.
+ * request to the correct protocol adapter based on the provider definition.
  *
- * Two execution paths:
- *
- *   1. If @opencode-ai/sdk is installed AND the OpenCode sidecar is running,
- *      delegate to the sidecar via the SDK. This is the "true opencode-desktop"
- *      architecture — the sidecar manages connection pooling, retries, and
- *      observability for us.
- *
- *   2. Otherwise (sidecar not running / @opencode-ai/sdk not installed — common
- *      on Windows 7 where the sidecar may not start), fall back to in-process
- *      execution by calling the protocol adapter directly from the Electron
- *      main process.
- *
- * Both paths return the same StreamChunk shape, so downstream code (chat UI,
- * recipe executor, agent runner) doesn't care which path is active.
+ * Uses:
+ *   - AuthStore (opencode auth.json format) for credentials
+ *   - OpencodeRegistry for provider definitions
+ *   - OpencodeConfig for provider config overrides (baseURL, timeout, etc.)
+ *   - ModelsDevClient for dynamic model catalog
+ *   - Protocol adapters for per-provider request/response translation
  */
 
 import { EventEmitter } from 'events';
 import {
-  AuthEntry,
+  AuthProvider,
   ChatRequest,
   ChatResponse,
   DiscoveredModel,
-  ProviderProtocol,
   ResolvedModel,
   StreamChunk,
-} from './v3-types';
-import { AuthStore } from './auth-store';
-import { getProviderRegistry } from './provider-registry';
-import { getAdapter } from './protocol-adapters';
-import { AdapterCallContext } from './protocol-adapters/adapter';
+  ProviderDefinition,
+} from './opencode-types';
+import { AuthStore } from './auth-store-v2';
+import { getOpencodeRegistry } from './opencode-registry';
+import { OpencodeConfig } from './opencode-config';
+import { getModelsDevClient } from './models-dev-client';
+import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
 
-// Try to dynamically import the SDK. If it's not installed, sidecar path is disabled.
+// Try to dynamically import the SDK for sidecar support.
 let sdkLoaded = false;
 let opencodeClientFactory: ((opts: { baseUrl: string; auth?: string }) => any) | null = null;
 try {
-  // Using a dynamic require so the import doesn't crash the build if the package is missing.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const sdk = require('@opencode-ai/sdk');
   if (sdk && typeof sdk.createClient === 'function') {
@@ -47,10 +39,9 @@ try {
     sdkLoaded = true;
   }
 } catch {
-  // SDK not installed — sidecar path disabled, in-process fallback only.
+  // SDK not installed — in-process only.
 }
 
-// Sidecar state — set by main.ts when the sidecar starts.
 let sidecarBaseUrl: string | null = null;
 let sidecarToken: string | null = null;
 
@@ -64,50 +55,63 @@ export function isSidecarAvailable(): boolean {
 }
 
 export class ProviderClient extends EventEmitter {
-  constructor(private authStore: AuthStore) {
+  constructor(
+    private authStore: AuthStore,
+    private config?: OpencodeConfig,
+  ) {
     super();
   }
 
   /**
-   * Parse a qualified model id ('openai/gpt-4o' or 'custom:my-proxy/llama-3') into
-   * { providerId, modelId, protocol, configuredProvider, definition }.
-   * Throws if the provider is not configured.
+   * Parse a qualified model id ('openai/gpt-4o') into provider + model parts,
+   * resolve the provider definition, auth, and base URL.
    */
   resolveModel(qualifiedModelId: string): {
     providerId: string;
     modelId: string;
-    protocol: ProviderProtocol;
+    provider: ProviderDefinition;
+    auth: AuthProvider;
     baseUrl: string;
-    auth: AuthEntry;
   } {
     const slashIdx = qualifiedModelId.indexOf('/');
-    if (slashIdx < 0) {
-      throw new Error(`Invalid model id '${qualifiedModelId}' — expected '<providerId>/<modelId>'`);
-    }
-    const providerId = qualifiedModelId.slice(0, slashIdx);
-    const modelId = qualifiedModelId.slice(slashIdx + 1);
+    const providerId = slashIdx >= 0 ? qualifiedModelId.slice(0, slashIdx) : qualifiedModelId;
+    const modelId = slashIdx >= 0 ? qualifiedModelId.slice(slashIdx + 1) : '';
 
-    const def = getProviderRegistry().get(providerId);
-    if (!def) {
+    // Get the provider definition (from config or registry).
+    const provider = this.config?.getProvider(providerId) || getOpencodeRegistry().get(providerId);
+    if (!provider) {
       throw new Error(`Unknown provider: ${providerId}`);
     }
-    const configured = this.authStore.getProvider(providerId);
-    if (!configured || !configured.enabled) {
-      throw new Error(`Provider '${providerId}' is not configured or is disabled`);
-    }
-    if (!hasNonEmptyAuth(configured.auth)) {
-      throw new Error(`Provider '${providerId}' has no valid credentials — please configure it in Settings`);
+
+    // Get auth from the auth store.
+    const auth = this.authStore.get(providerId);
+    if (!auth) {
+      // Try env var fallback.
+      if (provider.env && provider.env.length > 0) {
+        for (const envVar of provider.env) {
+          const val = process.env[envVar];
+          if (val) {
+            return {
+              providerId,
+              modelId,
+              provider,
+              auth: { type: 'api', key: val },
+              baseUrl: provider.options?.baseURL || provider.api || '',
+            };
+          }
+        }
+      }
+      throw new Error(`Provider '${providerId}' is not configured — no credentials found`);
     }
 
-    const baseUrl = configured.baseUrlOverride || def.customBaseUrl || def.defaultBaseUrl;
-    if (!baseUrl) {
-      throw new Error(`Provider '${providerId}' has no base URL — please set one in Settings`);
-    }
-    return { providerId, modelId, protocol: def.protocol, baseUrl, auth: configured.auth };
+    // Resolve base URL.
+    const baseUrl = provider.options?.baseURL || provider.api || '';
+
+    return { providerId, modelId, provider, auth, baseUrl };
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
-    const { protocol, baseUrl, auth, modelId } = this.resolveModel(request.model);
+    const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
     const ctx: AdapterCallContext = { auth, baseUrl };
 
     // Try sidecar path first if available.
@@ -115,18 +119,17 @@ export class ProviderClient extends EventEmitter {
       try {
         return await this.chatViaSidecar({ ...request, model: modelId }, ctx);
       } catch (err) {
-        // Sidecar failed — fall through to in-process.
         this.emit('sidecar-fallback', { reason: err instanceof Error ? err.message : String(err) });
       }
     }
 
     // In-process path.
-    const adapter = getAdapter(protocol);
+    const adapter = getAdapterForProvider(provider);
     return adapter.chat({ ...request, model: modelId }, ctx);
   }
 
   async *chatStream(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<StreamChunk> {
-    const { protocol, baseUrl, auth, modelId } = this.resolveModel(request.model);
+    const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
     const ctx: AdapterCallContext = { auth, baseUrl, signal };
 
     if (isSidecarAvailable()) {
@@ -138,84 +141,52 @@ export class ProviderClient extends EventEmitter {
       }
     }
 
-    const adapter = getAdapter(protocol);
+    const adapter = getAdapterForProvider(provider);
     yield* adapter.chatStream({ ...request, model: modelId }, ctx);
   }
 
   async discoverModels(providerId: string): Promise<DiscoveredModel[]> {
-    const def = getProviderRegistry().get(providerId);
-    if (!def) throw new Error(`Unknown provider: ${providerId}`);
-    const configured = this.authStore.getProvider(providerId);
-    if (!configured) throw new Error(`Provider '${providerId}' is not configured`);
-    if (!def.modelsEndpoint) {
-      throw new Error(`Provider '${providerId}' does not support model discovery`);
-    }
-    const baseUrl = configured.baseUrlOverride || def.customBaseUrl || def.defaultBaseUrl;
-    const adapter = getAdapter(def.protocol);
-    return adapter.discoverModels({ auth: configured.auth, baseUrl });
+    const provider = this.config?.getProvider(providerId) || getOpencodeRegistry().get(providerId);
+    if (!provider) throw new Error(`Unknown provider: ${providerId}`);
+    const auth = this.authStore.get(providerId);
+    if (!auth) throw new Error(`Provider '${providerId}' is not configured`);
+    const baseUrl = provider.options?.baseURL || provider.api || '';
+    const adapter = getAdapterForProvider(provider);
+    return adapter.discoverModels({ auth, baseUrl });
   }
 
   /**
-   * Resolve the full list of models available for a provider: presets +
-   * user-added custom models + cached discovered models. Used by the UI
-   * to populate the model dropdown without making a network call.
+   * List all models available for a provider: from the merged provider definition
+   * (which includes models.dev entries) + any custom models from config.
+   * No network call — uses cached data only.
    */
   listAvailableModels(providerId: string): ResolvedModel[] {
-    const def = getProviderRegistry().get(providerId);
-    if (!def) return [];
-    const configured = this.authStore.getProvider(providerId);
-    const out: ResolvedModel[] = [];
-    const seen = new Set<string>();
+    const modelsDevClient = getModelsDevClient();
+    const providers = modelsDevClient.getMergedProviders();
+    const provider = providers.find((p) => p.id === providerId);
+    if (!provider || !provider.models) return [];
 
-    for (const preset of def.modelPresets) {
-      if (seen.has(preset.id)) continue;
-      seen.add(preset.id);
+    const out: ResolvedModel[] = [];
+    for (const [modelId, model] of Object.entries(provider.models)) {
+      // Check whitelist/blacklist.
+      if (provider.whitelist && provider.whitelist.length > 0 && !provider.whitelist.includes(modelId)) continue;
+      if (provider.blacklist && provider.blacklist.includes(modelId)) continue;
+
       out.push({
-        id: preset.id,
-        qualifiedId: `${providerId}/${preset.id}`,
+        id: modelId,
+        qualifiedId: `${providerId}/${modelId}`,
         providerId,
-        displayName: preset.displayName,
-        contextWindow: preset.contextWindow,
-        supportsStreaming: preset.supportsStreaming ?? true,
-        supportsToolUse: preset.supportsToolUse ?? false,
-        supportsThinking: preset.supportsThinking ?? false,
-        source: 'preset',
+        displayName: model.name || modelId,
+        contextWindow: model.limit?.context,
+        maxOutput: model.limit?.output,
+        supportsStreaming: true,
+        supportsToolUse: model.tool_call ?? true,
+        supportsThinking: model.reasoning ?? false,
+        supportsAttachment: model.attachment ?? false,
+        cost: model.cost,
+        status: model.status,
+        source: 'models-dev',
       });
-    }
-    if (configured?.customModels) {
-      for (const m of configured.customModels) {
-        if (seen.has(m.id)) continue;
-        seen.add(m.id);
-        out.push({
-          id: m.id,
-          qualifiedId: `${providerId}/${m.id}`,
-          providerId,
-          displayName: m.displayName,
-          contextWindow: m.contextWindow,
-          supportsStreaming: m.supportsStreaming ?? true,
-          supportsToolUse: m.supportsToolUse ?? false,
-          supportsThinking: m.supportsThinking ?? false,
-          source: 'custom',
-        });
-      }
-    }
-    const cached = this.authStore.getCachedModels(providerId);
-    if (cached) {
-      for (const m of cached) {
-        if (seen.has(m.id)) continue;
-        seen.add(m.id);
-        out.push({
-          id: m.id,
-          qualifiedId: `${providerId}/${m.id}`,
-          providerId,
-          displayName: m.displayName || m.id,
-          contextWindow: m.contextWindow,
-          supportsStreaming: m.supportsStreaming ?? true,
-          supportsToolUse: m.supportsToolUse ?? false,
-          supportsThinking: m.supportsThinking ?? false,
-          source: 'discovered',
-        });
-      }
     }
     return out;
   }
@@ -266,18 +237,5 @@ export class ProviderClient extends EventEmitter {
       }
     }
     yield { type: 'done' };
-  }
-}
-
-function hasNonEmptyAuth(auth: AuthEntry): boolean {
-  switch (auth.method) {
-    case 'api_key':
-      return Boolean(auth.apiKey && auth.apiKey.trim());
-    case 'oauth':
-      return Boolean(auth.accessToken && auth.accessToken.trim());
-    case 'azure_ad':
-      return Boolean(auth.tenantId && auth.clientId);
-    case 'env_var':
-      return Boolean(auth.envVarName && process.env[auth.envVarName]);
   }
 }
