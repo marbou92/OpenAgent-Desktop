@@ -888,8 +888,20 @@ async function initializeSubsystems(): Promise<void> {
   // Refresh models.dev catalog in the background (non-blocking).
   modelsDevClient.refresh().then(() => {
     logger.info('ModelsDev', `Catalog refreshed — ${modelsDevClient.getTotalModelCount()} models across ${modelsDevClient.getCachedProviderIds().length} providers`);
+    // Start the background checker — checks for updates every 30 min using ETag.
+    modelsDevClient.startBackgroundChecker();
   }).catch((err: unknown) => {
     logger.warn('ModelsDev', 'Failed to refresh catalog (using cached/hardcoded fallback)', err);
+    // Still start the checker — it'll retry.
+    modelsDevClient.startBackgroundChecker();
+  });
+
+  // Forward catalog-updated events to the renderer so the UI can refresh.
+  modelsDevClient.on('catalog-updated', (info: { providerCount: number; modelCount: number; previousModelCount: number }) => {
+    logger.info('ModelsDev', `Catalog updated — ${info.modelCount} models (was ${info.previousModelCount})`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('provider:catalog-updated', info);
+    }
   });
 
   providerClient = new ProviderClient(authStore, opencodeConfig);

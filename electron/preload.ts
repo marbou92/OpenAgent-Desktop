@@ -636,6 +636,14 @@ const electronAPI = {
       return () => ipcRenderer.removeListener("main:ready", handler);
     },
 
+    // models.dev catalog was updated in the background (ETag changed).
+    // The renderer should refresh the provider list.
+    catalogUpdated: (callback: (data: { providerCount: number; modelCount: number; previousModelCount: number }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { providerCount: number; modelCount: number; previousModelCount: number }) => callback(data);
+      ipcRenderer.on("provider:catalog-updated", handler);
+      return () => ipcRenderer.removeListener("provider:catalog-updated", handler);
+    },
+
     // Permission request (AgentRunner asks the user to approve a tool call)
     permissionRequest: (callback: (data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => callback(data);

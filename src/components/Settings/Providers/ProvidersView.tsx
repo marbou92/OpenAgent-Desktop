@@ -75,6 +75,21 @@ export const ProvidersView: React.FC<ProvidersViewProps> = ({ addToast }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-refresh when models.dev catalog is updated in the background.
+  useEffect(() => {
+    if (!api?.on?.catalogUpdated) return;
+    const unsub = api.on.catalogUpdated((data: { providerCount: number; modelCount: number; previousModelCount: number }) => {
+      addToast({
+        type: 'info',
+        title: 'Catalog updated',
+        message: `${data.modelCount} models across ${data.providerCount} providers (was ${data.previousModelCount})`,
+      });
+      refreshAll();
+    });
+    return () => unsub?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load models for the selected provider
   useEffect(() => {
     if (!selectedProviderId || !api?.providers) {

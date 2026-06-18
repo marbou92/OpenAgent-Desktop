@@ -52,19 +52,65 @@ function fetchJson(url: string, timeoutMs: number = 30000): Promise<any> {
   });
 }
 
+/**
+ * Fetch JSON from a URL with ETag support for conditional requests.
+ * If the server returns 304 (Not Modified), returns the 304 status with
+ * null data — the caller should keep the existing cache.
+ */
+function fetchJsonWithEtag(url: string, etag: string | null, timeoutMs: number = 30000): Promise<{ status: number; data: any; etag: string | null }> {
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string> = { 'User-Agent': 'OpenAgent-Desktop' };
+    if (etag) {
+      headers['If-None-Match'] = etag;
+    }
+    const req = https.get(url, { headers }, (res) => {
+      const responseEtag = res.headers['etag'] || null;
+      if (res.statusCode === 304) {
+        resolve({ status: 304, data: null, etag: responseEtag });
+        res.resume();
+        return;
+      }
+      if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+        reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+        res.resume();
+        return;
+      }
+      let body = '';
+      res.setEncoding('utf-8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode || 200, data: JSON.parse(body), etag: responseEtag });
+        } catch (err) {
+          reject(new Error(`Failed to parse JSON from ${url}: ${err}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+  });
+}
+
 const MODELS_DEV_URL = 'https://models.dev/models.json';
 const CACHE_FILE = 'models-dev-cache.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CHECK_INTERVAL_MS = 30 * 60 * 1000; // Check for updates every 30 minutes
 
 interface CacheShape {
   fetchedAt: string;
+  etag: string | null;
   data: Record<string, ModelsDevEntry>;
 }
 
 export class ModelsDevClient extends EventEmitter {
   private cache: Map<string, ModelsDevEntry[]> = new Map(); // providerId → entries
   private fetchedAt: string | null = null;
+  private etag: string | null = null;
   private cachePath: string;
+  private checkTimer: ReturnType<typeof setInterval> | null = null;
+  private lastCheckAt: number = 0;
 
   constructor() {
     super();
@@ -79,6 +125,7 @@ export class ModelsDevClient extends EventEmitter {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheShape;
       this.fetchedAt = parsed.fetchedAt;
+      this.etag = parsed.etag || null;
       this.cache = this.groupByProvider(parsed.data);
     } catch {
       // Corrupted cache — ignore, will refetch.
@@ -87,21 +134,78 @@ export class ModelsDevClient extends EventEmitter {
 
   /**
    * Fetch fresh data from models.dev and update the cache.
+   * Uses ETag for conditional requests — if the server returns 304, the
+   * catalog hasn't changed and we skip the update.
    * Returns the grouped entries. Throws on network error.
    */
   async refresh(): Promise<Map<string, ModelsDevEntry[]>> {
-    const data = await fetchJson(MODELS_DEV_URL, 30_000) as Record<string, ModelsDevEntry>;
-    this.cache = this.groupByProvider(data);
+    // Use https.get directly so we can inspect headers (etag, status code).
+    const { status, data, etag } = await fetchJsonWithEtag(MODELS_DEV_URL, this.etag, 30_000);
+
+    if (status === 304) {
+      // Catalog hasn't changed — just update the fetchedAt timestamp.
+      this.fetchedAt = new Date().toISOString();
+      this.emit('checked', { updated: false, providerCount: this.cache.size, modelCount: this.getTotalModelCount() });
+      return this.cache;
+    }
+
+    // Catalog changed — update cache + etag.
+    const parsed = data as Record<string, ModelsDevEntry>;
+    this.cache = this.groupByProvider(parsed);
     this.fetchedAt = new Date().toISOString();
+    this.etag = etag;
 
     // Persist to disk atomically.
-    const payload: CacheShape = { fetchedAt: this.fetchedAt, data };
+    const payload: CacheShape = { fetchedAt: this.fetchedAt, etag: this.etag, data: parsed };
     const tmp = this.cachePath + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), 'utf-8');
     fs.renameSync(tmp, this.cachePath);
 
-    this.emit('refreshed', { providerCount: this.cache.size, modelCount: this.getTotalModelCount() });
+    this.emit('refreshed', { updated: true, providerCount: this.cache.size, modelCount: this.getTotalModelCount() });
     return this.cache;
+  }
+
+  /**
+   * Start a background timer that checks models.dev for updates every 30
+   * minutes. If the catalog has changed (ETag mismatch), emits a
+   * 'catalog-updated' event that main.ts forwards to the renderer so the
+   * UI can refresh the provider list.
+   */
+  startBackgroundChecker(): void {
+    if (this.checkTimer) return;
+    // Check immediately, then every 30 minutes.
+    this.checkForUpdates();
+    this.checkTimer = setInterval(() => this.checkForUpdates(), CHECK_INTERVAL_MS);
+  }
+
+  /** Stop the background checker. */
+  stopBackgroundChecker(): void {
+    if (this.checkTimer) {
+      clearInterval(this.checkTimer);
+      this.checkTimer = null;
+    }
+  }
+
+  /** Check for updates without blocking. Silently logs result. */
+  private async checkForUpdates(): Promise<void> {
+    // Don't check more than once per 5 minutes.
+    if (Date.now() - this.lastCheckAt < 5 * 60 * 1000) return;
+    this.lastCheckAt = Date.now();
+
+    try {
+      const before = this.getTotalModelCount();
+      await this.refresh();
+      const after = this.getTotalModelCount();
+      if (after !== before) {
+        this.emit('catalog-updated', {
+          providerCount: this.cache.size,
+          modelCount: after,
+          previousModelCount: before,
+        });
+      }
+    } catch {
+      // Network error — silently ignore, will retry next interval.
+    }
   }
 
   /** Check if the cache is fresh (within TTL). */
