@@ -9,8 +9,112 @@
  * Ref: https://github.com/anomalyco/models.dev/tree/dev/providers
  */
 
-import { ProviderDefinition } from './opencode-types';
+import { ProviderDefinition, ModelConfig } from './opencode-types';
 import { MODELS_DEV_PROVIDERS } from './models-dev-catalog';
+
+// ─── Gemini OAuth provider (from goose — free Gemini access via Google OAuth) ──
+// Uses Google's Code Assist API (same as Gemini CLI) — no API key needed,
+// just sign in with your Google account. Gets free access to Gemini 3 Pro/Flash.
+//
+// Ref: https://github.com/aaif-goose/goose/blob/main/crates/goose/src/providers/gemini_oauth.rs
+
+const GEMINI_OAUTH_MODELS: Record<string, ModelConfig> = {
+  'gemini-3-pro-preview': {
+    id: 'gemini-3-pro-preview',
+    name: 'Gemini 3 Pro Preview',
+    family: 'gemini',
+    reasoning: true,
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    status: 'beta',
+    limit: { context: 2000000, output: 65536 },
+    source: 'goose',
+  },
+  'gemini-3-flash-preview': {
+    id: 'gemini-3-flash-preview',
+    name: 'Gemini 3 Flash Preview',
+    family: 'gemini',
+    reasoning: true,
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    status: 'beta',
+    limit: { context: 1000000, output: 65536 },
+    source: 'goose',
+  },
+  'gemini-2.5-pro': {
+    id: 'gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro',
+    family: 'gemini',
+    reasoning: true,
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    status: 'active',
+    limit: { context: 2000000, output: 8192 },
+    source: 'goose',
+  },
+  'gemini-2.5-flash': {
+    id: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash',
+    family: 'gemini',
+    reasoning: true,
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    status: 'active',
+    limit: { context: 1000000, output: 8192 },
+    source: 'goose',
+  },
+  'gemini-2.5-flash-lite': {
+    id: 'gemini-2.5-flash-lite',
+    name: 'Gemini 2.5 Flash Lite',
+    family: 'gemini',
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    status: 'active',
+    limit: { context: 1000000, output: 8192 },
+    source: 'goose',
+  },
+  'gemini-2.0-flash': {
+    id: 'gemini-2.0-flash',
+    name: 'Gemini 2.0 Flash',
+    family: 'gemini',
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    status: 'active',
+    limit: { context: 1048576, output: 8192 },
+    source: 'goose',
+  },
+  'gemini-2.0-flash-lite': {
+    id: 'gemini-2.0-flash-lite',
+    name: 'Gemini 2.0 Flash Lite',
+    family: 'gemini',
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    status: 'active',
+    limit: { context: 1048576, output: 8192 },
+    source: 'goose',
+  },
+};
+
+const GEMINI_OAUTH_PROVIDER: ProviderDefinition = {
+  id: 'gemini-oauth',
+  name: 'Gemini (Free OAuth)',
+  npm: '@ai-sdk/google',
+  api: 'https://cloudcode-pa.googleapis.com',
+  env: [],
+  authMethods: ['oauth'],
+  isBuiltin: true,
+  icon: 'gem',
+  docsUrl: 'https://ai.google.dev/gemini-api/docs',
+  aiSdkDocsUrl: 'https://ai-sdk.dev/providers/google-generative-ai',
+  models: GEMINI_OAUTH_MODELS,
+};
 
 // ─── Extra config for specific providers (NO hardcoded models — only structural config) ──
 
@@ -58,6 +162,9 @@ export class OpencodeRegistry {
       const extra = PROVIDER_EXTRAS[base.id];
       this.builtins.set(base.id, extra ? { ...base, ...extra, id: base.id } : base);
     }
+    // Add the Gemini OAuth provider (free Gemini access via Google OAuth).
+    // Not in models.dev — sourced from goose's gemini_oauth.rs implementation.
+    this.builtins.set(GEMINI_OAUTH_PROVIDER.id, GEMINI_OAUTH_PROVIDER);
   }
 
   listBuiltins(): ProviderDefinition[] {

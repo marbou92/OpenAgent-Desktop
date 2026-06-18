@@ -13,6 +13,7 @@ import { GeminiAdapter } from './gemini-adapter';
 import { BedrockAdapter } from './bedrock-adapter';
 import { VertexAdapter } from './vertex-adapter';
 import { GithubCopilotAdapter } from './github-copilot-adapter';
+import { GeminiOAuthAdapter } from './gemini-oauth-adapter';
 
 // OpenAI-compatible adapter — delegates to OpenAIAdapter but declares a
 // different protocol label. Used for custom providers (Ollama, LM Studio, etc.).
@@ -43,6 +44,9 @@ const ADAPTERS: Record<string, ProtocolAdapter> = {
 export function getAdapterForProvider(def: ProviderDefinition): ProtocolAdapter {
   // GitHub Copilot has its own adapter.
   if (def.id === 'github-copilot') return ADAPTERS['github-copilot'];
+
+  // Gemini OAuth has its own adapter (Code Assist API).
+  if (def.id === 'gemini-oauth') return new GeminiOAuthAdapter();
 
   // Custom providers (Ollama, LM Studio, etc.) use the OpenAI-compatible adapter.
   if (!def.isBuiltin || def.id.startsWith('custom:')) {
