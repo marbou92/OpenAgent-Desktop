@@ -16,7 +16,9 @@ import {
   StreamChunk,
 } from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
+
 import { AnthropicAdapter } from './anthropic-adapter';
+
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -168,7 +170,7 @@ export class VertexAdapter implements ProtocolAdapter {
   private buildGeminiBody(request: ChatRequest): Record<string, unknown> {
     const contents = request.messages.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
+      parts: [{ text: (m.content as string) }],
     }));
     const body: Record<string, unknown> = { contents };
     if (request.systemPrompt) body.systemInstruction = { parts: [{ text: request.systemPrompt }] };

@@ -24,6 +24,13 @@ import {
 } from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
+/** Convert ChatMessage.content (string | array) to a plain string for non-multi-modal adapters. */
+function contentToString(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("");
+  return "";
+}
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 const ANTHROPIC_VERSION = '2023-06-01';
 
@@ -63,27 +70,27 @@ function toAnthropicMessages(request: ChatRequest): { system: string | undefined
   for (const m of request.messages) {
     if (m.role === 'system') {
       // Merge into the system prompt (Anthropic only supports one).
-      system = system ? `${system}\n\n${m.content}` : m.content;
+      system = system ? `${system}\n\n${(m.content as string)}` : (m.content as string);
       continue;
     }
     if (m.role === 'tool') {
       // Tool results are part of the user turn in Anthropic's format.
       messages.push({
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }],
+        content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: contentToString(m.content as string) }],
       });
       continue;
     }
     if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
       const blocks: AnthropicContentBlock[] = [];
-      if (m.content) blocks.push({ type: 'text', text: m.content });
+      if ((m.content as string)) blocks.push({ type: 'text', text: (m.content as string) });
       for (const tc of m.toolCalls) {
         blocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.arguments });
       }
       messages.push({ role: 'assistant', content: blocks });
       continue;
     }
-    messages.push({ role: m.role as 'user' | 'assistant', content: m.content });
+    messages.push({ role: m.role as 'user' | 'assistant', content: contentToString(m.content as string) });
   }
   return { system, messages };
 }

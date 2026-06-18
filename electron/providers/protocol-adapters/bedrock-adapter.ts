@@ -16,6 +16,7 @@
  */
 
 import * as crypto from 'crypto';
+
 import {
   AuthProvider,
   ChatRequest,
@@ -25,6 +26,7 @@ import {
   ToolCallInfo,
 } from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
+
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -124,10 +126,10 @@ function toBedrockAnthropicRequest(request: ChatRequest): BedrockAnthropicReques
   }
   for (const m of request.messages) {
     if (m.role === 'system') {
-      out.system = out.system ? `${out.system}\n\n${m.content}` : m.content;
+      out.system = out.system ? `${out.system}\n\n${(m.content as string)}` : (m.content as string);
       continue;
     }
-    out.messages.push({ role: m.role as 'user' | 'assistant', content: m.content });
+    out.messages.push({ role: m.role as 'user' | 'assistant', content: (m.content as string) });
   }
   return out;
 }
@@ -188,7 +190,7 @@ export class BedrockAdapter implements ProtocolAdapter {
 
     // Llama / Mistral use a simpler input/output shape.
     const body = JSON.stringify({
-      prompt: request.messages.map((m) => `${m.role}: ${m.content}`).join('\n\n'),
+      prompt: request.messages.map((m) => `${m.role}: ${(m.content as string)}`).join('\n\n'),
       max_gen_len: request.maxTokens ?? 2048,
       temperature: request.temperature,
     });
@@ -272,7 +274,7 @@ export class BedrockAdapter implements ProtocolAdapter {
 
     // Llama/Mistral streaming
     const body = JSON.stringify({
-      prompt: request.messages.map((m) => `${m.role}: ${m.content}`).join('\n\n'),
+      prompt: request.messages.map((m) => `${m.role}: ${(m.content as string)}`).join('\n\n'),
       max_gen_len: request.maxTokens ?? 2048,
       temperature: request.temperature,
     });

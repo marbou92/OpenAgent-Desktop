@@ -25,6 +25,13 @@ import {
 } from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
+/** Convert ChatMessage.content (string | array) to a plain string for non-multi-modal adapters. */
+function contentToString(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("");
+  return "";
+}
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 function resolveApiKey(auth: AuthProvider): string | null {
@@ -57,19 +64,19 @@ function toGeminiContents(request: ChatRequest): { systemInstruction: string | u
 
   for (const m of request.messages) {
     if (m.role === 'system') {
-      systemInstruction = systemInstruction ? `${systemInstruction}\n\n${m.content}` : m.content;
+      systemInstruction = systemInstruction ? `${systemInstruction}\n\n${(m.content as string)}` : (m.content as string);
       continue;
     }
     if (m.role === 'tool') {
       contents.push({
         role: 'user',
-        parts: [{ functionResponse: { name: m.toolCallId || 'tool', response: { result: m.content } } }],
+        parts: [{ functionResponse: { name: m.toolCallId || 'tool', response: { result: (m.content as string) } } }],
       });
       continue;
     }
     if (m.role === 'assistant') {
       const parts: GeminiPart[] = [];
-      if (m.content) parts.push({ text: m.content });
+      if ((m.content as string)) parts.push({ text: (m.content as string) });
       if (m.toolCalls) {
         for (const tc of m.toolCalls) {
           parts.push({ functionCall: { name: tc.name, args: tc.arguments } });
@@ -78,7 +85,7 @@ function toGeminiContents(request: ChatRequest): { systemInstruction: string | u
       contents.push({ role: 'model', parts });
       continue;
     }
-    contents.push({ role: 'user', parts: [{ text: m.content }] });
+    contents.push({ role: 'user', parts: [{ text: (m.content as string) }] });
   }
   return { systemInstruction, contents };
 }

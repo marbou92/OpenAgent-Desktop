@@ -391,6 +391,11 @@ export class AgentRunner extends EventEmitter {
 
   /**
    * Call the LLM via the provider client.
+   * Uses chatStream() when onStreamChunk is provided — gives real-time
+   * token streaming in agent mode (Build/Plan/Smart). The user sees the
+   * LLM thinking + writing code as it happens, then tool calls execute.
+   *
+   * Falls back to non-streaming chat() when no onStreamChunk callback.
    */
   private async callLLM(
     messages: ChatMessage[],
@@ -414,8 +419,70 @@ export class AgentRunner extends EventEmitter {
       });
     }
 
+    const model = this.agent.model || this.context.model;
+
+    // If we have a stream callback, use chatStream() for real-time streaming.
+    // This is the key change: agent mode now streams tokens to the user
+    // instead of waiting for each step to complete.
+    if (options.onStreamChunk) {
+      let fullContent = '';
+      let thinking = '';
+      const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
+      let usage: { promptTokens: number; completionTokens: number } | undefined;
+
+      for await (const chunk of this.providerClient.chatStream({
+        model,
+        messages: chatMessages,
+        temperature: this.agent.temperature,
+        tools: options.tools,
+      })) {
+        switch (chunk.type) {
+          case 'content':
+            if (chunk.content) {
+              fullContent += chunk.content;
+              options.onStreamChunk(chunk.content);
+            }
+            break;
+          case 'thinking':
+            if (chunk.content) thinking += chunk.content;
+            break;
+          case 'tool_call_end':
+            if (chunk.toolCall?.id && chunk.toolCall?.name) {
+              toolCalls.push({
+                id: chunk.toolCall.id,
+                name: chunk.toolCall.name,
+                arguments: (chunk.toolCall.arguments as Record<string, unknown>) || {},
+              });
+            }
+            break;
+          case 'usage':
+            if (chunk.usage) {
+              usage = {
+                promptTokens: chunk.usage.promptTokens,
+                completionTokens: chunk.usage.completionTokens,
+              };
+            }
+            break;
+          case 'error':
+            throw new Error(chunk.error?.message || 'Stream error');
+          case 'done':
+            break;
+        }
+      }
+
+      return {
+        id: '',
+        content: fullContent,
+        model,
+        thinking: thinking || undefined,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        usage,
+      };
+    }
+
+    // Non-streaming fallback.
     return this.providerClient.chat({
-      model: this.agent.model || this.context.model,
+      model,
       messages: chatMessages,
       temperature: this.agent.temperature,
       stream: false,

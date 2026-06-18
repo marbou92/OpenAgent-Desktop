@@ -176,7 +176,11 @@ export interface ModelsDevEntry {
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: string | Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; image: Buffer | string; mimeType?: string }
+    | { type: 'file'; data: string; mimeType?: string }
+  >;
   toolCallId?: string;
   toolCalls?: ToolCallInfo[];
 }

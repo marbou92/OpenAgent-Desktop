@@ -22,6 +22,13 @@ import {
 } from '../opencode-types';
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
+/** Convert ChatMessage.content (string | array) to a plain string for non-multi-modal adapters. */
+function contentToString(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("");
+  return "";
+}
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 function resolveApiKey(auth: AuthProvider): string | null {
@@ -48,7 +55,7 @@ function toOpenAIMessages(request: ChatRequest): OpenAIMessage[] {
     out.push({ role: 'system', content: request.systemPrompt });
   }
   for (const m of request.messages) {
-    const entry: OpenAIMessage = { role: m.role, content: m.content };
+    const entry: OpenAIMessage = { role: m.role, content: contentToString(m.content as string) };
     if (m.toolCallId) entry.tool_call_id = m.toolCallId;
     if (m.toolCalls) {
       entry.tool_calls = m.toolCalls.map((tc) => ({

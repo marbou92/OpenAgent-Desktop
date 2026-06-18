@@ -1665,11 +1665,14 @@ function registerIpcHandlers(): void {
       systemPrompt: runner.getSystemPrompt(),
       tools,
       signal: opts.signal,
+      onStreamChunk: (chunk: string) => {
+        // Real-time streaming in agent mode! Each token is forwarded to the
+        // renderer as it arrives — the user sees the LLM thinking + writing
+        // code as it happens, then tool calls execute.
+        send('chat:stream-chunk', { chunk });
+      },
       onStep: (step) => {
-        // Forward each step's assistant message to the renderer.
-        if (step.message.content) {
-          send('chat:stream-chunk', { chunk: step.message.content });
-        }
+        // Forward tool calls from each step to the renderer.
         if (step.message.toolCalls) {
           for (const tc of step.message.toolCalls) {
             send('chat:stream-tool-call', { toolCall: tc });

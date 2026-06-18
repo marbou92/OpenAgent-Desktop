@@ -27,6 +27,7 @@ import { getOpencodeRegistry } from './opencode-registry';
 import { OpencodeConfig } from './opencode-config';
 import { getModelsDevClient } from './models-dev-client';
 import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
+import { loadAiSdk, isAiSdkAvailable, createSdkModel, getStreamText, getGenerateText } from './ai-sdk-loader';
 
 // Try to dynamically import the SDK for sidecar support.
 let sdkLoaded = false;
@@ -54,6 +55,15 @@ export function isSidecarAvailable(): boolean {
   return sdkLoaded && sidecarBaseUrl !== null;
 }
 
+// AI SDK loading state — loaded once on first chat call.
+let _aiSdkLoaded = false;
+
+async function ensureAiSdk(): Promise<boolean> {
+  if (_aiSdkLoaded) return isAiSdkAvailable();
+  _aiSdkLoaded = true;
+  return loadAiSdk();
+}
+
 export class ProviderClient extends EventEmitter {
   constructor(
     private authStore: AuthStore,
@@ -62,10 +72,6 @@ export class ProviderClient extends EventEmitter {
     super();
   }
 
-  /**
-   * Parse a qualified model id ('openai/gpt-4o') into provider + model parts,
-   * resolve the provider definition, auth, and base URL.
-   */
   resolveModel(qualifiedModelId: string): {
     providerId: string;
     modelId: string;
@@ -77,16 +83,13 @@ export class ProviderClient extends EventEmitter {
     const providerId = slashIdx >= 0 ? qualifiedModelId.slice(0, slashIdx) : qualifiedModelId;
     const modelId = slashIdx >= 0 ? qualifiedModelId.slice(slashIdx + 1) : '';
 
-    // Get the provider definition (from config or registry).
     const provider = this.config?.getProvider(providerId) || getOpencodeRegistry().get(providerId);
     if (!provider) {
       throw new Error(`Unknown provider: ${providerId}`);
     }
 
-    // Get auth from the auth store.
     const auth = this.authStore.get(providerId);
     if (!auth) {
-      // Try env var fallback.
       if (provider.env && provider.env.length > 0) {
         for (const envVar of provider.env) {
           const val = process.env[envVar];
@@ -104,45 +107,230 @@ export class ProviderClient extends EventEmitter {
       throw new Error(`Provider '${providerId}' is not configured — no credentials found`);
     }
 
-    // Resolve base URL.
     const baseUrl = provider.options?.baseURL || provider.api || '';
-
     return { providerId, modelId, provider, auth, baseUrl };
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
-    const ctx: AdapterCallContext = { auth, baseUrl };
 
     // Try sidecar path first if available.
     if (isSidecarAvailable()) {
       try {
-        return await this.chatViaSidecar({ ...request, model: modelId }, ctx);
+        return await this.chatViaSidecar({ ...request, model: modelId }, { auth, baseUrl });
       } catch (err) {
         this.emit('sidecar-fallback', { reason: err instanceof Error ? err.message : String(err) });
       }
     }
 
-    // In-process path.
+    // Try AI SDK path (streamText with no streaming = generateText equivalent).
+    const aiSdkAvailable = await ensureAiSdk();
+    if (aiSdkAvailable) {
+      try {
+        return await this.chatViaAiSdk(request, provider, auth, baseUrl, modelId);
+      } catch (err) {
+        this.emit('ai-sdk-fallback', { reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    // Fall back to hand-rolled adapters.
     const adapter = getAdapterForProvider(provider);
-    return adapter.chat({ ...request, model: modelId }, ctx);
+    return adapter.chat({ ...request, model: modelId }, { auth, baseUrl });
   }
 
   async *chatStream(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<StreamChunk> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
-    const ctx: AdapterCallContext = { auth, baseUrl, signal };
 
     if (isSidecarAvailable()) {
       try {
-        yield* this.chatStreamViaSidecar({ ...request, model: modelId }, ctx);
+        yield* this.chatStreamViaSidecar({ ...request, model: modelId }, { auth, baseUrl, signal });
         return;
       } catch (err) {
         this.emit('sidecar-fallback', { reason: err instanceof Error ? err.message : String(err) });
       }
     }
 
+    // Try AI SDK path (streamText).
+    const aiSdkAvailable = await ensureAiSdk();
+    if (aiSdkAvailable) {
+      try {
+        yield* this.chatStreamViaAiSdk(request, provider, auth, baseUrl, modelId, signal);
+        return;
+      } catch (err) {
+        this.emit('ai-sdk-fallback', { reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    // Fall back to hand-rolled adapters.
     const adapter = getAdapterForProvider(provider);
-    yield* adapter.chatStream({ ...request, model: modelId }, ctx);
+    yield* adapter.chatStream({ ...request, model: modelId }, { auth, baseUrl, signal });
+  }
+
+  /**
+   * Chat using the Vercel AI SDK's generateText() — non-streaming.
+   * Supports tools, multi-modal, and automatic retries.
+   */
+  private async chatViaAiSdk(
+    request: ChatRequest,
+    provider: ProviderDefinition,
+    auth: AuthProvider,
+    baseUrl: string,
+    modelId: string
+  ): Promise<ChatResponse> {
+    const generateText = getGenerateText();
+    if (!generateText) throw new Error('AI SDK generateText not available');
+
+    const model = createSdkModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
+    if (!model) throw new Error(`AI SDK model creation failed for ${provider.id}/${modelId}`);
+
+    // Convert our messages to AI SDK format.
+    const messages = request.messages.map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const result = await generateText({
+      model,
+      messages,
+      temperature: request.temperature,
+      maxTokens: request.maxTokens,
+    });
+
+    return {
+      id: result.response?.id || '',
+      content: result.text || '',
+      model: modelId,
+      usage: result.usage ? {
+        promptTokens: result.usage.promptTokens || 0,
+        completionTokens: result.usage.completionTokens || 0,
+      } : undefined,
+      toolCalls: result.toolCalls?.map((tc: any) => ({
+        id: tc.toolCallId,
+        name: tc.toolName,
+        arguments: tc.args,
+      })),
+    };
+  }
+
+  /**
+   * Stream using the Vercel AI SDK's streamText().
+   * Supports real-time token streaming, tool-call accumulation, and multi-modal.
+   */
+  private async *chatStreamViaAiSdk(
+    request: ChatRequest,
+    provider: ProviderDefinition,
+    auth: AuthProvider,
+    baseUrl: string,
+    modelId: string,
+    signal?: AbortSignal
+  ): AsyncGenerator<StreamChunk> {
+    const streamText = getStreamText();
+    if (!streamText) throw new Error('AI SDK streamText not available');
+
+    const model = createSdkModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
+    if (!model) throw new Error(`AI SDK model creation failed for ${provider.id}/${modelId}`);
+
+    // Convert our messages to AI SDK format.
+    // Support multi-modal: if content is an array, pass it through.
+    const messages = request.messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : m.content,
+    }));
+
+    // Convert our tool definitions to AI SDK tool format.
+    const tools: Record<string, any> = {};
+    if (request.tools) {
+      for (const tool of request.tools) {
+        tools[tool.name] = {
+          description: tool.description,
+          parameters: tool.parameters,
+        };
+      }
+    }
+
+    const result = streamText({
+      model,
+      messages,
+      tools: Object.keys(tools).length > 0 ? tools : undefined,
+      temperature: request.temperature,
+      maxTokens: request.maxTokens,
+      abortSignal: signal,
+    });
+
+    // Stream the full stream — includes text deltas, tool calls, reasoning, etc.
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case 'text-delta':
+          if (part.textDelta) {
+            yield { type: 'content', content: part.textDelta };
+          }
+          break;
+
+        case 'reasoning':
+          if (part.textDelta) {
+            yield { type: 'thinking', content: part.textDelta };
+          }
+          break;
+
+        case 'tool-call':
+          yield {
+            type: 'tool_call_end',
+            toolCall: {
+              id: part.toolCallId,
+              name: part.toolName,
+              arguments: part.args,
+            },
+          };
+          break;
+
+        case 'tool-call-streaming-start':
+          yield {
+            type: 'tool_call_start',
+            toolCall: {
+              id: part.toolCallId,
+              name: part.toolName,
+            },
+          };
+          break;
+
+        case 'tool-call-delta':
+          yield {
+            type: 'tool_call_delta',
+            toolCall: {
+              id: part.toolCallId,
+              arguments: part.argsText,
+            },
+          };
+          break;
+
+        case 'error':
+          yield {
+            type: 'error',
+            error: { message: part.error?.message || 'Unknown AI SDK error' },
+          };
+          return;
+
+        case 'finish':
+          if (result.usage) {
+            yield {
+              type: 'usage',
+              usage: {
+                promptTokens: result.usage.promptTokens || 0,
+                completionTokens: result.usage.completionTokens || 0,
+              },
+            };
+          }
+          yield { type: 'done' };
+          return;
+
+        case 'step-finish':
+          // Step boundary in multi-step agent loops — don't emit, just continue.
+          break;
+      }
+    }
+
+    // If we didn't get a 'finish' event, emit done.
+    yield { type: 'done' };
   }
 
   async discoverModels(providerId: string): Promise<DiscoveredModel[]> {
@@ -155,11 +343,6 @@ export class ProviderClient extends EventEmitter {
     return adapter.discoverModels({ auth, baseUrl });
   }
 
-  /**
-   * List all models available for a provider: from the merged provider definition
-   * (which includes models.dev entries) + any custom models from config.
-   * No network call — uses cached data only.
-   */
   listAvailableModels(providerId: string): ResolvedModel[] {
     const modelsDevClient = getModelsDevClient();
     const providers = modelsDevClient.getMergedProviders();
@@ -168,7 +351,6 @@ export class ProviderClient extends EventEmitter {
 
     const out: ResolvedModel[] = [];
     for (const [modelId, model] of Object.entries(provider.models)) {
-      // Check whitelist/blacklist.
       if (provider.whitelist && provider.whitelist.length > 0 && !provider.whitelist.includes(modelId)) continue;
       if (provider.blacklist && provider.blacklist.includes(modelId)) continue;
 
@@ -177,21 +359,21 @@ export class ProviderClient extends EventEmitter {
         qualifiedId: `${providerId}/${modelId}`,
         providerId,
         displayName: model.name || modelId,
-        contextWindow: model.limit?.context,
-        maxOutput: model.limit?.output,
+        contextWindow: model.limit?.context as number | undefined,
+        maxOutput: model.limit?.output as number | undefined,
         supportsStreaming: true,
         supportsToolUse: model.tool_call ?? true,
         supportsThinking: model.reasoning ?? false,
         supportsAttachment: model.attachment ?? false,
-        cost: model.cost,
-        status: model.status,
-        source: 'models-dev',
+        cost: model.cost as any,
+        status: model.status as any,
+        source: (model.source as any) || 'toml',
       });
     }
     return out;
   }
 
-  // ─── Sidecar paths ──────────────────────────────────────────────────────────
+  // ─── Sidecar paths (unchanged) ──────────────────────────────────────────────
 
   private async chatViaSidecar(request: ChatRequest, _ctx: AdapterCallContext): Promise<ChatResponse> {
     if (!opencodeClientFactory || !sidecarBaseUrl) {
