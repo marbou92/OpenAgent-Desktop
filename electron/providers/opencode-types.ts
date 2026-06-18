@@ -49,12 +49,15 @@ export interface ModelCost {
   cache_read?: number;
   cache_write?: number;
   context_over_200k?: { input: number; output: number; cache_read?: number; cache_write?: number };
+  /** Allow additional cost fields from .toml files (input_audio, reasoning, etc.) */
+  [key: string]: unknown;
 }
 
 export interface ModelLimit {
-  context: number;
+  context?: number;
   input?: number;
-  output: number;
+  output?: number;
+  [key: string]: unknown;
 }
 
 export interface ModelModalities {
@@ -79,6 +82,8 @@ export interface ModelConfig {
   provider?: { npm?: string; api?: string };
   options?: Record<string, unknown>;
   headers?: Record<string, string>;
+  /** Which catalog source this model came from: 'toml' (build-time), 'models.json' (runtime), 'github-live' (runtime GitHub fetch). */
+  source?: string;
 }
 
 // ─── Provider definition (from opencode.json provider section) ───────────────

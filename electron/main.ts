@@ -888,12 +888,8 @@ async function initializeSubsystems(): Promise<void> {
   // Refresh models.dev catalog in the background (non-blocking).
   modelsDevClient.refresh().then(() => {
     logger.info('ModelsDev', `Catalog refreshed — ${modelsDevClient.getTotalModelCount()} models across ${modelsDevClient.getCachedProviderIds().length} providers`);
-    // Start the background checker — checks for updates every 30 min using ETag.
-    modelsDevClient.startBackgroundChecker();
   }).catch((err: unknown) => {
     logger.warn('ModelsDev', 'Failed to refresh catalog (using cached/hardcoded fallback)', err);
-    // Still start the checker — it'll retry.
-    modelsDevClient.startBackgroundChecker();
   });
 
   // Forward catalog-updated events to the renderer so the UI can refresh.
@@ -902,6 +898,13 @@ async function initializeSubsystems(): Promise<void> {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('provider:catalog-updated', info);
     }
+  });
+
+  // Start the background checker — checks both models.json ETag and GitHub
+  // commits SHA. When the GitHub repo changes, re-fetches .toml model files
+  // for configured providers only.
+  modelsDevClient.startBackgroundChecker(() => {
+    return authStore.list().map((entry: { providerId: string; auth: any }) => entry.providerId);
   });
 
   providerClient = new ProviderClient(authStore, opencodeConfig);
