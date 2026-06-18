@@ -20,6 +20,21 @@ import { app } from 'electron';
 import { ModelsDevEntry, ProviderDefinition, ModelConfig } from './opencode-types';
 import { getOpencodeRegistry, OPENCODE_PROVIDERS } from './opencode-registry';
 
+// Use node-fetch for Node 16 / Electron 22 compatibility (no global fetch).
+// On newer Node (18+), global fetch exists but node-fetch also works.
+let _fetch: typeof fetch;
+try {
+  // Node 18+ has global fetch — use it.
+  if (typeof globalThis.fetch === 'function') {
+    _fetch = globalThis.fetch;
+  } else {
+    // Node 16 / Electron 22 — use node-fetch.
+    _fetch = require('node-fetch');
+  }
+} catch {
+  _fetch = require('node-fetch');
+}
+
 const MODELS_DEV_URL = 'https://models.dev/models.json';
 const CACHE_FILE = 'models-dev-cache.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -58,7 +73,7 @@ export class ModelsDevClient extends EventEmitter {
    * Returns the grouped entries. Throws on network error.
    */
   async refresh(): Promise<Map<string, ModelsDevEntry[]>> {
-    const response = await fetch(MODELS_DEV_URL, {
+    const response = await _fetch(MODELS_DEV_URL, {
       signal: AbortSignal.timeout(30_000),
       headers: { 'User-Agent': 'OpenAgent-Desktop' },
     });

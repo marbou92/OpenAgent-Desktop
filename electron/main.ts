@@ -763,19 +763,25 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on("error", (err) => {
-    console.error("[Main] Auto-updater error:", err);
-    mainWindow?.webContents.send("updater:error", { message: err.message });
+    // Silently swallow auto-updater errors — "No published versions on GitHub"
+    // is expected when no releases exist yet. Don't crash the app.
+    console.warn("[Main] Auto-updater error (non-fatal):", err.message);
   });
 
-  // Check for updates periodically
+  // Check for updates periodically — wrapped in try/catch so "No published
+  // versions on GitHub" doesn't crash the app.
   if (appConfig.autoUpdate) {
-    autoUpdater.checkForUpdates();
-    setInterval(
-      () => {
-        autoUpdater.checkForUpdates();
-      },
-      60 * 60 * 1000
-    ); // Every hour
+    const safeCheck = () => {
+      try {
+        autoUpdater.checkForUpdates().catch(() => {
+          // Silently ignore — no releases yet is not a crash-worthy error.
+        });
+      } catch {
+        // ignore
+      }
+    };
+    safeCheck();
+    setInterval(safeCheck, 60 * 60 * 1000); // Every hour
   }
 }
 
