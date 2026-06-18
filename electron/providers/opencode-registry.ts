@@ -1,73 +1,39 @@
 /**
  * OpenAgent-Desktop - opencode Provider Registry
  *
- * The 11 well-known opencode provider IDs, hardcoded as an offline fallback.
- * When models.dev is reachable, dynamic providers + models are merged in.
+ * Uses the auto-generated models.dev catalog (145 providers) as the source
+ * of truth for provider definitions. Each provider has: id, name, npm package,
+ * API URL, env vars, docs URL, and auth methods — all sourced from the
+ * provider.toml files in the models.dev GitHub repo.
  *
- * Provider IDs match opencode exactly:
- *   anthropic, openai, google, google-vertex, github-copilot, amazon-bedrock,
- *   azure, openrouter, mistral, gitlab, opencode
+ * The 11 opencode well-known providers get extra config (hardcoded models,
+ * modelSource mapping, GitHub Copilot device flow) layered on top.
  *
- * Ref: https://github.com/anomalyco/opencode/blob/dev/packages/core/src/provider.ts
+ * Ref: https://github.com/anomalyco/models.dev/tree/dev/providers
  */
 
 import { ProviderDefinition } from './opencode-types';
+import { MODELS_DEV_PROVIDERS } from './models-dev-catalog';
 
-export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    npm: '@ai-sdk/anthropic',
-    api: 'https://api.anthropic.com',
-    env: ['ANTHROPIC_API_KEY'],
-    authMethods: ['api', 'oauth'],
-    isBuiltin: true,
-    icon: 'brain',
-    docsUrl: 'https://docs.anthropic.com',
+// ─── Extra config for specific providers (layered on top of the catalog) ─────
+
+const PROVIDER_EXTRAS: Record<string, Partial<ProviderDefinition>> = {
+  'google-vertex': {
+    modelSource: 'google',
+    models: {
+      'gemini-2.0-flash': { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Vertex)', tool_call: true, limit: { context: 1048576, output: 8192 }, status: 'active' },
+      'gemini-1.5-pro': { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Vertex)', tool_call: true, limit: { context: 2097152, output: 8192 }, status: 'active' },
+      'gemini-1.5-flash': { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Vertex)', tool_call: true, limit: { context: 1048576, output: 8192 }, status: 'active' },
+    },
   },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    npm: '@ai-sdk/openai',
-    api: 'https://api.openai.com/v1',
-    env: ['OPENAI_API_KEY'],
-    authMethods: ['api', 'oauth'],
-    isBuiltin: true,
-    icon: 'sparkles',
-    docsUrl: 'https://platform.openai.com/docs',
+  'azure': {
+    modelSource: 'openai',
   },
-  {
-    id: 'google',
-    name: 'Google Gemini',
-    npm: '@ai-sdk/google',
-    api: 'https://generativelanguage.googleapis.com',
-    env: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'gem',
-    docsUrl: 'https://ai.google.dev/docs',
+  'openrouter': {
+    modelSource: '*',
   },
-  {
-    id: 'google-vertex',
-    name: 'Google Vertex AI',
-    npm: '@ai-sdk/google-vertex',
-    env: ['GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_VERTEX_PROJECT', 'GOOGLE_VERTEX_LOCATION'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'server',
-    docsUrl: 'https://cloud.google.com/vertex-ai',
-    modelSource: 'google', // Vertex hosts the same models as Google Gemini
-  },
-  {
-    id: 'github-copilot',
-    name: 'GitHub Copilot',
-    npm: 'opencode-github-copilot',
-    api: 'https://api.githubcopilot.com',
-    env: ['GITHUB_TOKEN'],
+  'github-copilot': {
     authMethods: ['wellknown'],
-    isBuiltin: true,
-    icon: 'github',
-    docsUrl: 'https://docs.github.com/copilot',
     models: {
       'gpt-4o': { id: 'gpt-4o', name: 'GPT-4o (Copilot)', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
       'gpt-4o-mini': { id: 'gpt-4o-mini', name: 'GPT-4o mini (Copilot)', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
@@ -78,15 +44,7 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
       'gemini-2.0-flash': { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Copilot)', tool_call: true, limit: { context: 1048576, output: 8192 }, status: 'active' },
     },
   },
-  {
-    id: 'amazon-bedrock',
-    name: 'Amazon Bedrock',
-    npm: '@ai-sdk/amazon-bedrock',
-    env: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'server',
-    docsUrl: 'https://docs.aws.amazon.com/bedrock',
+  'amazon-bedrock': {
     models: {
       'anthropic.claude-3-5-sonnet-20240620-v1:0': { id: 'anthropic.claude-3-5-sonnet-20240620-v1:0', name: 'Claude 3.5 Sonnet (Bedrock)', tool_call: true, limit: { context: 200000, output: 4096 }, status: 'active' },
       'anthropic.claude-3-5-haiku-20241022-v1:0': { id: 'anthropic.claude-3-5-haiku-20241022-v1:0', name: 'Claude 3.5 Haiku (Bedrock)', tool_call: true, limit: { context: 200000, output: 8192 }, status: 'active' },
@@ -100,50 +58,7 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
       'amazon.nova-micro-v1:0': { id: 'amazon.nova-micro-v1:0', name: 'Amazon Nova Micro (Bedrock)', tool_call: true, limit: { context: 128000, output: 4096 }, status: 'active' },
     },
   },
-  {
-    id: 'azure',
-    name: 'Azure OpenAI',
-    npm: '@ai-sdk/azure',
-    env: ['AZURE_API_KEY', 'AZURE_API_BASE', 'AZURE_API_VERSION'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'cloud',
-    docsUrl: 'https://learn.microsoft.com/azure/ai-services/openai',
-    modelSource: 'openai', // Azure hosts the same models as OpenAI
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    npm: '@ai-sdk/openai-compatible',
-    api: 'https://openrouter.ai/api/v1',
-    env: ['OPENROUTER_API_KEY'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'router',
-    docsUrl: 'https://openrouter.ai/docs',
-    modelSource: '*', // OpenRouter routes to ALL providers — show all models.dev entries
-  },
-  {
-    id: 'mistral',
-    name: 'Mistral AI',
-    npm: '@ai-sdk/mistral',
-    api: 'https://api.mistral.ai/v1',
-    env: ['MISTRAL_API_KEY'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'wind',
-    docsUrl: 'https://docs.mistral.ai',
-  },
-  {
-    id: 'gitlab',
-    name: 'GitLab Duo',
-    npm: 'opencode-gitlab',
-    api: 'https://cloud.gitlab.com/api/v1',
-    env: ['GITLAB_TOKEN'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'gitlab',
-    docsUrl: 'https://docs.gitlab.com/ee/user/duo_chat',
+  'gitlab': {
     models: {
       'claude-3.5-sonnet': { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (Duo)', tool_call: true, limit: { context: 200000, output: 8192 }, status: 'active' },
       'gpt-4o': { id: 'gpt-4o', name: 'GPT-4o (Duo)', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
@@ -151,23 +66,14 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
       'mistral-large': { id: 'mistral-large', name: 'Mistral Large (Duo)', tool_call: true, limit: { context: 128000, output: 8192 }, status: 'active' },
     },
   },
-  {
-    id: 'opencode',
-    name: 'OpenCode Zen',
-    npm: '@opencode-ai/zen',
-    api: 'https://api.opencode.ai',
-    env: ['OPENCODE_API_KEY'],
-    authMethods: ['api'],
-    isBuiltin: true,
-    icon: 'zen',
-    docsUrl: 'https://opencode.ai/docs',
+  'opencode': {
     models: {
       'zen-1': { id: 'zen-1', name: 'Zen 1', tool_call: true, reasoning: true, limit: { context: 200000, output: 32768 }, status: 'active' },
       'zen-1-mini': { id: 'zen-1-mini', name: 'Zen 1 Mini', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
       'zen-1-flash': { id: 'zen-1-flash', name: 'Zen 1 Flash', tool_call: true, limit: { context: 128000, output: 8192 }, status: 'active' },
     },
   },
-];
+};
 
 // ─── Custom provider presets (local runtimes) ────────────────────────────────
 
@@ -178,34 +84,10 @@ export const CUSTOM_PROVIDER_PRESETS: Array<{
   apiKey: string;
   icon: string;
 }> = [
-  {
-    id: 'ollama',
-    name: 'Ollama (local)',
-    api: 'http://localhost:11434/v1',
-    apiKey: 'ollama',
-    icon: 'server',
-  },
-  {
-    id: 'lm-studio',
-    name: 'LM Studio (local)',
-    api: 'http://localhost:1234/v1',
-    apiKey: 'lm-studio',
-    icon: 'server',
-  },
-  {
-    id: 'vllm',
-    name: 'vLLM (local)',
-    api: 'http://localhost:8000/v1',
-    apiKey: 'vllm',
-    icon: 'server',
-  },
-  {
-    id: 'litellm',
-    name: 'LiteLLM (local proxy)',
-    api: 'http://localhost:4000/v1',
-    apiKey: 'litellm',
-    icon: 'server',
-  },
+  { id: 'ollama', name: 'Ollama (local)', api: 'http://localhost:11434/v1', apiKey: 'ollama', icon: 'server' },
+  { id: 'lm-studio', name: 'LM Studio (local)', api: 'http://localhost:1234/v1', apiKey: 'lm-studio', icon: 'server' },
+  { id: 'vllm', name: 'vLLM (local)', api: 'http://localhost:8000/v1', apiKey: 'vllm', icon: 'server' },
+  { id: 'litellm', name: 'LiteLLM (local proxy)', api: 'http://localhost:4000/v1', apiKey: 'litellm', icon: 'server' },
 ];
 
 // ─── Registry class ──────────────────────────────────────────────────────────
@@ -215,8 +97,10 @@ export class OpencodeRegistry {
   private custom: Map<string, ProviderDefinition> = new Map();
 
   constructor() {
-    for (const p of OPENCODE_PROVIDERS) {
-      this.builtins.set(p.id, p);
+    // Start with the 145 providers from models.dev, then apply extras.
+    for (const base of MODELS_DEV_PROVIDERS) {
+      const extra = PROVIDER_EXTRAS[base.id];
+      this.builtins.set(base.id, extra ? { ...base, ...extra, id: base.id } : base);
     }
   }
 

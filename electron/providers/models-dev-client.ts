@@ -19,7 +19,7 @@ import * as path from 'path';
 import * as https from 'https';
 import { app } from 'electron';
 import { ModelsDevEntry, ProviderDefinition, ModelConfig } from './opencode-types';
-import { getOpencodeRegistry, OPENCODE_PROVIDERS } from './opencode-registry';
+import { getOpencodeRegistry } from './opencode-registry';
 
 /**
  * Fetch JSON from a URL using Node's built-in https module.
