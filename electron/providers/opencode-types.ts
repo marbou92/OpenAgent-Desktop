@@ -112,6 +112,14 @@ export interface ProviderDefinition {
   icon?: string;
   /** Documentation URL. */
   docsUrl?: string;
+  /**
+   * If set, models.dev entries for this provider ID are used instead of
+   * looking up the provider's own ID. Useful for providers that host the
+   * same models as another (e.g. google-vertex uses google's models,
+   * azure uses openai's models). Use '*' to include ALL models.dev entries
+   * (for routers like openrouter).
+   */
+  modelSource?: string;
 }
 
 // ─── opencode.json config file ───────────────────────────────────────────────

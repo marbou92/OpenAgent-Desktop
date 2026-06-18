@@ -146,14 +146,33 @@ export class ModelsDevClient extends EventEmitter {
     const result: ProviderDefinition[] = [];
 
     for (const def of all) {
-      const devModels = this.cache.get(def.id);
       const models: Record<string, ModelConfig> = {};
-      if (devModels) {
+
+      // Determine which models.dev provider to pull models from.
+      // - If def.modelSource is '*', pull from ALL providers (for openrouter).
+      // - If def.modelSource is set (e.g. 'google'), pull from that provider.
+      // - Otherwise, pull from the provider's own ID.
+      const sourceIds: string[] = [];
+      if (def.modelSource === '*') {
+        // Pull from all models.dev providers.
+        sourceIds.push(...Array.from(this.cache.keys()));
+      } else if (def.modelSource) {
+        sourceIds.push(def.modelSource);
+      } else {
+        sourceIds.push(def.id);
+      }
+
+      for (const sourceId of sourceIds) {
+        const devModels = this.cache.get(sourceId);
+        if (!devModels) continue;
         for (const m of devModels) {
-          // models.dev id is "provider/model" — extract the model part.
           const modelId = m.id.includes('/') ? m.id.split('/').slice(1).join('/') : m.id;
-          models[modelId] = {
-            id: modelId,
+          // For openrouter (modelSource='*'), prefix the model id with the
+          // source provider so the qualified id is "openrouter/openai/gpt-4o".
+          // This matches OpenRouter's actual model naming convention.
+          const finalModelId = def.modelSource === '*' ? `${sourceId}/${modelId}` : modelId;
+          models[finalModelId] = {
+            id: finalModelId,
             name: m.name,
             family: m.family,
             release_date: m.release_date,
@@ -168,7 +187,9 @@ export class ModelsDevClient extends EventEmitter {
           };
         }
       }
-      result.push({ ...def, models: { ...def.models, ...models } });
+
+      // Merge hardcoded models from the provider definition (takes precedence).
+      result.push({ ...def, models: { ...models, ...def.models } });
     }
 
     // Add providers from models.dev that aren't in the builtin list.

@@ -56,6 +56,7 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'server',
     docsUrl: 'https://cloud.google.com/vertex-ai',
+    modelSource: 'google', // Vertex hosts the same models as Google Gemini
   },
   {
     id: 'github-copilot',
@@ -67,6 +68,15 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'github',
     docsUrl: 'https://docs.github.com/copilot',
+    models: {
+      'gpt-4o': { id: 'gpt-4o', name: 'GPT-4o (Copilot)', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
+      'gpt-4o-mini': { id: 'gpt-4o-mini', name: 'GPT-4o mini (Copilot)', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
+      'gpt-4-turbo': { id: 'gpt-4-turbo', name: 'GPT-4 Turbo (Copilot)', tool_call: true, limit: { context: 128000, output: 4096 }, status: 'active' },
+      'claude-3.5-sonnet': { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (Copilot)', tool_call: true, limit: { context: 200000, output: 8192 }, status: 'active' },
+      'claude-3.5-haiku': { id: 'claude-3.5-haiku', name: 'Claude 3.5 Haiku (Copilot)', tool_call: true, limit: { context: 200000, output: 8192 }, status: 'active' },
+      'o3-mini': { id: 'o3-mini', name: 'o3-mini (Copilot)', tool_call: true, reasoning: true, limit: { context: 200000, output: 100000 }, status: 'active' },
+      'gemini-2.0-flash': { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Copilot)', tool_call: true, limit: { context: 1048576, output: 8192 }, status: 'active' },
+    },
   },
   {
     id: 'amazon-bedrock',
@@ -77,6 +87,18 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'server',
     docsUrl: 'https://docs.aws.amazon.com/bedrock',
+    models: {
+      'anthropic.claude-3-5-sonnet-20240620-v1:0': { id: 'anthropic.claude-3-5-sonnet-20240620-v1:0', name: 'Claude 3.5 Sonnet (Bedrock)', tool_call: true, limit: { context: 200000, output: 4096 }, status: 'active' },
+      'anthropic.claude-3-5-haiku-20241022-v1:0': { id: 'anthropic.claude-3-5-haiku-20241022-v1:0', name: 'Claude 3.5 Haiku (Bedrock)', tool_call: true, limit: { context: 200000, output: 8192 }, status: 'active' },
+      'anthropic.claude-3-opus-20240229-v1:0': { id: 'anthropic.claude-3-opus-20240229-v1:0', name: 'Claude 3 Opus (Bedrock)', tool_call: true, limit: { context: 200000, output: 4096 }, status: 'active' },
+      'anthropic.claude-3-haiku-20240307-v1:0': { id: 'anthropic.claude-3-haiku-20240307-v1:0', name: 'Claude 3 Haiku (Bedrock)', tool_call: true, limit: { context: 200000, output: 4096 }, status: 'active' },
+      'meta.llama3-1-70b-instruct-v1:0': { id: 'meta.llama3-1-70b-instruct-v1:0', name: 'Llama 3.1 70B (Bedrock)', tool_call: true, limit: { context: 128000, output: 2048 }, status: 'active' },
+      'meta.llama3-1-8b-instruct-v1:0': { id: 'meta.llama3-1-8b-instruct-v1:0', name: 'Llama 3.1 8B (Bedrock)', tool_call: true, limit: { context: 128000, output: 2048 }, status: 'active' },
+      'mistral.mistral-large-2407-v1:0': { id: 'mistral.mistral-large-2407-v1:0', name: 'Mistral Large (Bedrock)', tool_call: true, limit: { context: 128000, output: 8192 }, status: 'active' },
+      'amazon.nova-pro-v1:0': { id: 'amazon.nova-pro-v1:0', name: 'Amazon Nova Pro (Bedrock)', tool_call: true, limit: { context: 300000, output: 4096 }, status: 'active' },
+      'amazon.nova-lite-v1:0': { id: 'amazon.nova-lite-v1:0', name: 'Amazon Nova Lite (Bedrock)', tool_call: true, limit: { context: 300000, output: 4096 }, status: 'active' },
+      'amazon.nova-micro-v1:0': { id: 'amazon.nova-micro-v1:0', name: 'Amazon Nova Micro (Bedrock)', tool_call: true, limit: { context: 128000, output: 4096 }, status: 'active' },
+    },
   },
   {
     id: 'azure',
@@ -87,6 +109,7 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'cloud',
     docsUrl: 'https://learn.microsoft.com/azure/ai-services/openai',
+    modelSource: 'openai', // Azure hosts the same models as OpenAI
   },
   {
     id: 'openrouter',
@@ -98,6 +121,7 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'router',
     docsUrl: 'https://openrouter.ai/docs',
+    modelSource: '*', // OpenRouter routes to ALL providers — show all models.dev entries
   },
   {
     id: 'mistral',
@@ -120,6 +144,12 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'gitlab',
     docsUrl: 'https://docs.gitlab.com/ee/user/duo_chat',
+    models: {
+      'claude-3.5-sonnet': { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (Duo)', tool_call: true, limit: { context: 200000, output: 8192 }, status: 'active' },
+      'gpt-4o': { id: 'gpt-4o', name: 'GPT-4o (Duo)', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
+      'gpt-4o-mini': { id: 'gpt-4o-mini', name: 'GPT-4o mini (Duo)', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
+      'mistral-large': { id: 'mistral-large', name: 'Mistral Large (Duo)', tool_call: true, limit: { context: 128000, output: 8192 }, status: 'active' },
+    },
   },
   {
     id: 'opencode',
@@ -131,6 +161,11 @@ export const OPENCODE_PROVIDERS: ProviderDefinition[] = [
     isBuiltin: true,
     icon: 'zen',
     docsUrl: 'https://opencode.ai/docs',
+    models: {
+      'zen-1': { id: 'zen-1', name: 'Zen 1', tool_call: true, reasoning: true, limit: { context: 200000, output: 32768 }, status: 'active' },
+      'zen-1-mini': { id: 'zen-1-mini', name: 'Zen 1 Mini', tool_call: true, limit: { context: 128000, output: 16384 }, status: 'active' },
+      'zen-1-flash': { id: 'zen-1-flash', name: 'Zen 1 Flash', tool_call: true, limit: { context: 128000, output: 8192 }, status: 'active' },
+    },
   },
 ];
 
