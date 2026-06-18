@@ -1143,39 +1143,52 @@ function registerIpcHandlers(): void {
 
   // Catalog
   ipcMain.handle("provider:list-providers", wrapIPC(async () => {
+    // Null-guard: subsystems may not be initialized yet (handlers are
+    // registered before initializeSubsystems completes). Return the hardcoded
+    // builtin list as a fallback so the UI doesn't hang.
+    if (!modelsDevClient) {
+      return { success: true, data: getOpencodeRegistry().listAll() };
+    }
     return { success: true, data: modelsDevClient.getMergedProviders() };
   }));
 
   ipcMain.handle("provider:list-auth", wrapIPC(async () => {
+    if (!authStore) return { success: true, data: [] };
     return { success: true, data: authStore.list() };
   }));
 
   ipcMain.handle("provider:list-models", wrapIPC(async (_event, providerId: string) => {
+    if (!providerClient) return { success: true, data: [] };
     return { success: true, data: providerClient.listAvailableModels(providerId) };
   }));
 
   ipcMain.handle("provider:refresh-catalog", wrapIPC(async () => {
+    if (!modelsDevClient) return { success: false, error: 'Catalog not initialized yet' };
     await modelsDevClient.refresh();
     return { success: true, data: { providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
   }));
 
   ipcMain.handle("provider:get-catalog-info", wrapIPC(async () => {
+    if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0 } };
     return { success: true, data: { fetchedAt: modelsDevClient.getFetchedAt(), providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
   }));
 
   // Auth
   ipcMain.handle("provider:set-api-key", wrapIPC(async (_event, providerId: string, apiKey: string) => {
+    if (!authStore) return { success: false, error: 'Auth store not initialized' };
     authStore.set(providerId, { type: 'api', key: apiKey });
     return { success: true };
   }));
 
   ipcMain.handle("provider:remove-auth", wrapIPC(async (_event, providerId: string) => {
+    if (!authStore) return { success: false, error: 'Auth store not initialized' };
     authStore.remove(providerId);
     return { success: true };
   }));
 
   // Config
   ipcMain.handle("provider:set-base-url", wrapIPC(async (_event, providerId: string, baseUrl: string) => {
+    if (!opencodeConfig) return { success: false, error: 'Config not initialized' };
     opencodeConfig.setProviderOptions(providerId, { options: { ...opencodeConfig.getProvider(providerId)?.options, baseURL: baseUrl || undefined } });
     return { success: true };
   }));
@@ -1186,11 +1199,13 @@ function registerIpcHandlers(): void {
   }));
 
   ipcMain.handle("provider:add-custom", wrapIPC(async (_event, def: any) => {
+    if (!opencodeConfig) return { success: false, error: 'Config not initialized' };
     opencodeConfig.addCustomProvider(def);
     return { success: true };
   }));
 
   ipcMain.handle("provider:remove-custom", wrapIPC(async (_event, providerId: string) => {
+    if (!opencodeConfig) return { success: false, error: 'Config not initialized' };
     opencodeConfig.removeProvider(providerId);
     getOpencodeRegistry().unregisterCustom(providerId);
     return { success: true };
@@ -1198,18 +1213,21 @@ function registerIpcHandlers(): void {
 
   // GitHub Copilot device flow
   ipcMain.handle("provider:start-copilot", wrapIPC(async () => {
+    if (!copilotAuth) return { success: false, error: 'Copilot auth not initialized' };
     const result = await copilotAuth.startDeviceFlow();
     return { success: true, data: result };
   }));
 
   ipcMain.handle("provider:cancel-copilot", wrapIPC(async () => {
+    if (!copilotAuth) return { success: true };
     copilotAuth.cancel();
     return { success: true };
   }));
 
   // Health check
   ipcMain.handle("provider:run-health-check", wrapIPC(async (_event, providerId: string) => {
-    const def = opencodeConfig.getProvider(providerId) || getOpencodeRegistry().get(providerId);
+    if (!providerClient) return { success: false, error: 'Provider client not initialized' };
+    const def = opencodeConfig?.getProvider(providerId) || getOpencodeRegistry().get(providerId);
     if (!def) return { success: false, error: `Unknown provider: ${providerId}` };
     const startTime = Date.now();
     try {
@@ -1240,6 +1258,7 @@ function registerIpcHandlers(): void {
 
   // Chat (used by recipe executor + agent runner)
   ipcMain.handle("provider:chat", wrapIPC(async (_event, request: any) => {
+    if (!providerClient) return { success: false, error: 'Provider client not initialized' };
     const response = await providerClient.chat(request);
     return { success: true, data: response };
   }));

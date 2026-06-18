@@ -45,19 +45,19 @@ export const ProvidersView: React.FC<ProvidersViewProps> = ({ addToast }) => {
 
   // Load initial state
   const refreshAll = useCallback(async () => {
-    if (!api?.providersV3) return;
+    if (!api?.providers) return;
     try {
       const [defs, cfgs, hlth] = await Promise.all([
         api.providers.listProviders(),
         api.providers.listAuth(),
         api.providers.getCatalogInfo().catch(() => ({}))
       ]);
-      setDefinitions(defs);
-      setConfigured(cfgs);
-      setHealth(hlth);
+      setDefinitions(defs || []);
+      setConfigured(cfgs || []);
+      setHealth(hlth || {});
       // Auto-select the first configured provider, or the first builtin.
-      if (!selectedProviderId && (cfgs.length > 0 || defs.length > 0)) {
-        const first = cfgs[0]?.providerId || defs[0]?.id;
+      if (!selectedProviderId && ((cfgs && cfgs.length > 0) || (defs && defs.length > 0))) {
+        const first = cfgs?.[0]?.providerId || defs?.[0]?.id;
         if (first) setSelectedProviderId(first);
       }
     } catch (err: any) {
@@ -69,9 +69,20 @@ export const ProvidersView: React.FC<ProvidersViewProps> = ({ addToast }) => {
     refreshAll();
   }, [refreshAll]);
 
+  // Re-fetch when main:ready fires (subsystems may not have been initialized
+  // on the first try — this is the same pattern App.tsx uses).
+  useEffect(() => {
+    if (!api?.on?.mainReady) return;
+    const unsub = api.on.mainReady(() => {
+      refreshAll();
+    });
+    return () => unsub?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load models for the selected provider
   useEffect(() => {
-    if (!selectedProviderId || !api?.providersV3) {
+    if (!selectedProviderId || !api?.providers) {
       setModels([]);
       setDiscovered(undefined);
       setDiscoveredFetchedAt(undefined);
