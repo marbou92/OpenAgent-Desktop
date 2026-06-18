@@ -241,21 +241,34 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const refreshProviders = async () => {
-      if (api?.providers?.list) {
+      // Load from the new opencode provider system.
+      if (api?.providers?.listAuth) {
         try {
-          const p = await (api as any).providersLegacy.list();
-          setProviders(p);
-        } catch { /* ignore stale refresh */ }
+          const authEntries = await api.providers.listAuth();
+          // Build ProviderInfo[] from auth entries.
+          const providerInfos = (authEntries || []).map((entry: any) => ({
+            id: entry.providerId,
+            name: entry.providerId, // Will be enriched when provider defs are loaded
+            type: 'custom',
+            models: [],
+            isDefault: false,
+            configured: true,
+            authMethod: entry.auth?.type,
+          }));
+          setProviders(providerInfos);
+        } catch { /* ignore */ }
       }
     };
 
     // Subscribe to health and status change events
     const unsubHealth = (api as any)?.on?.providerHealthUpdate?.(() => refreshProviders());
     const unsubStatus = (api as any)?.on?.providerStatusChanged?.(() => refreshProviders());
+    const unsubCatalog = (api as any)?.on?.catalogUpdated?.(() => refreshProviders());
 
     return () => {
       unsubHealth?.();
       unsubStatus?.();
+      unsubCatalog?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -269,13 +282,25 @@ const App: React.FC = () => {
     const unsub = api.on.mainReady(() => {
       // Re-fetch everything that initializeApp tried to load.
       Promise.allSettled([
-        api?.providers?.list?.(),
+        api?.providers?.listAuth?.(),
         api?.extensions?.list?.(),
         api?.sessions?.list?.(),
         api?.recipes?.list?.(),
         api?.hooks?.list?.(),
-      ]).then(([p, ext, s, r, h]) => {
-        if (p.status === 'fulfilled' && p.value) setProviders(p.value);
+      ]).then(async ([p, ext, s, r, h]) => {
+        if (p.status === 'fulfilled' && p.value) {
+          // Convert auth entries to ProviderInfo[]
+          const providerInfos = (p.value || []).map((entry: any) => ({
+            id: entry.providerId,
+            name: entry.providerId,
+            type: 'custom',
+            models: [],
+            isDefault: false,
+            configured: true,
+            authMethod: entry.auth?.type,
+          }));
+          setProviders(providerInfos);
+        }
         if (ext.status === 'fulfilled' && ext.value) setExtensions(ext.value);
         if (s.status === 'fulfilled' && s.value) setSessions(s.value);
         if (r.status === 'fulfilled' && r.value) setRecipes(r.value);
@@ -299,11 +324,20 @@ const App: React.FC = () => {
         }
       }
 
-      // Load providers
-      if (api?.providers?.list) {
+      // Load providers from the new opencode system
+      if (api?.providers?.listAuth) {
         try {
-          const p = await (api as any).providersLegacy.list();
-          setProviders(p);
+          const authEntries = await api.providers.listAuth();
+          const providerInfos = (authEntries || []).map((entry: any) => ({
+            id: entry.providerId,
+            name: entry.providerId,
+            type: 'custom',
+            models: [],
+            isDefault: false,
+            configured: true,
+            authMethod: entry.auth?.type,
+          }));
+          setProviders(providerInfos);
         } catch (err) {
           console.error('Failed to load providers:', err);
         }

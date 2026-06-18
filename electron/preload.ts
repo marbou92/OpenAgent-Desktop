@@ -258,6 +258,9 @@ const electronAPI = {
     save: (sessionId: string, data: Partial<SessionData>): Promise<void> =>
       invoke<void>("session:save", sessionId, data),
 
+    update: (sessionId: string, updates: Record<string, unknown>): Promise<void> =>
+      invoke<void>("session:update", sessionId, updates),
+
     delete: (sessionId: string): Promise<void> =>
       invoke<void>("session:delete", sessionId),
 

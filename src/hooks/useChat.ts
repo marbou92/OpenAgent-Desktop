@@ -366,9 +366,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     isStreamingRef.current = true;
 
     try {
-      // Get default provider
-      const defaultProvider = providers.find(p => p.isDefault) || providers[0];
-      if (!defaultProvider) {
+      // The provider+model are stored on the session (set by ChatView's
+      // provider/model dropdowns). The chat:stream IPC handler reads them
+      // from session.providerId + session.model.
+      // We don't need to pass them explicitly — the main process resolves
+      // them from the session. Just call chat:stream with the message.
+      if (!providers.length) {
         setMessages(prev => {
           const updated = [...prev];
           const lastMsg = updated[updated.length - 1];
@@ -388,10 +391,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         return;
       }
 
-      // Start streaming via the Electron API
+      // Start streaming via the Electron API.
+      // The provider+model are resolved from the session in main.ts.
       await api.chat.stream(sessionId, content, {
-        providerId: defaultProvider.id,
-        model: defaultProvider.models?.[0] || 'gpt-4o',
         files: files.map(f => f.path),
       });
     } catch (err: any) {

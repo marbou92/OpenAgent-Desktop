@@ -28,7 +28,9 @@ export type ProviderType =
   | 'novita'
   | 'venice'
   | 'opencode'
-  | 'custom_openai';
+  | 'custom_openai'
+  | 'custom'
+  | string; // Allow any provider type from the opencode catalog
 
 export interface ProviderConfig {
   id?: string;
@@ -669,6 +671,22 @@ declare global {
           check: (providerId: string) => Promise<ProviderHealthSnapshot>;
           dashboard: () => Promise<HealthDashboardData>;
         };
+        // opencode provider system
+        listProviders: () => Promise<any[]>;
+        listAuth: () => Promise<Array<{ providerId: string; auth: any }>>;
+        listModels: (providerId: string) => Promise<any[]>;
+        refreshCatalog: () => Promise<any>;
+        getCatalogInfo: () => Promise<any>;
+        setApiKey: (providerId: string, apiKey: string) => Promise<void>;
+        removeAuth: (providerId: string) => Promise<void>;
+        setBaseUrl: (providerId: string, baseUrl: string) => Promise<void>;
+        getPresets: () => Promise<any[]>;
+        addCustom: (def: any) => Promise<void>;
+        removeCustom: (providerId: string) => Promise<void>;
+        startCopilot: () => Promise<any>;
+        cancelCopilot: () => Promise<void>;
+        runHealthCheck: (providerId: string) => Promise<any>;
+        chat: (request: any) => Promise<any>;
       };
       extensions: {
         list: () => Promise<ExtensionInfo[]>;
@@ -690,6 +708,7 @@ declare global {
         }) => Promise<SessionData>;
         load: (sessionId: string) => Promise<SessionData>;
         save: (sessionId: string, data: Partial<SessionData>) => Promise<void>;
+        update: (sessionId: string, updates: Record<string, unknown>) => Promise<void>;
         delete: (sessionId: string) => Promise<void>;
         export: (sessionId: string, format: 'json' | 'markdown') => Promise<string>;
       };

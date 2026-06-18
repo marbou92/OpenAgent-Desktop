@@ -1440,6 +1440,19 @@ function registerIpcHandlers(): void {
     })
   );
 
+  // Update session fields (providerId, model, name, etc.) without
+  // overwriting the entire session. Used by ChatView's provider/model
+  // dropdowns to save the user's selection.
+  ipcMain.handle(
+    "session:update",
+    wrapIPC(async (_event, sessionId: string, updates: Record<string, unknown>) => {
+      const session = await sessionManager.load(sessionId);
+      const updated = { ...session, ...updates };
+      await sessionManager.save(sessionId, updated);
+      return { success: true, data: updated };
+    })
+  );
+
   ipcMain.handle("session:delete", wrapIPC(async (_event, sessionId: string) => {
     await sessionManager.delete(sessionId);
     return { success: true };

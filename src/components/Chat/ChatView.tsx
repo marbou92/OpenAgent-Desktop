@@ -64,6 +64,7 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; displayName: string }>>([]);
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
 
   const { messages, isStreaming, error, streamingContent, streamingThinking, activeToolCalls, sendMessage, stopStreaming, retryLastMessage } =
@@ -84,19 +85,45 @@ const ChatView: React.FC<ChatViewProps> = ({
     },
   });
 
-  // Sync selected provider/model
+  // Sync selected provider/model from session
   useEffect(() => {
     if (session) {
-      setSelectedProviderId(session.providerId);
-      setSelectedModel(session.model);
+      setSelectedProviderId(session.providerId || '');
+      setSelectedModel(session.model || '');
       setSessionName(session.name);
     } else {
-      const defaultProvider = providers.find((p) => p.isDefault && p.configured);
-      setSelectedProviderId(defaultProvider?.id || settings.defaultProviderId);
-      setSelectedModel(settings.defaultModel);
+      setSelectedProviderId('');
+      setSelectedModel('');
       setSessionName('');
     }
-  }, [session, providers, settings]);
+  }, [session]);
+
+  // Load models when provider changes
+  useEffect(() => {
+    if (!selectedProviderId || !api?.providers?.listModels) {
+      setAvailableModels([]);
+      return;
+    }
+    api.providers.listModels(selectedProviderId).then((models: any[]) => {
+      setAvailableModels((models || []).map((m: any) => ({ id: m.id, displayName: m.displayName || m.id })));
+    }).catch(() => setAvailableModels([]));
+  }, [selectedProviderId]);
+
+  // Save provider+model to session when changed
+  const handleProviderChange = useCallback((providerId: string) => {
+    setSelectedProviderId(providerId);
+    setSelectedModel('');
+    if (sessionId && api?.sessions?.update) {
+      api.sessions.update(sessionId, { providerId, model: '' });
+    }
+  }, [sessionId, api]);
+
+  const handleModelChange = useCallback((model: string) => {
+    setSelectedModel(model);
+    if (sessionId && api?.sessions?.update) {
+      api.sessions.update(sessionId, { model });
+    }
+  }, [sessionId, api]);
 
   // Auto-scroll
   useEffect(() => {
@@ -136,8 +163,8 @@ const ChatView: React.FC<ChatViewProps> = ({
     });
   }, [addToast]);
 
-  const hasConnectedProvider = providers.some((p) => p.configured);
-  const activeProvider = providers.find((p) => p.id === selectedProviderId);
+  const hasConnectedProvider = providers.length > 0 && providers.some((p) => p.configured);
+  const canSend = selectedProviderId && selectedModel;
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
@@ -184,7 +211,7 @@ const ChatView: React.FC<ChatViewProps> = ({
           <div className="flex items-center gap-1.5">
             <select
               value={selectedProviderId}
-              onChange={(e) => setSelectedProviderId(e.target.value)}
+              onChange={(e) => handleProviderChange(e.target.value)}
               className="text-xs px-2 py-1 rounded-md border outline-none cursor-pointer"
               style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
             >
@@ -195,13 +222,14 @@ const ChatView: React.FC<ChatViewProps> = ({
             </select>
             <select
               value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
+              onChange={(e) => handleModelChange(e.target.value)}
               className="text-xs px-2 py-1 rounded-md border outline-none cursor-pointer max-w-[160px]"
               style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
+              disabled={!selectedProviderId}
             >
               <option value="">Model</option>
-              {activeProvider?.models.map((model) => (
-                <option key={model} value={model}>{model}</option>
+              {availableModels.map((m) => (
+                <option key={m.id} value={m.id}>{m.displayName}</option>
               ))}
             </select>
           </div>
@@ -253,7 +281,7 @@ const ChatView: React.FC<ChatViewProps> = ({
           agentMode={executionContext.agentMode ?? activeMode}
           tokenUsage={executionContext.tokenUsage}
           contextWindow={executionContext.contextWindow}
-          providerName={executionContext.providerName ?? activeProvider?.name}
+          providerName={executionContext.providerName ?? selectedProviderId}
           modelName={executionContext.modelName ?? selectedModel}
           onPause={executionContext.onPause}
           onResume={executionContext.onResume}
