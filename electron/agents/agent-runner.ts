@@ -12,7 +12,7 @@ import { AgentDefinition, AgentStep, AgentRunContext, AgentRunResult, SteerMessa
 import { PermissionEvaluator } from '../permissions/evaluator';
 import { PermissionPolicyEngine } from '../permissions/policy-engine';
 import { ProviderClient } from '../providers/provider-client';
-import { ChatResponse, ToolDefinition } from '../providers/v3-types';
+import { ChatResponse, ToolDefinition } from '../providers/opencode-types';
 
 export interface AgentRunnerEvents {
   'step:start': (step: AgentStep) => void;
@@ -297,7 +297,7 @@ export class AgentRunner extends EventEmitter {
           role: 'assistant',
           content: response.content,
           thinking: response.thinking,
-          toolCalls: response.toolCalls?.map((tc) => ({
+          toolCalls: response.toolCalls?.map((tc: { id: string; name: string; arguments: Record<string, unknown> }) => ({
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments,
