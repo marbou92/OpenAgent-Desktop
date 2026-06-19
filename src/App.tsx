@@ -244,11 +244,17 @@ const App: React.FC = () => {
       // Load from the new opencode provider system.
       if (api?.providers?.listAuth) {
         try {
-          const authEntries = await api.providers.listAuth();
-          // Build ProviderInfo[] from auth entries.
+          const [authEntries, providerDefs] = await Promise.all([
+            api.providers.listAuth(),
+            api.providers.listProviders?.().catch(() => []),
+          ]);
+          const nameMap = new Map<string, string>();
+          for (const def of (providerDefs || [])) {
+            nameMap.set(def.id, def.name || def.id);
+          }
           const providerInfos = (authEntries || []).map((entry: any) => ({
             id: entry.providerId,
-            name: entry.providerId, // Will be enriched when provider defs are loaded
+            name: nameMap.get(entry.providerId) || entry.providerId,
             type: 'custom',
             models: [],
             isDefault: false,
@@ -283,16 +289,24 @@ const App: React.FC = () => {
       // Re-fetch everything that initializeApp tried to load.
       Promise.allSettled([
         api?.providers?.listAuth?.(),
+        api?.providers?.listProviders?.(),
         api?.extensions?.list?.(),
         api?.sessions?.list?.(),
         api?.recipes?.list?.(),
         api?.hooks?.list?.(),
-      ]).then(async ([p, ext, s, r, h]) => {
-        if (p.status === 'fulfilled' && p.value) {
+      ]).then(async ([authP, defsP, ext, s, r, h]) => {
+        if (authP.status === 'fulfilled' && authP.value) {
+          // Build name map from provider definitions
+          const nameMap = new Map<string, string>();
+          if (defsP.status === 'fulfilled' && defsP.value) {
+            for (const def of defsP.value) {
+              nameMap.set(def.id, def.name || def.id);
+            }
+          }
           // Convert auth entries to ProviderInfo[]
-          const providerInfos = (p.value || []).map((entry: any) => ({
+          const providerInfos = (authP.value || []).map((entry: any) => ({
             id: entry.providerId,
-            name: entry.providerId,
+            name: nameMap.get(entry.providerId) || entry.providerId,
             type: 'custom',
             models: [],
             isDefault: false,
@@ -324,13 +338,21 @@ const App: React.FC = () => {
         }
       }
 
-      // Load providers from the new opencode system
       if (api?.providers?.listAuth) {
         try {
-          const authEntries = await api.providers.listAuth();
+          const [authEntries, providerDefs] = await Promise.all([
+            api.providers.listAuth(),
+            api.providers.listProviders?.().catch(() => []),
+          ]);
+          // Build a map of providerId → display name from the provider definitions.
+          const nameMap = new Map<string, string>();
+          for (const def of (providerDefs || [])) {
+            nameMap.set(def.id, def.name || def.id);
+          }
+          // Build ProviderInfo[] from auth entries, enriched with display names.
           const providerInfos = (authEntries || []).map((entry: any) => ({
             id: entry.providerId,
-            name: entry.providerId,
+            name: nameMap.get(entry.providerId) || entry.providerId,
             type: 'custom',
             models: [],
             isDefault: false,
@@ -612,9 +634,27 @@ const App: React.FC = () => {
             settings={settings}
             onUpdateSettings={updateSettings}
             onProvidersChange={async () => {
-              if (api?.providers?.list) {
-                const p = await (api as any).providersLegacy.list();
-                setProviders(p);
+              if (api?.providers?.listAuth) {
+                try {
+                  const [authEntries, providerDefs] = await Promise.all([
+                    api.providers.listAuth(),
+                    api.providers.listProviders?.().catch(() => []),
+                  ]);
+                  const nameMap = new Map<string, string>();
+                  for (const def of (providerDefs || [])) {
+                    nameMap.set(def.id, def.name || def.id);
+                  }
+                  const providerInfos = (authEntries || []).map((entry: any) => ({
+                    id: entry.providerId,
+                    name: nameMap.get(entry.providerId) || entry.providerId,
+                    type: 'custom',
+                    models: [],
+                    isDefault: false,
+                    configured: true,
+                    authMethod: entry.auth?.type,
+                  }));
+                  setProviders(providerInfos);
+                } catch { /* ignore */ }
               }
             }}
             addToast={addToast}
