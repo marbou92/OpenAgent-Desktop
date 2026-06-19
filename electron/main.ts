@@ -2542,6 +2542,16 @@ if (!gotTheLock) {
     // Load config
     appConfig = loadConfig();
 
+    // Migrate: clear hardcoded default provider/model if they're set to the
+    // old defaults ("openai" / "gpt-4o"). These should be empty now — the user
+    // selects from the dropdown in the chat view.
+    if (appConfig.defaultProviderId === 'openai' || appConfig.defaultModel === 'gpt-4o') {
+      appConfig.defaultProviderId = '';
+      appConfig.defaultModel = '';
+      saveConfig(appConfig);
+      logger.info('Main', 'Cleared hardcoded default provider/model from config');
+    }
+
     // Validate config and log warnings
     const configValidation = validateAppConfig(appConfig);
     if (configValidation.warnings.length > 0) {

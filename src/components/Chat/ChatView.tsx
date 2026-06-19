@@ -85,7 +85,8 @@ const ChatView: React.FC<ChatViewProps> = ({
     },
   });
 
-  // Sync selected provider/model from session
+  // Sync selected provider/model from session — only when sessionId changes,
+  // not on every session object reference change (which causes infinite loops).
   useEffect(() => {
     if (session) {
       setSelectedProviderId(session.providerId || '');
@@ -96,7 +97,8 @@ const ChatView: React.FC<ChatViewProps> = ({
       setSelectedModel('');
       setSessionName('');
     }
-  }, [session]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // Load models when provider changes
   useEffect(() => {

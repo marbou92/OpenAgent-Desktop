@@ -217,8 +217,8 @@ export class SessionManager extends EventEmitter {
     let session: Session = {
       id: sessionId,
       name: options?.name || `Session ${new Date().toLocaleString()}`,
-      providerId: options?.providerId || "openai",
-      model: options?.model || "gpt-4o",
+      providerId: options?.providerId || "",
+      model: options?.model || "",
       messages: [],
       extensions: options?.extensions || [],
       recipes: [],
