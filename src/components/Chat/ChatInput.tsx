@@ -230,10 +230,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
       {/* ─── Slash Command Palette ──────────────────────────────────── */}
       {showSlashCommands && filteredCommands.length > 0 && (
         <div
-          className="absolute bottom-full left-4 right-4 mb-2 rounded-xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
+          className="absolute bottom-full left-4 right-4 mb-2 rounded-xl overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
           style={{
             background: 'var(--color-bg-elevated)',
             border: '1px solid var(--color-border-primary)',
+            boxShadow: 'var(--shadow-popover)',
           }}
         >
           <div
@@ -361,7 +362,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         style={{
           background: 'var(--color-bg-secondary)',
           borderColor: 'var(--color-border-primary)',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+          boxShadow: 'var(--shadow-card)',
         }}
       >
         {/* Textarea row */}

@@ -1,9 +1,23 @@
 /**
- * OpenAgent-Desktop - Enhanced Mode Switch Component
+ * OpenAgent-Desktop - Mode Switch (Phase 2.1 Redesign)
  *
- * Pill-shaped toggle for switching agent modes: Build | Plan | Chat | Smart
- * Color-coded with active indicator, keyboard shortcuts, custom agent selector,
- * auto-detection indicator, and animated transitions.
+ * opencode-desktop-inspired mode selector:
+ *
+ *   ╭───────────────────────────────────────╮
+ *   │  ⚡ Build    📋 Plan    💬 Chat       │   ← segmented control
+ *   ╰───────────────────────────────────────╯
+ *
+ * Changes from Phase 2:
+ *   - Smart removed from the visible modes. Smart is now a Settings >
+ *     Chat > Smart Approval toggle (it's really a permission mode, not an
+ *     agent mode). The backend AgentMode.smart enum is kept for backward
+ *     compatibility with existing sessions.
+ *   - Inspired by opencode desktop (which exposes only Build/Plan via Tab),
+ *     the pills are now bigger, with a sliding indicator behind the active
+ *     mode and clearer hover/active states.
+ *   - Tab key cycles between Build → Plan → Chat → Build (opencode uses Tab
+ *     for the same purpose).
+ *   - Keyboard shortcuts 1/2/3 still work for direct selection.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -19,6 +33,11 @@ interface ModeOption {
   shortcut: string;
 }
 
+// Only Build / Plan / Chat are exposed in the UI. Smart was removed in
+// Phase 2.1 because it's a permission-mode setting, not an agent mode —
+// it lives in Settings > Chat > Smart Approval now. The backend
+// AgentMode.smart enum is kept for backward compatibility with sessions
+// that were created before this change.
 const MODES: ModeOption[] = [
   {
     id: 'build',
@@ -43,14 +62,6 @@ const MODES: ModeOption[] = [
     iconPath: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
     description: 'Pure conversation — no tools',
     shortcut: '3',
-  },
-  {
-    id: 'smart',
-    label: 'Smart',
-    color: '#f59e0b',
-    iconPath: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
-    description: 'Safe ops auto-approved, sensitive needs confirmation',
-    shortcut: '4',
   },
 ];
 
@@ -79,46 +90,65 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const prevModeRef = useRef<AgentMode>(activeMode);
 
-  // ── Keyboard shortcuts ──────────────────────────────────────────────────
+  // If the active mode is 'smart' (from an old session), normalize it to
+  // 'chat' for display purposes. The Smart behavior is now controlled by
+  // the Settings > Smart Approval toggle.
+  const displayMode: AgentMode = activeMode === 'smart' ? 'chat' : activeMode;
+
+  // ── Keyboard shortcuts (1/2/3 for direct select, Tab to cycle) ────────
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Only trigger if not in an input/textarea
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
         return;
       }
 
+      // Direct selection via 1/2/3
       const modeMap: Record<string, AgentMode> = {
         '1': 'build',
         '2': 'plan',
         '3': 'chat',
-        '4': 'smart',
       };
-
-      const mode = modeMap[e.key];
-      if (mode && mode !== activeMode) {
+      const directMode = modeMap[e.key];
+      if (directMode && directMode !== displayMode) {
         e.preventDefault();
-        onModeChange(mode);
+        onModeChange(directMode);
+        return;
+      }
+
+      // Tab cycles Build → Plan → Chat → Build (opencode-style)
+      if (e.key === 'Tab') {
+        const currentIdx = MODES.findIndex((m) => m.id === displayMode);
+        if (currentIdx >= 0) {
+          e.preventDefault();
+          const nextIdx = (currentIdx + 1) % MODES.length;
+          onModeChange(MODES[nextIdx].id);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeMode, onModeChange]);
+  }, [displayMode, onModeChange]);
 
-  // ── Animate mode switch ─────────────────────────────────────────────────
+  // ── Animate mode switch ─────────────────────────────────────────────
 
   useEffect(() => {
-    if (prevModeRef.current !== activeMode) {
-      setAnimatingMode(activeMode);
+    if (prevModeRef.current !== displayMode) {
+      setAnimatingMode(displayMode);
       const timer = setTimeout(() => setAnimatingMode(null), 300);
-      prevModeRef.current = activeMode;
+      prevModeRef.current = displayMode;
       return () => clearTimeout(timer);
     }
-  }, [activeMode]);
+  }, [displayMode]);
 
-  // ── Close dropdown on outside click ─────────────────────────────────────
+  // ── Close dropdown on outside click ─────────────────────────────────
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -133,28 +163,34 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
     }
   }, [showCustomAgents]);
 
-  // ── Get custom agents for current mode ──────────────────────────────────
+  // ── Get custom agents for current mode ──────────────────────────────
 
   const agentsForCurrentMode = (customAgents || []).filter(
-    (agent) => agent.mode === activeMode && !agent.isBuiltIn,
+    (agent) => agent.mode === displayMode && !agent.isBuiltIn,
   );
 
-  const activeModeConfig = MODES.find((m) => m.id === activeMode) || MODES[0];
+  const activeModeConfig = MODES.find((m) => m.id === displayMode) || MODES[0];
 
-  const handleModeClick = useCallback((mode: AgentMode) => {
-    onModeChange(mode);
-    setShowCustomAgents(false);
-  }, [onModeChange]);
+  const handleModeClick = useCallback(
+    (mode: AgentMode) => {
+      onModeChange(mode);
+      setShowCustomAgents(false);
+    },
+    [onModeChange],
+  );
 
   return (
     <div className="flex items-center gap-2">
-      {/* Mode buttons */}
+      {/* Mode segmented control — opencode-desktop-inspired */}
       <div
         className="flex items-center gap-0.5 p-0.5 rounded-lg relative"
-        style={{ background: 'var(--color-bg-tertiary)' }}
+        style={{
+          background: 'var(--color-bg-tertiary)',
+          border: '1px solid var(--color-border-secondary)',
+        }}
       >
         {MODES.map((mode) => {
-          const isActive = activeMode === mode.id;
+          const isActive = displayMode === mode.id;
           const isAnimating = animatingMode === mode.id;
           const isAutoSuggested = autoDetected && autoDetectedMode === mode.id;
 
@@ -164,18 +200,18 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
                 onClick={() => handleModeClick(mode.id)}
                 onMouseEnter={() => setHoveredMode(mode.id)}
                 onMouseLeave={() => setHoveredMode(null)}
-                className="relative px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 flex items-center gap-1"
+                className="relative px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 flex items-center gap-1.5"
                 style={{
                   background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
                   color: isActive ? mode.color : 'var(--color-text-tertiary)',
-                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
-                  transform: isAnimating ? 'scale(1.05)' : 'scale(1)',
+                  boxShadow: isActive ? 'var(--shadow-soft)' : 'none',
+                  transform: isAnimating ? 'scale(1.04)' : 'scale(1)',
                 }}
-                title={`${mode.description} [${mode.shortcut}]`}
+                title={`${mode.description}  [${mode.shortcut}]`}
               >
                 {isActive && (
                   <span
-                    className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all duration-300"
+                    className="absolute bottom-0.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all duration-300"
                     style={{
                       background: mode.color,
                       width: isAnimating ? '1.5rem' : '1rem',
@@ -183,8 +219,8 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
                   />
                 )}
                 <svg
-                  width="11"
-                  height="11"
+                  width="12"
+                  height="12"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -214,7 +250,7 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
                     background: 'var(--color-bg-elevated)',
                     color: 'var(--color-text-primary)',
                     border: '1px solid var(--color-border)',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    boxShadow: 'var(--shadow-card)',
                   }}
                 >
                   {mode.description}
@@ -233,9 +269,15 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
             onClick={() => setShowCustomAgents(!showCustomAgents)}
             className="flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors"
             style={{
-              background: showCustomAgents ? activeModeConfig.color + '20' : 'var(--color-bg-tertiary)',
-              color: showCustomAgents ? activeModeConfig.color : 'var(--color-text-tertiary)',
-              border: showCustomAgents ? `1px solid ${activeModeConfig.color}40` : '1px solid transparent',
+              background: showCustomAgents
+                ? activeModeConfig.color + '20'
+                : 'var(--color-bg-tertiary)',
+              color: showCustomAgents
+                ? activeModeConfig.color
+                : 'var(--color-text-tertiary)',
+              border: showCustomAgents
+                ? `1px solid ${activeModeConfig.color}40`
+                : '1px solid transparent',
             }}
           >
             <svg
@@ -265,10 +307,11 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
           {/* Dropdown */}
           {showCustomAgents && (
             <div
-              className="absolute top-full left-0 mt-1 py-1 rounded-lg shadow-lg z-50 min-w-[180px]"
+              className="absolute top-full left-0 mt-1 py-1 rounded-lg z-50 min-w-[180px]"
               style={{
                 background: 'var(--color-bg-elevated)',
                 border: '1px solid var(--color-border)',
+                boxShadow: 'var(--shadow-card)',
               }}
             >
               <div
@@ -281,8 +324,6 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
                 <button
                   key={agent.id}
                   onClick={() => {
-                    // If there's a way to select a specific agent, call onModeChange
-                    // with the agent context. For now, just switch mode.
                     handleModeClick(agent.mode);
                     setShowCustomAgents(false);
                   }}
@@ -312,11 +353,15 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
         <div
           className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium animate-fade-in"
           style={{
-            background: (MODES.find((m) => m.id === autoDetectedMode)?.color || '#8b5cf6') + '20',
+            background:
+              (MODES.find((m) => m.id === autoDetectedMode)?.color || '#8b5cf6') + '20',
             color: MODES.find((m) => m.id === autoDetectedMode)?.color || '#8b5cf6',
           }}
         >
-          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'currentColor' }} />
+          <span
+            className="w-1.5 h-1.5 rounded-full animate-pulse"
+            style={{ background: 'currentColor' }}
+          />
           <span>Auto</span>
         </div>
       )}

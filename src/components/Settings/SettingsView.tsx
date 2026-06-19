@@ -227,8 +227,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             </SettingsSection>
 
             {/* Chat */}
-            <SettingsSection title="Chat">
-              <SettingsRow label="Permission Mode" description="How the agent handles tool calls">
+            <SettingsSection title="Chat & Agent">
+              {/* Smart Approval — promoted to a top-level toggle in Phase 2.1.
+                  This was previously buried as one of four options in the
+                  Permission Mode dropdown. Now it's a single switch that
+                  toggles between "Smart Approve" (on) and "Approve each"
+                  (off), with the full permission-mode select below for
+                  users who want finer control. */}
+              <SettingsRow
+                label="Smart Approval"
+                description="Auto-approve safe operations (read, search, list) and only ask for sensitive actions (write, edit, bash). When off, every tool call needs confirmation."
+              >
+                <ToggleSwitch
+                  checked={settings.permissionMode === 'smart_approve'}
+                  onChange={(v) =>
+                    onUpdateSettings({
+                      permissionMode: v ? 'smart_approve' : 'approve',
+                    })
+                  }
+                />
+              </SettingsRow>
+              <SettingsRow label="Permission Mode" description="Granular control over how the agent handles tool calls">
                 <select
                   value={settings.permissionMode}
                   onChange={(e) => onUpdateSettings({ permissionMode: e.target.value as any })}
@@ -236,9 +255,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                   style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
                 >
                   <option value="auto">Auto-approve all</option>
+                  <option value="smart_approve">Smart approve (recommended)</option>
                   <option value="approve">Approve each</option>
-                  <option value="smart_approve">Smart approve</option>
-                  <option value="chat">Chat only</option>
+                  <option value="chat">Chat only (no tools)</option>
                 </select>
               </SettingsRow>
               <SettingsRow label="Auto-save" description="Automatically save sessions">

@@ -220,10 +220,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
       {panelOpen && (
         <div
-          className="absolute bottom-full left-0 mb-2 rounded-xl shadow-2xl overflow-hidden animate-fade-in"
+          className="absolute bottom-full left-0 mb-2 rounded-xl overflow-hidden animate-fade-in"
           style={{
             background: 'var(--color-bg-elevated)',
             border: '1px solid var(--color-border-primary)',
+            boxShadow: 'var(--shadow-popover)',
             minWidth: '300px',
             maxWidth: '380px',
             maxHeight: '420px',

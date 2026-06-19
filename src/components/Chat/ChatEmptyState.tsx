@@ -57,7 +57,7 @@ const ChatEmptyState: React.FC<ChatEmptyStateProps> = ({
           className="w-14 h-14 rounded-2xl flex items-center justify-center"
           style={{
             background: 'linear-gradient(135deg, var(--color-accent), #6d28d9)',
-            boxShadow: '0 8px 24px rgba(139,92,246,0.25)',
+            boxShadow: '0 8px 24px rgba(139,92,246,0.25), var(--shadow-elevated)',
           }}
         >
           <svg
@@ -104,14 +104,17 @@ const ChatEmptyState: React.FC<ChatEmptyStateProps> = ({
               style={{
                 background: 'var(--color-bg-secondary)',
                 border: '1px solid var(--color-border-primary)',
+                boxShadow: 'var(--shadow-soft)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'var(--color-bg-tertiary)';
                 e.currentTarget.style.borderColor = 'var(--color-accent)';
+                e.currentTarget.style.boxShadow = 'var(--shadow-card)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'var(--color-bg-secondary)';
                 e.currentTarget.style.borderColor = 'var(--color-border-primary)';
+                e.currentTarget.style.boxShadow = 'var(--shadow-soft)';
               }}
             >
               <div
