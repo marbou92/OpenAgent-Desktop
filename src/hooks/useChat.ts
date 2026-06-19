@@ -39,7 +39,7 @@ interface UseChatReturn {
   streamingContent: string;
   streamingThinking: string;
   activeToolCalls: ToolCall[];
-  sendMessage: (content: string, files?: AttachedFile[], images?: string[]) => Promise<void>;
+  sendMessage: (content: string, files?: AttachedFile[], images?: string[], thinkingEffort?: string) => Promise<void>;
   stopStreaming: () => Promise<void>;
   clearMessages: () => void;
   retryLastMessage: () => Promise<void>;
@@ -326,7 +326,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onMessagesUpdate?.(messages);
   }, [messages, onMessagesUpdate]);
 
-  const sendMessage = useCallback(async (content: string, files: AttachedFile[] = [], images: string[] = []) => {
+  const sendMessage = useCallback(async (content: string, files: AttachedFile[] = [], images: string[] = [], thinkingEffort?: string) => {
     if (!sessionId || !api) {
       setError('No active session or API not available');
       return;
@@ -395,9 +395,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       // Start streaming via the Electron API.
       // The provider+model are resolved from the session in main.ts.
       // Phase 4: pass images as base64 data URLs for multi-modal support.
+      // Phase 4.2: pass thinking effort level.
       await api.chat.stream(sessionId, content, {
         files: files.map(f => f.path),
         images: images.length > 0 ? images : undefined,
+        thinkingEffort,
       });
     } catch (err: any) {
       setMessages(prev => {

@@ -1628,8 +1628,9 @@ function registerIpcHandlers(): void {
     send: (channel: string, data: Record<string, unknown>) => void;
     signal?: AbortSignal;
     images?: string[]; // Phase 4: base64 data URLs for multi-modal
+    thinkingEffort?: string; // Phase 4.2: thinking effort level
   }): Promise<{ content: string; steps: number; status: string }> {
-    const { sessionId, message, session, send, images } = opts;
+    const { sessionId, message, session, send, images, thinkingEffort } = opts;
 
     // Resolve the agent for this session.
     const agentId = agentSessionBridge.getCurrentAgentId(sessionId);
@@ -1706,6 +1707,7 @@ function registerIpcHandlers(): void {
         signal: opts.signal,
         tools,
         maxSteps: agent.maxSteps || 50,
+        thinkingEffort, // Phase 4.2: pass thinking effort
         onToolCall: (tc: any) => {
           send('chat:stream-tool-call', { toolCall: tc });
         },
@@ -1907,7 +1909,9 @@ function registerIpcHandlers(): void {
             try {
               // Phase 4: pass images from options to runAgent for multi-modal
               const images = (options?.images as string[]) || undefined;
-              const agentResult = await runAgent({ sessionId, message, session, send, images });
+              // Phase 4.2: pass thinking effort from options
+              const thinkingEffort = (options?.thinkingEffort as string) || undefined;
+              const agentResult = await runAgent({ sessionId, message, session, send, images, thinkingEffort });
               await sessionManager.addMessage(sessionId, { role: 'user', content: message });
               await sessionManager.addMessage(sessionId, { role: 'assistant', content: agentResult.content });
               send('chat:stream-end', { content: agentResult.content });
@@ -1945,12 +1949,17 @@ function registerIpcHandlers(): void {
             let fullResponse = '';
             // Phase 4: pass images for multi-modal support
             const chatImages = (options?.images as string[]) || undefined;
+            // Phase 4.2: pass thinking effort
+            const chatThinkingEffort = (options?.thinkingEffort as string) || undefined;
             for await (const chunk of chatEngine.chatStream({
               model: `${providerId}/${model}`,
               messages: [
                 ...session.messages.map((m: any) => ({ role: m.role, content: m.content, images: (m as any).images })),
                 { role: 'user' as const, content: message, images: chatImages },
               ],
+              thinkingEffort: chatThinkingEffort,
+            }, {
+              thinkingEffort: chatThinkingEffort,
             })) {
               switch (chunk.type) {
                 case 'content':

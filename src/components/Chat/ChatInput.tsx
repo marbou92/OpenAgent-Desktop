@@ -25,6 +25,7 @@ import { formatFileSize } from '../../utils/format';
 import { getAPI } from '../../utils/api';
 import ModelSelector from './ModelSelector';
 import AgentSelector from './AgentSelector';
+import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/recipe', label: '/recipe', description: 'Run a recipe' },
@@ -68,6 +69,10 @@ interface ChatInputProps {
   onImagesAttached?: (images: string[]) => void;
   // Phase 4: /structure slash command callback
   onStructureCommand?: () => void;
+  // Phase 4.2: thinking effort props
+  thinkingEffort?: ThinkingEffort;
+  onThinkingEffortChange?: (effort: ThinkingEffort) => void;
+  modelSupportsReasoning?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -92,6 +97,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onPendingPromptConsumed,
   onImagesAttached,
   onStructureCommand,
+  thinkingEffort = 'medium',
+  onThinkingEffortChange,
+  modelSupportsReasoning = false,
 }) => {
   const [input, setInput] = useState('');
   const [showSlashCommands, setShowSlashCommands] = useState(false);
@@ -502,6 +510,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 selectedModel={selectedModel}
                 onProviderChange={onProviderChange}
                 onModelChange={onModelChange}
+                disabled={disabled || isStreaming}
+              />
+            )}
+
+            {/* Phase 4.2: Thinking effort selector — only shows for reasoning models */}
+            {onThinkingEffortChange && (
+              <ThinkingEffortSelector
+                effort={thinkingEffort}
+                onChange={onThinkingEffortChange}
+                modelSupportsReasoning={modelSupportsReasoning}
                 disabled={disabled || isStreaming}
               />
             )}

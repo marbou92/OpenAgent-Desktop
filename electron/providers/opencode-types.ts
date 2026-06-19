@@ -205,6 +205,8 @@ export interface ChatRequest {
   stream?: boolean;
   tools?: ToolDefinition[];
   systemPrompt?: string;
+  /** Phase 4.2: thinking effort level ('off'|'low'|'medium'|'high'|'max') */
+  thinkingEffort?: string;
 }
 
 export interface ChatResponse {

@@ -51,6 +51,7 @@ import { useFileDrop } from '../../hooks/useFileDrop';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import ChatEmptyState from './ChatEmptyState';
+import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
 import StructuredOutputPanel from './StructuredOutputPanel';
@@ -110,6 +111,9 @@ const ChatView: React.FC<ChatViewProps> = ({
   // Phase 4: image attachments (base64 data URLs) + structured output panel
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [structurePanelOpen, setStructurePanelOpen] = useState(false);
+  // Phase 4.2: thinking effort level
+  const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>('medium');
+  const [modelSupportsReasoning, setModelSupportsReasoning] = useState(false);
 
   const {
     messages,
@@ -157,6 +161,7 @@ const ChatView: React.FC<ChatViewProps> = ({
     (providerId: string) => {
       setSelectedProviderId(providerId);
       setSelectedModel('');
+      setModelSupportsReasoning(false); // Reset until we load the new provider's models
       if (sessionId && api?.sessions?.update) {
         api.sessions.update(sessionId, { providerId, model: '' });
       }
@@ -173,6 +178,18 @@ const ChatView: React.FC<ChatViewProps> = ({
     },
     [sessionId],
   );
+
+  // Phase 4.2: check if the selected model supports reasoning (for the thinking effort selector)
+  useEffect(() => {
+    if (!selectedProviderId || !selectedModel || !api?.providers?.listModels) {
+      setModelSupportsReasoning(false);
+      return;
+    }
+    api.providers.listModels(selectedProviderId).then((models: any[]) => {
+      const model = (models || []).find((m: any) => m.id === selectedModel);
+      setModelSupportsReasoning(!!model?.supportsThinking);
+    }).catch(() => setModelSupportsReasoning(false));
+  }, [selectedProviderId, selectedModel, api]);
 
   // Auto-scroll — only when messages length or streaming content actually changes.
   useEffect(() => {
@@ -192,11 +209,12 @@ const ChatView: React.FC<ChatViewProps> = ({
     async (content: string, files?: AttachedFile[]) => {
       // Phase 4: pass attached images to sendMessage for multi-modal support
       const images = attachedImages.length > 0 ? attachedImages : undefined;
-      await sendMessage(content, files, images);
+      // Phase 4.2: pass thinking effort to sendMessage
+      await sendMessage(content, files, images, thinkingEffort);
       clearFiles();
       setAttachedImages([]); // Clear images after send
     },
-    [sendMessage, clearFiles, attachedImages],
+    [sendMessage, clearFiles, attachedImages, thinkingEffort],
   );
 
   // Phase 4: handle image attachment from the file picker
@@ -665,6 +683,10 @@ const ChatView: React.FC<ChatViewProps> = ({
         onImagesAttached={handleImagesAttached}
         // Phase 4: /structure slash command opens the structured output panel
         onStructureCommand={() => setStructurePanelOpen(true)}
+        // Phase 4.2: thinking effort
+        thinkingEffort={thinkingEffort}
+        onThinkingEffortChange={setThinkingEffort}
+        modelSupportsReasoning={modelSupportsReasoning}
       />
 
       {/* ─── Phase 4: Image attachment preview ─────────────────────────── */}

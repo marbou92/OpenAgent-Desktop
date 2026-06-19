@@ -38,6 +38,98 @@ async function ensureAiSdk(): Promise<boolean> {
 }
 
 /**
+ * Phase 4.2: Build provider-specific options for thinking effort / reasoning.
+ *
+ * Maps a UI effort level ('off'|'low'|'medium'|'high'|'max') to the
+ * provider-specific options the AI SDK expects:
+ *
+ *   OpenAI (o1/o3/gpt-4o-reasoning):
+ *     { openai: { reasoningEffort: 'low'|'medium'|'high' } }
+ *
+ *   Anthropic (Claude 3.5+):
+ *     { anthropic: { thinking: { budgetTokens: N } } }
+ *     Off=0, Low=5000, Medium=16000, High=32000, Max=64000
+ *
+ *   Google (Gemini 2.0+):
+ *     { google: { thinkingConfig: { thinkingBudget: N } } }
+ *     Off=0, Low=2048, Medium=8192, High=16384, Max=32768
+ *
+ *   OpenAI-compatible (DeepSeek, OpenCode Zen, etc.):
+ *     { 'openai-compatible': { reasoningEffort: 'low'|'medium'|'high' } }
+ *     (the adapter sends this as `reasoning_effort` in the request body)
+ *
+ * 'off' returns an empty object — no providerOptions are passed, so the
+ * model uses its default behavior (which for reasoning models may still
+ * include some reasoning).
+ */
+export function buildThinkingProviderOptions(
+  providerId: string,
+  effort: string | undefined
+): Record<string, unknown> | undefined {
+  if (!effort || effort === 'off') return undefined;
+
+  // Map UI levels to OpenAI's 3-level system
+  const openaiEffortMap: Record<string, string> = {
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    max: 'high', // OpenAI only has 3 levels; 'max' maps to 'high'
+  };
+
+  // Map UI levels to Anthropic budget tokens
+  const anthropicBudgetMap: Record<string, number> = {
+    low: 5000,
+    medium: 16000,
+    high: 32000,
+    max: 64000,
+  };
+
+  // Map UI levels to Google thinking budget
+  const googleBudgetMap: Record<string, number> = {
+    low: 2048,
+    medium: 8192,
+    high: 16384,
+    max: 32768,
+  };
+
+  const provider = providerId.toLowerCase();
+
+  // OpenAI native
+  if (provider === 'openai' || provider === 'azure') {
+    const mapped = openaiEffortMap[effort];
+    if (!mapped) return undefined;
+    return { openai: { reasoningEffort: mapped } };
+  }
+
+  // Anthropic
+  if (provider === 'anthropic') {
+    const budget = anthropicBudgetMap[effort];
+    if (!budget) return undefined;
+    return { anthropic: { thinking: { budgetTokens: budget } } };
+  }
+
+  // Google / Gemini
+  if (provider === 'google' || provider === 'google-vertex' || provider === 'gemini' || provider === 'gemini-oauth') {
+    const budget = googleBudgetMap[effort];
+    if (!budget) return undefined;
+    return { google: { thinkingConfig: { thinkingBudget: budget } } };
+  }
+
+  // OpenAI-compatible providers (DeepSeek, OpenCode Zen, OpenRouter, etc.)
+  // These typically accept `reasoning_effort` as a top-level field.
+  // The @ai-sdk/openai-compatible package doesn't natively support setting
+  // reasoningEffort, so we pass it via a custom key that the adapter can
+  // forward. For DeepSeek-compatible APIs, we also send it directly.
+  const mapped = openaiEffortMap[effort];
+  if (!mapped) return undefined;
+  return {
+    'openai-compatible': { reasoningEffort: mapped },
+    // Also pass it as a top-level option that some providers recognize
+    reasoningEffort: mapped,
+  };
+}
+
+/**
  * Phase 2.5: Convert an AI SDK / undici error into a human-readable message.
  *
  * The AI SDK often surfaces errors as bare `TypeError('terminated')` or
@@ -272,6 +364,7 @@ export class ChatEngine {
       maxSteps?: number;
       onToolCall?: (toolCall: any) => void;
       onToolResult?: (toolResult: any) => void;
+      thinkingEffort?: string; // Phase 4.2: 'off'|'low'|'medium'|'high'|'max'
     }
   ): AsyncGenerator<StreamChunk> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
@@ -296,6 +389,10 @@ export class ChatEngine {
             // The experimental_transform option buffers text chunks but never
             // releases them to the fullStream iterator on some providers,
             // causing "thinking shows but no answer" behaviour.
+            //
+            // Phase 4.2: build providerOptions for thinking effort.
+            const providerOptions = buildThinkingProviderOptions(provider.id, options?.thinkingEffort);
+
             const result = streamText({
               model,
               messages: aiMessages,
@@ -306,6 +403,8 @@ export class ChatEngine {
               temperature: request.temperature,
               maxTokens: request.maxTokens,
               abortSignal: options?.signal,
+              // Phase 4.2: pass thinking effort as providerOptions
+              providerOptions,
               onStepFinish: (step: any) => {
                 // Forward tool calls + results from each step.
                 if (step?.toolCalls) {
