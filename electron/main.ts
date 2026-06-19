@@ -182,6 +182,7 @@ let providerClient: ProviderClient;
 let chatEngine: ChatEngine;
 let opencodeConfig: OpencodeConfig;
 let modelsDevClient: ReturnType<typeof getModelsDevClient>;
+let catalogReady = false; // Phase 4.4: set to true when the catalog refresh completes
 let copilotAuth: GithubCopilotAuth;
 
 // ─── Phase 1-8: New Subsystem Globals ────────────────────────────────────────
@@ -920,10 +921,12 @@ async function initializeSubsystems(): Promise<void> {
   modelsDevClient.refresh().then(() => {
     logger.info('ModelsDev', `Catalog refreshed — ${modelsDevClient.getTotalModelCount()} models across ${modelsDevClient.getCachedProviderIds().length} providers`);
     sendCatalogProgress(100, `Loaded ${modelsDevClient.getTotalModelCount()} models`);
+    catalogReady = true;
     sendCatalogReady();
   }).catch((err: unknown) => {
     logger.warn('ModelsDev', 'Failed to refresh catalog (using cached/hardcoded fallback)', err);
     sendCatalogProgress(100, 'Using cached catalog');
+    catalogReady = true;
     sendCatalogReady();
   });
 
@@ -1230,6 +1233,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle("provider:get-catalog-info", wrapIPC(async () => {
     if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0 } };
     return { success: true, data: { fetchedAt: modelsDevClient.getFetchedAt(), providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
+  }));
+
+  // Phase 4.4: Let the renderer check if the catalog is already ready.
+  // Used by the splash screen as a fallback in case the main:catalog-ready
+  // IPC event was missed (fired before the preload registered its listener).
+  ipcMain.handle("catalog:is-ready", wrapIPC(async () => {
+    return { success: true, data: { ready: catalogReady } };
   }));
 
   // Auth
@@ -1568,18 +1578,26 @@ function registerIpcHandlers(): void {
   // ── Hooks IPC ─────────────────────────────────────────────────────────────
 
   ipcMain.handle("hooks:list", wrapIPC(async () => {
+    // Phase 4.4: handle gracefully if hookManager isn't initialized yet.
+    // The renderer re-fetches on main:ready, so returning an empty list
+    // prevents the "Failed to load hooks" error on startup.
+    if (!hookManager) {
+      return { success: true, data: [] };
+    }
     return { success: true, data: hookManager.list() };
   }));
 
   ipcMain.handle(
     "hooks:add",
     wrapIPC(async (_event, hookConfig: Record<string, unknown>) => {
+      if (!hookManager) return { success: false, error: 'Hooks not initialized yet' };
       const hook = await hookManager.add(hookConfig as any);
       return { success: true, data: hook };
     })
   );
 
   ipcMain.handle("hooks:remove", wrapIPC(async (_event, hookId: string) => {
+    if (!hookManager) return { success: false, error: 'Hooks not initialized yet' };
     await hookManager.remove(hookId);
     return { success: true };
   }));
@@ -1587,6 +1605,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     "hooks:trigger",
     wrapIPC(async (_event, hookType: string, context: Record<string, unknown>) => {
+      if (!hookManager) return { success: true, data: [] };
       const results = await hookManager.trigger(hookType as HookType, context);
       return { success: true, data: results };
     })

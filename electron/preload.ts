@@ -8,6 +8,22 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 
+// ─── Phase 4.4: Eagerly register catalog progress/ready IPC listeners ────────
+// These MUST be registered at preload load time (before React mounts) because
+// the main process sends main:catalog-progress and main:catalog-ready events
+// during initializeSubsystems(), which runs before the renderer's App.tsx
+// useEffect registers the lazy api.on.* listeners. Without eager registration,
+// the events are missed and the splash screen times out after 30s.
+ipcRenderer.on("main:catalog-progress", (_event, data: { percent: number; message: string }) => {
+  (globalThis as any).dispatchEvent(new (globalThis as any).CustomEvent('openagent:catalog-progress', { detail: data }));
+});
+ipcRenderer.on("main:catalog-ready", (_event, data: { providerCount: number; modelCount: number }) => {
+  (globalThis as any).dispatchEvent(new (globalThis as any).CustomEvent('openagent:catalog-ready', { detail: data }));
+});
+ipcRenderer.on("main:ready", () => {
+  (globalThis as any).dispatchEvent(new (globalThis as any).CustomEvent('openagent:main-ready'));
+});
+
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
 interface ProviderConfig {
@@ -366,6 +382,10 @@ const electronAPI = {
     estimate: (opts: { providerId: string; modelId: string; usage: { promptTokens: number; completionTokens: number } }): Promise<any> =>
       invoke("cost:estimate", opts),
   },
+
+  // Phase 4.4: Check if catalog is already ready (fallback for splash screen)
+  catalogIsReady: (): Promise<{ ready: boolean }> =>
+    invoke<{ ready: boolean }>("catalog:is-ready").then((r: any) => r.data || r),
 
   // ── Files ──────────────────────────────────────────────────────────────────
 

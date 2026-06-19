@@ -6,7 +6,7 @@
     <meta name="description" content="OpenAgent-Desktop - Open-source AI Agent Platform with 35+ Providers and 60+ Extensions" />
     <meta name="theme-color" content="#6366f1" />
     <meta name="color-scheme" content="dark light" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self';" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -257,6 +257,25 @@
             if (fill) fill.style.width = progress + '%';
           }
         }, 600);
+
+        // Phase 4.4: Poll catalog:is-ready as a fallback in case the
+        // main:catalog-ready IPC event was missed (fired before the preload
+        // registered its listener). Check every 1s starting at 2s.
+        setTimeout(function () {
+          var pollInterval = setInterval(function () {
+            if (skipped) { clearInterval(pollInterval); return; }
+            if (window.openagent && window.openagent.catalogIsReady) {
+              window.openagent.catalogIsReady().then(function (result) {
+                if (result && result.ready && !skipped) {
+                  clearInterval(pollInterval);
+                  if (fill) fill.style.width = '100%';
+                  if (text) text.textContent = 'Ready!';
+                  setTimeout(removeSplash, 300);
+                }
+              }).catch(function () { /* ignore — will retry next interval */ });
+            }
+          }, 1000);
+        }, 2000);
 
         // Safety timeout: if nothing happens in 30s, auto-remove.
         setTimeout(function () {
