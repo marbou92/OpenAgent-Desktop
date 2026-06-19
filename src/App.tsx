@@ -25,6 +25,7 @@ import {
   PermissionRequest,
 } from './types';
 import Sidebar from './components/Layout/Sidebar';
+import ViewHeader from './components/Layout/ViewHeader';
 import ChatView from './components/Chat/ChatView';
 import ExtensionsView from './components/Extensions/ExtensionsView';
 import RecipesView from './components/Recipes/RecipesView';
@@ -591,104 +592,138 @@ const App: React.FC = () => {
         );
       case 'extensions':
         return (
-          <ExtensionsView
-            extensions={extensions}
-            onRefresh={async () => {
-              if (api?.extensions?.list) {
-                const ext = await api.extensions.list();
-                setExtensions(ext);
-              }
-            }}
-            addToast={addToast}
-          />
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Extensions" />
+            <div className="flex-1 overflow-hidden">
+              <ExtensionsView
+                extensions={extensions}
+                onRefresh={async () => {
+                  if (api?.extensions?.list) {
+                    const ext = await api.extensions.list();
+                    setExtensions(ext);
+                  }
+                }}
+                addToast={addToast}
+              />
+            </div>
+          </div>
         );
       case 'recipes':
         return (
-          <RecipesView
-            recipes={recipes}
-            onRefresh={async () => {
-              if (api?.recipes?.list) {
-                const r = await api.recipes.list();
-                setRecipes(r);
-              }
-            }}
-            addToast={addToast}
-          />
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Recipes" />
+            <div className="flex-1 overflow-hidden">
+              <RecipesView
+                recipes={recipes}
+                onRefresh={async () => {
+                  if (api?.recipes?.list) {
+                    const r = await api.recipes.list();
+                    setRecipes(r);
+                  }
+                }}
+                addToast={addToast}
+              />
+            </div>
+          </div>
         );
       case 'sessions':
         return (
-          <SessionsView
-            sessions={sessions}
-            currentSessionId={currentSessionId}
-            onLoadSession={handleLoadSession}
-            onDeleteSession={handleDeleteSession}
-            onNewSession={handleNewSession}
-            addToast={addToast}
-          />
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Sessions" />
+            <div className="flex-1 overflow-hidden">
+              <SessionsView
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                onLoadSession={handleLoadSession}
+                onDeleteSession={handleDeleteSession}
+                onNewSession={handleNewSession}
+                addToast={addToast}
+              />
+            </div>
+          </div>
         );
       case 'settings':
         return (
-          <SettingsView
-            providers={providers}
-            settings={settings}
-            onUpdateSettings={updateSettings}
-            onProvidersChange={async () => {
-              if (api?.providers?.listAuth) {
-                try {
-                  const [authEntries, providerDefs] = await Promise.all([
-                    api.providers.listAuth(),
-                    api.providers.listProviders?.().catch(() => []),
-                  ]);
-                  const nameMap = new Map<string, string>();
-                  for (const def of (providerDefs || [])) {
-                    nameMap.set(def.id, def.name || def.id);
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Settings" />
+            <div className="flex-1 overflow-hidden">
+              <SettingsView
+                providers={providers}
+                settings={settings}
+                onUpdateSettings={updateSettings}
+                onProvidersChange={async () => {
+                  if (api?.providers?.listAuth) {
+                    try {
+                      const [authEntries, providerDefs] = await Promise.all([
+                        api.providers.listAuth(),
+                        api.providers.listProviders?.().catch(() => []),
+                      ]);
+                      const nameMap = new Map<string, string>();
+                      for (const def of (providerDefs || [])) {
+                        nameMap.set(def.id, def.name || def.id);
+                      }
+                      const providerInfos = (authEntries || []).map((entry: any) => ({
+                        id: entry.providerId,
+                        name: nameMap.get(entry.providerId) || entry.providerId,
+                        type: 'custom',
+                        models: [],
+                        isDefault: false,
+                        configured: true,
+                        authMethod: entry.auth?.type,
+                      }));
+                      setProviders(providerInfos);
+                    } catch { /* ignore */ }
                   }
-                  const providerInfos = (authEntries || []).map((entry: any) => ({
-                    id: entry.providerId,
-                    name: nameMap.get(entry.providerId) || entry.providerId,
-                    type: 'custom',
-                    models: [],
-                    isDefault: false,
-                    configured: true,
-                    authMethod: entry.auth?.type,
-                  }));
-                  setProviders(providerInfos);
-                } catch { /* ignore */ }
-              }
-            }}
-            addToast={addToast}
-          />
+                }}
+                addToast={addToast}
+              />
+            </div>
+          </div>
         );
       case 'hooks':
         return (
-          <HooksView
-            hooks={hooks}
-            onRefresh={async () => {
-              if (api?.hooks?.list) {
-                const h = await api.hooks.list();
-                setHooks(h);
-              }
-            }}
-            addToast={addToast}
-          />
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Hooks" />
+            <div className="flex-1 overflow-hidden">
+              <HooksView
+                hooks={hooks}
+                onRefresh={async () => {
+                  if (api?.hooks?.list) {
+                    const h = await api.hooks.list();
+                    setHooks(h);
+                  }
+                }}
+                addToast={addToast}
+              />
+            </div>
+          </div>
         );
       case 'sandbox':
         return (
-          <SandboxView
-            addToast={addToast}
-          />
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Sandbox" />
+            <div className="flex-1 overflow-hidden">
+              <SandboxView addToast={addToast} />
+            </div>
+          </div>
         );
       case 'projects':
         return (
-          <ProjectsView
-            addToast={addToast}
-          />
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Projects" />
+            <div className="flex-1 overflow-hidden">
+              <ProjectsView addToast={addToast} />
+            </div>
+          </div>
         );
       case 'skills':
         return (
-          <SkillsView
-            addToast={addToast}
-          />
+          <div className="flex flex-col h-full">
+            <ViewHeader title="Skills" />
+            <div className="flex-1 overflow-hidden">
+              <SkillsView addToast={addToast} />
+            </div>
+          </div>
         );
       default:
         return null;
@@ -697,90 +732,53 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)' }}>
-      {/* Sidebar */}
-      {!sidebarCollapsed && (
-        <Sidebar
-          currentView={currentView}
-          currentSessionId={currentSessionId}
-          sessions={sessions}
-          providers={providers}
-          version={version}
-          onNavigate={setCurrentView}
-          onNewSession={handleNewSession}
-          onLoadSession={handleLoadSession}
-          onImportRecipe={handleImportRecipe}
-          onToggleSidebar={toggleSidebar}
-        />
-      )}
+      {/* Sidebar — Phase 3: always rendered, handles its own collapsed state */}
+      <Sidebar
+        currentView={currentView}
+        currentSessionId={currentSessionId}
+        sessions={sessions}
+        providers={providers}
+        version={version}
+        collapsed={sidebarCollapsed}
+        onNavigate={setCurrentView}
+        onNewSession={handleNewSession}
+        onLoadSession={handleLoadSession}
+        onImportRecipe={handleImportRecipe}
+        onToggleSidebar={toggleSidebar}
+      />
 
-      {/* Main Content */}
+      {/* Main Content — Phase 3: no separate titlebar, the view's own header
+          IS the titlebar drag region. Saves ~38px vertical space. */}
       <main className="flex-1 flex flex-col min-w-0 relative">
-        {/* Titlebar area */}
-        <div
-          className="titlebar-drag flex items-center justify-between px-4 border-b"
-          style={{
-            height: 'var(--titlebar-height)',
-            background: 'var(--color-bg-secondary)',
-            borderColor: 'var(--color-border-secondary)',
-          }}
-        >
-          <div className="titlebar-no-drag flex items-center gap-2">
-            {sidebarCollapsed && (
-              <button
-                onClick={toggleSidebar}
-                className="p-1.5 rounded-md transition-colors"
-                style={{ color: 'var(--color-text-tertiary)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-hover)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                aria-label="Toggle sidebar"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="3" y1="12" x2="21" y2="12" />
-                  <line x1="3" y1="6" x2="21" y2="6" />
-                  <line x1="3" y1="18" x2="21" y2="18" />
-                </svg>
-              </button>
-            )}
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
-              OpenAgent
-            </span>
-          </div>
-          <div className="titlebar-no-drag flex items-center gap-2">
-            {currentSession && currentView === 'chat' && (
-              <span className="text-xs truncate max-w-xs" style={{ color: 'var(--color-text-muted)' }}>
-                {currentSession.name}
-              </span>
-            )}
-            {currentView !== 'chat' && (
-              <span className="text-xs capitalize" style={{ color: 'var(--color-text-muted)' }}>
-                {currentView}
-              </span>
-            )}
-          </div>
-        </div>
-
         {/* Content Area */}
-        <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-h-0 flex relative">
           <div className="flex-1 min-w-0 overflow-hidden">
             {loading ? (
               <LoadingScreen />
             ) : (
-              // BUGFIX: previously there was no ErrorBoundary anywhere in src/,
-              // so any uncaught render error in any view blank-screened the
-              // whole app. Now the main content area is wrapped so a view
-              // crash shows a recoverable error UI.
               <ErrorBoundary label="Main view">
                 {renderMainContent()}
               </ErrorBoundary>
             )}
           </div>
 
-          {/* Thinking Trace Side Panel */}
+          {/* Thinking Trace Side Panel — Phase 3: toggle overlay (absolute
+              positioned, slides in from the right). Not a permanent column. */}
           {tracePanelOpen && (
-            <ThinkingTrace
-              entries={traceEntries}
-              onClose={toggleTracePanel}
-            />
+            <div
+              className="absolute top-0 right-0 h-full z-30 animate-slide-in-right"
+              style={{
+                width: '340px',
+                background: 'var(--color-bg-secondary)',
+                borderLeft: '1px solid var(--color-border-primary)',
+                boxShadow: 'var(--shadow-elevated)',
+              }}
+            >
+              <ThinkingTrace
+                entries={traceEntries}
+                onClose={toggleTracePanel}
+              />
+            </div>
           )}
         </div>
       </main>
