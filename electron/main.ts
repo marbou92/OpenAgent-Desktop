@@ -222,8 +222,8 @@ function loadConfig(): AppConfig {
     autoUpdate: true,
     minimizeToTray: true,
     startupBehavior: "show",
-    defaultProviderId: "openai",
-    defaultModel: "gpt-4o",
+    defaultProviderId: "",
+    defaultModel: "",
     opencodePort: 3000,
     opencodeHostname: "127.0.0.1",
     opencodeAutoStart: true,
@@ -1622,8 +1622,11 @@ function registerIpcHandlers(): void {
 
     // Resolve the provider+model for this session (opencode: per-session binding
     // is stored on the session itself, not in a separate binding store).
-    const providerId = session.providerId || appConfig.defaultProviderId;
-    const modelId = session.model || appConfig.defaultModel;
+    const providerId = session.providerId;
+    const modelId = session.model;
+    if (!providerId || !modelId) {
+      throw new Error('No provider or model selected. Please select a provider and model from the dropdowns above.');
+    }
     const qualifiedModel = `${providerId}/${modelId}`;
 
     // Build the agent context.
@@ -1757,8 +1760,11 @@ function registerIpcHandlers(): void {
 
         if (agentMode === AgentMode.chat) {
           // Chat mode: direct LLM call, no agentic loop, no tools.
-          const providerId = session.providerId || appConfig.defaultProviderId;
-          const model = session.model || appConfig.defaultModel;
+          const providerId = session.providerId;
+          const model = session.model;
+          if (!providerId || !model) {
+            return { success: false, error: 'No provider or model selected. Please select a provider and model from the dropdowns above.' };
+          }
 
           const response = await providerClient.chat({
             model: `${providerId}/${model}`,
@@ -1865,8 +1871,11 @@ function registerIpcHandlers(): void {
         }
 
         // ── Chat mode: direct streaming via providerClient.chatStream ──────────
-        const providerId = session.providerId || appConfig.defaultProviderId;
-        const model = session.model || appConfig.defaultModel;
+        const providerId = session.providerId;
+        const model = session.model;
+        if (!providerId || !model) {
+          return { success: false, error: 'No provider or model selected. Please select a provider and model from the dropdowns above.' };
+        }
 
         // Run the generator in the background and forward chunks to the renderer.
         (async () => {
@@ -2010,8 +2019,8 @@ function registerIpcHandlers(): void {
     // Create default configuration
     const opencodeConfig = {
       version: "1.0.0",
-      defaultProvider: appConfig.defaultProviderId,
-      defaultModel: appConfig.defaultModel,
+      defaultProvider: appConfig.defaultProviderId || "",
+      defaultModel: appConfig.defaultModel || "",
       sandbox: {
         enabled: true,
         type: sandboxManager.getSandboxType(),

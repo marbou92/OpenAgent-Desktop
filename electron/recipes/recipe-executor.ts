@@ -518,7 +518,10 @@ export class RecipeExecutor {
       throw new Error("No provider manager available for executing prompts");
     }
 
-    const model = settings?.model || "gpt-4o";
+    const model = settings?.model;
+    if (!model) {
+      throw new Error("No model specified in recipe settings — set a model in the recipe or configure a default");
+    }
     const maxRetries = settings?.maxRetries || 1;
     const retryDelayMs = settings?.retryDelayMs || 1000;
     const timeoutMs = settings?.timeoutMs || 120000;

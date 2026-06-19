@@ -592,7 +592,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   startupBehavior: 'show',
   // Provider / Model
   defaultProviderId: '',
-  defaultModel: 'anthropic/claude-sonnet-4',
+  defaultModel: '',
   opencodePort: 0,
   opencodeHostname: '127.0.0.1',
   opencodeAutoStart: true,

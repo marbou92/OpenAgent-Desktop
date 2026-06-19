@@ -244,15 +244,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               <SettingsRow label="Auto-save" description="Automatically save sessions">
                 <ToggleSwitch checked={settings.autoSave} onChange={(v) => onUpdateSettings({ autoSave: v })} />
               </SettingsRow>
-              <SettingsRow label="Default Model" description="Default model for new sessions">
-                <input
-                  type="text"
-                  value={settings.defaultModel}
-                  onChange={(e) => onUpdateSettings({ defaultModel: e.target.value })}
-                  className="px-3 py-2 rounded-lg border text-sm"
-                  style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
-                />
-              </SettingsRow>
             </SettingsSection>
 
             {/* Startup */}

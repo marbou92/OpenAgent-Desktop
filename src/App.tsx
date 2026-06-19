@@ -419,11 +419,10 @@ const App: React.FC = () => {
     if (!api?.sessions?.create) return;
 
     try {
-      const defaultProvider = providers.find((p) => p.isDefault) || providers[0];
+      // No hardcoded default provider/model — the user selects from the
+      // dropdowns in the chat view. Session starts with empty provider+model.
       const session = await api.sessions.create({
         name: `Chat ${sessions.length + 1}`,
-        providerId: defaultProvider?.id,
-        model: defaultProvider?.models?.[0] || settings.defaultModel,
       });
       setCurrentSession(session);
       setCurrentSessionId(session.id);
@@ -439,7 +438,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to create session', message: err.message });
     }
-  }, [providers, sessions, settings.defaultModel, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast]);
+  }, [api, sessions.length, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast]);
 
   // ─── Load session ──────────────────────────────────────────────────────────
 
