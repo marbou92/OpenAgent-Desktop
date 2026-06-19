@@ -42,6 +42,7 @@ import { CrashLogger, CrashDetector } from './crash';
 // ─── Provider v3: New Provider System Imports ──────────────────────────────
 import { AuthStore } from './providers/auth-store-v2';
 import { ProviderClient, setSidecarEndpoint } from './providers/provider-client';
+import { ChatEngine } from './providers/chat-engine';
 import { OpencodeConfig } from './providers/opencode-config';
 import { getModelsDevClient } from './providers/models-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
@@ -167,6 +168,7 @@ let openCodeBridge: OpenCodeBridge;
 // ─── Provider opencode Globals ───────────────────────────────────────────────
 let authStore: AuthStore;
 let providerClient: ProviderClient;
+let chatEngine: ChatEngine;
 let opencodeConfig: OpencodeConfig;
 let modelsDevClient: ReturnType<typeof getModelsDevClient>;
 let copilotAuth: GithubCopilotAuth;
@@ -912,6 +914,9 @@ async function initializeSubsystems(): Promise<void> {
     logger.info('ProviderClient', 'Sidecar unavailable, using in-process path', info);
   });
 
+  // Initialize the AI SDK chat engine — replaces AgentRunner.
+  chatEngine = new ChatEngine(authStore, opencodeConfig);
+
   // If the OpenCode sidecar is running, route provider calls through it.
   const sidecarInstanceForV3 = providerManager.getSidecarInstance();
   if (sidecarInstanceForV3) {
@@ -1594,15 +1599,16 @@ function registerIpcHandlers(): void {
   }));
 
   /**
-   * Run the agentic loop for a chat message. Used by chat:send and chat:stream
-   * when the session's agent mode is anything other than 'chat'.
+   * Run the agentic loop using the AI SDK's streamText() with tools + maxSteps.
+   * The AI SDK handles:
+   *   - Calling the LLM
+   *   - Parsing tool calls from the response
+   *   - Executing tool handlers (with permission checks built in)
+   *   - Feeding tool results back to the LLM
+   *   - Repeating until no more tool calls or maxSteps reached
+   *   - Streaming text deltas in real-time
    *
-   * The agent loop: LLM → tool calls → permission check → tool execution →
-   * tool result → repeat, until the LLM stops requesting tools or maxSteps
-   * is reached.
-   *
-   * Events are forwarded to the renderer via the `send` callback so both
-   * chat:send (non-streaming) and chat:stream (streaming) can use it.
+   * We just forward the stream parts to the renderer via IPC events.
    */
   async function runAgent(opts: {
     sessionId: string;
@@ -1616,101 +1622,116 @@ function registerIpcHandlers(): void {
     // Resolve the agent for this session.
     const agentId = agentSessionBridge.getCurrentAgentId(sessionId);
     const agent = agentRegistry.get(agentId) || agentRegistry.getActive();
-    if (!agent) {
-      throw new Error('No agent configured');
-    }
+    if (!agent) throw new Error('No agent configured');
 
-    // Resolve the provider+model for this session (opencode: per-session binding
-    // is stored on the session itself, not in a separate binding store).
+    // Resolve the provider+model for this session.
     const providerId = session.providerId;
     const modelId = session.model;
     if (!providerId || !modelId) {
       throw new Error('No provider or model selected. Please select a provider and model from the dropdowns above.');
     }
-    const qualifiedModel = `${providerId}/${modelId}`;
 
-    // Build the agent context.
-    const context = {
-      agentId: agent.id,
-      sessionId,
-      workingDirectory: session.workingDirectory || process.cwd(),
-      extensions: session.extensions || [],
-      model: qualifiedModel,
-      providerId,
-    };
-
-    // Create the runner.
-    const runner = new AgentRunner(agent, context);
-    runner.setProviderClient(providerClient);
-    if (permissionPolicyEngine) {
-      runner.setPolicyEngine(permissionPolicyEngine);
-    }
-
-    // Wire permission requests → renderer.
-    runner.on('permission:request', (toolName: string, args: Record<string, unknown>, resolve: (level: ToolPermissionLevel) => void) => {
-      const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      pendingPermissionRequests.set(requestId, resolve);
-      send('chat:permission-request', { id: requestId, toolName, args });
-    });
-
-    // Build the messages array from session history.
-    const messages = [
-      ...(session.messages || []).map((m: any) => ({
-        id: m.id || crypto.randomUUID(),
-        role: m.role,
-        content: m.content || '',
-        toolCallId: m.toolCallId,
-        toolCalls: m.toolCalls,
-        timestamp: m.timestamp || new Date().toISOString(),
-      })),
-      { id: crypto.randomUUID(), role: 'user' as const, content: message, timestamp: new Date().toISOString() },
-    ];
-
-    // Run the loop.
-    // Build the tool catalog: built-in tools + extension-registered (MCP) tools.
-    // The LLM needs this list so it knows what it can call.
+    // Build the tool definitions with permission checking.
     const toolDeps = {
       sandboxManager,
-      workingDirectory: context.workingDirectory,
-      extensionRegistry, // enables MCP tools via ExtensionRegistry.executeTool
+      workingDirectory: session.workingDirectory || process.cwd(),
+      extensionRegistry,
     };
-    const tools = listAvailableTools(toolDeps);
 
-    const result = await runner.run(messages, {
-      maxSteps: agent.maxSteps,
-      systemPrompt: runner.getSystemPrompt(),
-      tools,
-      signal: opts.signal,
-      onStreamChunk: (chunk: string) => {
-        // Real-time streaming in agent mode! Each token is forwarded to the
-        // renderer as it arrives — the user sees the LLM thinking + writing
-        // code as it happens, then tool calls execute.
-        send('chat:stream-chunk', { chunk });
+    // Permission checker — uses the agent's permission rules.
+    const permissionEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
+    permissionEvaluator.setAgentMode(agent.mode);
+    if (permissionPolicyEngine) {
+      permissionEvaluator.setPolicyEngine(permissionPolicyEngine);
+    }
+
+    const permissionChecker = {
+      checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny' {
+        return permissionEvaluator.evaluate(toolName, args);
       },
-      onStep: (step) => {
-        // Forward tool calls from each step to the renderer.
-        if (step.message.toolCalls) {
-          for (const tc of step.message.toolCalls) {
-            send('chat:stream-tool-call', { toolCall: tc });
+      requestPermission(toolName: string, args: Record<string, unknown>): Promise<boolean> {
+        return new Promise((resolve) => {
+          const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          pendingPermissionRequests.set(requestId, (level: ToolPermissionLevel) => resolve(level === 'allow'));
+          send('chat:permission-request', { id: requestId, toolName, args });
+        });
+      },
+    };
+
+    // Build AI SDK tool definitions with execute() handlers.
+    const tools = chatEngine.buildTools(toolDeps, permissionChecker, executeToolCall);
+
+    // Build the system prompt.
+    const systemPrompt = agent.prompt
+      ? `${agent.prompt}\n\nCurrent mode: ${agent.mode.toUpperCase()}\nWorking directory: ${toolDeps.workingDirectory}`
+      : `You are an AI assistant in ${agent.mode.toUpperCase()} mode. Working directory: ${toolDeps.workingDirectory}`;
+
+    // Build messages array from session history.
+    const messages = [
+      ...(session.messages || []).map((m: any) => ({
+        role: m.role,
+        content: m.content || '',
+      })),
+      { role: 'user' as const, content: message },
+    ];
+
+    // Run the AI SDK streamText() with tools + maxSteps.
+    // This IS the agent loop — the SDK handles everything.
+    let fullContent = '';
+    let stepCount = 0;
+    let status = 'completed';
+
+    for await (const chunk of chatEngine.chatStream(
+      {
+        model: `${providerId}/${modelId}`,
+        messages,
+        systemPrompt,
+        temperature: agent.temperature,
+      },
+      {
+        signal: opts.signal,
+        tools,
+        maxSteps: agent.maxSteps || 50,
+        onToolCall: (tc: any) => {
+          send('chat:stream-tool-call', { toolCall: tc });
+        },
+        onToolResult: (tr: any) => {
+          send('chat:stream-tool-result', { toolResult: tr });
+          stepCount++;
+        },
+      }
+    )) {
+      switch (chunk.type) {
+        case 'content':
+          if (chunk.content) {
+            fullContent += chunk.content;
+            send('chat:stream-chunk', { chunk: chunk.content });
           }
-        }
-      },
-      onToolCall: async (toolCall) => {
-        // Execute the tool via the tool executor (built-in or MCP).
-        send('chat:stream-tool-call', { toolCall });
-        const result = await executeToolCall(toolCall, toolDeps);
-        send('chat:stream-tool-result', { toolResult: { id: toolCall.id, content: result.content, isError: result.isError } });
-        return result;
-      },
-    });
+          break;
+        case 'thinking':
+          if (chunk.content) send('chat:stream-thinking', { thinking: chunk.content });
+          break;
+        case 'tool_call_start':
+        case 'tool_call_delta':
+        case 'tool_call_end':
+          send('chat:stream-tool-call', { toolCall: chunk.toolCall });
+          break;
+        case 'tool_result':
+          send('chat:stream-tool-result', { toolResult: chunk.toolResult });
+          break;
+        case 'usage':
+          // Token usage — could be forwarded to the renderer for display.
+          break;
+        case 'error':
+          status = 'error';
+          send('chat:stream-error', { error: chunk.error?.message || 'Unknown error' });
+          break;
+        case 'done':
+          break;
+      }
+    }
 
-    // Extract the final assistant message content.
-    const finalContent = result.finalMessage?.content || result.steps[result.steps.length - 1]?.message?.content || '';
-    return {
-      content: finalContent,
-      steps: result.steps.length,
-      status: result.status,
-    };
+    return { content: fullContent, steps: stepCount, status };
   }
 
   ipcMain.handle("acp:status", wrapIPC(async () => {
@@ -1759,14 +1780,14 @@ function registerIpcHandlers(): void {
         let responseContent: string;
 
         if (agentMode === AgentMode.chat) {
-          // Chat mode: direct LLM call, no agentic loop, no tools.
+          // Chat mode: direct LLM call via AI SDK, no agentic loop, no tools.
           const providerId = session.providerId;
           const model = session.model;
           if (!providerId || !model) {
             return { success: false, error: 'No provider or model selected. Please select a provider and model from the dropdowns above.' };
           }
 
-          const response = await providerClient.chat({
+          const response = await chatEngine.chat({
             model: `${providerId}/${model}`,
             messages: [
               ...session.messages.map((m: any) => ({ role: m.role, content: m.content })),
@@ -1870,7 +1891,7 @@ function registerIpcHandlers(): void {
           return { success: true, data: { streaming: true } };
         }
 
-        // ── Chat mode: direct streaming via providerClient.chatStream ──────────
+        // ── Chat mode: direct streaming via chatEngine.chatStream() ─────────
         const providerId = session.providerId;
         const model = session.model;
         if (!providerId || !model) {
@@ -1881,7 +1902,7 @@ function registerIpcHandlers(): void {
         (async () => {
           try {
             let fullResponse = '';
-            for await (const chunk of providerClient.chatStream({
+            for await (const chunk of chatEngine.chatStream({
               model: `${providerId}/${model}`,
               messages: [
                 ...session.messages.map((m: any) => ({ role: m.role, content: m.content })),
