@@ -36,7 +36,7 @@ import ProjectsView from './components/Projects/ProjectsView';
 import SkillsView from './components/Skills/SkillsView';
 import HooksView from './components/Hooks/HooksView';
 import FileDropZone from './components/Chat/FileDropZone';
-import ThinkingTrace from './components/Chat/ThinkingTrace';
+import RightPanel from './components/Layout/RightPanel/RightPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getAPI } from './utils/api';
 
@@ -762,8 +762,8 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {/* Thinking Trace Side Panel — Phase 3: toggle overlay (absolute
-              positioned, slides in from the right). Not a permanent column. */}
+          {/* Right Panel — Phase 3.1: tabbed container with Trace / Context /
+              Notes. Slides in from the right as an overlay. */}
           {tracePanelOpen && (
             <div
               className="absolute top-0 right-0 h-full z-30 animate-slide-in-right"
@@ -774,8 +774,13 @@ const App: React.FC = () => {
                 boxShadow: 'var(--shadow-elevated)',
               }}
             >
-              <ThinkingTrace
+              <RightPanel
                 entries={traceEntries}
+                session={currentSession}
+                sessionId={currentSessionId}
+                providers={providers}
+                selectedProviderId={currentSession?.providerId || ''}
+                selectedModel={currentSession?.model || ''}
                 onClose={toggleTracePanel}
               />
             </div>

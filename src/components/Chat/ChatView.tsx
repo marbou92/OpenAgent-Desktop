@@ -300,7 +300,7 @@ const ChatView: React.FC<ChatViewProps> = ({
             <span>{hasConnectedProvider ? 'Ready' : 'Setup needed'}</span>
           </div>
 
-          {/* Trace panel toggle */}
+          {/* Right panel toggle (Phase 3.1 — opens the tabbed Trace/Context/Notes panel) */}
           <button
             onClick={onToggleTracePanel}
             className="p-1.5 rounded-lg transition-colors"
@@ -320,8 +320,8 @@ const ChatView: React.FC<ChatViewProps> = ({
                 e.currentTarget.style.color = 'var(--color-text-tertiary)';
               }
             }}
-            title="Toggle trace panel"
-            aria-label="Toggle trace panel"
+            title="Open panel (Trace, Context, Notes)"
+            aria-label="Open panel"
           >
             <svg
               width="15"
