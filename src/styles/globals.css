@@ -592,6 +592,18 @@ select:focus-visible {
   outline-offset: 1px;
 }
 
+/* ─── Composer Card Focus (Phase 2.4) ──────────────────────────────────────────
+   The chat composer textarea has its purple :focus-visible outline removed
+   (inline `outline: none` in ChatInput.tsx) because the 2px solid purple
+   ring looked harsh. Instead, the whole composer card gets a soft accent
+   glow via :focus-within when the textarea (or any child) is focused.
+   This gives a polished "I'm typing here" cue without the ugly ring. */
+
+.composer-card:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-card), 0 0 0 3px var(--color-accent-soft);
+}
+
 /* ─── Selection ──────────────────────────────────────────────────────────────── */
 
 ::selection {

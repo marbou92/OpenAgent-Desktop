@@ -364,7 +364,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       {/* ─── Composer Card ──────────────────────────────────────────── */}
       <div
         ref={inputContainerRef}
-        className="m-3 rounded-2xl border transition-colors"
+        className="composer-card m-3 rounded-2xl border transition-all"
         style={{
           background: 'var(--color-bg-secondary)',
           borderColor: 'var(--color-border-primary)',
@@ -385,12 +385,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
             }
             disabled={disabled}
             rows={1}
-            className="w-full resize-none text-sm outline-none bg-transparent"
+            className="w-full resize-none text-sm bg-transparent"
             style={{
               color: 'var(--color-text-primary)',
               maxHeight: '200px',
               minHeight: '24px',
               lineHeight: '1.5',
+              // Phase 2.4: kill the purple :focus-visible outline that the
+              // global CSS rule applies to textareas. Inline styles beat
+              // any selector, so `outline: 'none'` here overrides the
+              // `textarea:focus-visible { outline: 2px solid purple }`
+              // rule. The composer-card itself provides the focus cue via
+              // its :focus-within rule in globals.css.
+              outline: 'none',
             }}
           />
         </div>
