@@ -310,10 +310,19 @@ export class ChatEngine {
             });
 
             // Stream the full stream — includes text deltas, tool calls, reasoning, etc.
+            // Phase 2.6: track whether we've yielded any content/tool events.
+            // If an error occurs BEFORE any content was streamed, we break out
+            // of the loop and fall back to the protocol adapters (which give
+            // better error messages). If content was already streamed, we
+            // yield the error and return (can't fall back — would duplicate).
+            let yieldedContent = false;
+            let fallbackToAdapter = false;
+            streamLoop:
             for await (const part of result.fullStream) {
               switch (part.type) {
                 case 'text-delta':
                   if (part.textDelta) {
+                    yieldedContent = true;
                     yield { type: 'content', content: part.textDelta };
                   }
                   break;
@@ -325,6 +334,7 @@ export class ChatEngine {
                   break;
 
                 case 'tool-call':
+                  yieldedContent = true;
                   yield {
                     type: 'tool_call_end',
                     toolCall: {
@@ -336,6 +346,7 @@ export class ChatEngine {
                   break;
 
                 case 'tool-call-streaming-start':
+                  yieldedContent = true;
                   yield {
                     type: 'tool_call_start',
                     toolCall: { id: part.toolCallId, name: part.toolName },
@@ -360,11 +371,22 @@ export class ChatEngine {
                   break;
 
                 case 'error':
-                  // Phase 2.5: Don't just yield the opaque error and return.
-                  // Extract a useful message and fall back to the protocol
-                  // adapters, which have better per-provider error handling.
-                  // The AI SDK often throws bare `TypeError('terminated')`
-                  // which means nothing to the user.
+                  // Phase 2.6: If no content was streamed yet, fall back to
+                  // the protocol adapters instead of surfacing the error.
+                  // The adapters have per-provider URL defaults and give
+                  // much better error messages (e.g. "Invalid API key" vs
+                  // the AI SDK's bare "terminated").
+                  if (!yieldedContent) {
+                    console.warn(
+                      `[ChatEngine] AI SDK yielded error before any content for ` +
+                      `${provider.id}/${modelId}, falling back to protocol adapters:`,
+                      part.error?.message || part.error
+                    );
+                    fallbackToAdapter = true;
+                    break streamLoop; // break out of the for-await loop
+                  }
+                  // Content was already streamed — can't fall back (would
+                  // duplicate). Yield a descriptive error and return.
                   yield {
                     type: 'error',
                     error: { message: describeError(part.error, provider.id, modelId) },
@@ -390,9 +412,15 @@ export class ChatEngine {
               }
             }
 
-            // If we didn't get a 'finish' event, emit done.
-            yield { type: 'done' };
-            return;
+            // Phase 2.6: if we broke out of the loop to fall back, do it now.
+            if (fallbackToAdapter) {
+              // Fall through to the adapter path below.
+            } else {
+              // If we didn't get a 'finish' event and didn't fall back,
+              // emit done.
+              yield { type: 'done' };
+              return;
+            }
           } catch (err: any) {
             // Phase 2.5: The streamText() call itself threw (sync or async).
             // Fall back to the hand-rolled adapters instead of surfacing the
