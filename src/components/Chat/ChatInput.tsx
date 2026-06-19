@@ -37,6 +37,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/refactor', label: '/refactor', description: 'Refactor code recipe' },
   { command: '/doc', label: '/doc', description: 'Generate docs recipe' },
   { command: '/audit', label: '/audit', description: 'Security audit recipe' },
+  { command: '/structure', label: '/structure', description: 'Generate structured JSON output (Phase 4)' },
 ];
 
 interface ChatInputProps {
@@ -63,6 +64,10 @@ interface ChatInputProps {
   // Phase 2: pre-fill support (used by empty-state prompt grid)
   pendingPrompt?: string;
   onPendingPromptConsumed?: () => void;
+  // Phase 4: image attachment callback — called with base64 data URLs
+  onImagesAttached?: (images: string[]) => void;
+  // Phase 4: /structure slash command callback
+  onStructureCommand?: () => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -85,6 +90,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   customAgents,
   pendingPrompt,
   onPendingPromptConsumed,
+  onImagesAttached,
+  onStructureCommand,
 }) => {
   const [input, setInput] = useState('');
   const [showSlashCommands, setShowSlashCommands] = useState(false);
@@ -135,6 +142,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (!trimmed && attachedFiles.length === 0) return;
     if (isStreaming) return;
 
+    // Phase 4: intercept /structure command — opens the structured output panel
+    if (trimmed === '/structure' || trimmed.startsWith('/structure ')) {
+      onStructureCommand?.();
+      setInput('');
+      setShowSlashCommands(false);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+      return;
+    }
+
     onSend(trimmed, attachedFiles.length > 0 ? attachedFiles : undefined);
     setInput('');
     setShowSlashCommands(false);
@@ -143,7 +161,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [input, attachedFiles, isStreaming, onSend]);
+  }, [input, attachedFiles, isStreaming, onSend, onStructureCommand]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -219,15 +237,39 @@ const ChatInput: React.FC<ChatInputProps> = ({
     textareaRef.current?.focus();
   }, []);
 
-  const handleFilePick = useCallback(async () => {
-    const fileApi = getAPI();
-    if (!fileApi?.files?.open) return;
-    try {
-      await fileApi.files.open({} as any);
-    } catch (err) {
-      console.error('File picker error:', err);
-    }
+  // Phase 4: Image attachment via hidden file input.
+  // Reads selected image files as base64 data URLs and calls onImagesAttached.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFilePick = useCallback(() => {
+    fileInputRef.current?.click();
   }, []);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+
+    // Read each image as a base64 data URL
+    const promises = imageFiles.map(file => {
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(promises)
+      .then(dataUrls => {
+        onImagesAttached?.(dataUrls);
+      })
+      .catch(err => console.error('Image read error:', err));
+
+    // Reset the input so the same file can be selected again
+    e.target.value = '';
+  }, [onImagesAttached]);
 
   const canSend = (input.trim().length > 0 || attachedFiles.length > 0) && !isStreaming;
 
@@ -360,6 +402,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
           )}
         </div>
       )}
+
+      {/* Phase 4: Hidden file input for image attachment */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleFileInputChange}
+      />
 
       {/* ─── Composer Card ──────────────────────────────────────────── */}
       <div

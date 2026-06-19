@@ -39,7 +39,7 @@ interface UseChatReturn {
   streamingContent: string;
   streamingThinking: string;
   activeToolCalls: ToolCall[];
-  sendMessage: (content: string, files?: AttachedFile[]) => Promise<void>;
+  sendMessage: (content: string, files?: AttachedFile[], images?: string[]) => Promise<void>;
   stopStreaming: () => Promise<void>;
   clearMessages: () => void;
   retryLastMessage: () => Promise<void>;
@@ -326,7 +326,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onMessagesUpdate?.(messages);
   }, [messages, onMessagesUpdate]);
 
-  const sendMessage = useCallback(async (content: string, files: AttachedFile[] = []) => {
+  const sendMessage = useCallback(async (content: string, files: AttachedFile[] = [], images: string[] = []) => {
     if (!sessionId || !api) {
       setError('No active session or API not available');
       return;
@@ -343,13 +343,14 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     lastUserMessageRef.current = content;
     lastFilesRef.current = files;
 
-    // Create user message
+    // Create user message — Phase 4: attach images as base64 data URLs
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content,
       timestamp: new Date().toISOString(),
       files: files.length > 0 ? files : undefined,
+      images: images.length > 0 ? images : undefined,
     };
 
     // Create assistant placeholder
@@ -393,8 +394,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       // Start streaming via the Electron API.
       // The provider+model are resolved from the session in main.ts.
+      // Phase 4: pass images as base64 data URLs for multi-modal support.
       await api.chat.stream(sessionId, content, {
         files: files.map(f => f.path),
+        images: images.length > 0 ? images : undefined,
       });
     } catch (err: any) {
       setMessages(prev => {

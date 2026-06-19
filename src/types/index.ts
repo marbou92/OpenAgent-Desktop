@@ -353,6 +353,43 @@ export interface ChatMessage {
   thinking?: string;
   error?: string;
   files?: AttachedFile[];
+  /** Phase 4: base64 data URLs for images attached to this message */
+  images?: string[];
+  /** Phase 4: token usage from the AI SDK (assistant messages only) */
+  usage?: TokenUsage;
+}
+
+// ─── Phase 4: Advanced AI SDK Types ───────────────────────────────────────────
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens?: number;
+}
+
+export interface CostEstimate {
+  inputCost: number;
+  outputCost: number;
+  totalCost: number;
+  hasPricing: boolean;
+}
+
+export interface StructuredOutputRequest {
+  model: string;
+  messages: ChatMessage[];
+  schema: Record<string, unknown>;
+  systemPrompt?: string;
+}
+
+export interface StructuredOutputResult {
+  object: unknown;
+  usage?: TokenUsage;
+}
+
+export interface EmbeddingSearchResult {
+  text: string;
+  score: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AttachedFile {
@@ -760,6 +797,18 @@ declare global {
           options?: Record<string, unknown>
         ) => Promise<{ streaming: boolean }>;
         cancel: (sessionId: string) => Promise<void>;
+        /** Phase 4: Structured outputs via generateObject */
+        generateObject: (request: StructuredOutputRequest) => Promise<StructuredOutputResult & { success: boolean; error?: string }>;
+      };
+      /** Phase 4: Embeddings API */
+      embeddings: {
+        generate: (opts: { sessionId: string; texts: string[]; model: string; metadata?: any[] }) => Promise<any>;
+        search: (opts: { sessionId: string; query: string; model: string; topK?: number }) => Promise<any>;
+        count: (sessionId: string) => Promise<any>;
+      };
+      /** Phase 4: Cost estimation API */
+      cost: {
+        estimate: (opts: { providerId: string; modelId: string; usage: TokenUsage }) => Promise<any>;
       };
       files: {
         drop: (filePaths: string[]) => Promise<DroppedFile[]>;

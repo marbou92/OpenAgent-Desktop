@@ -345,6 +345,26 @@ const electronAPI = {
 
     cancel: (sessionId: string): Promise<void> =>
       invoke<void>("chat:cancel", sessionId),
+
+    // Phase 4: Structured outputs
+    generateObject: (request: any): Promise<any> =>
+      invoke("chat:generate-object", request),
+  },
+
+  // ── Phase 4: Embeddings & Cost ─────────────────────────────────────────────
+
+  embeddings: {
+    generate: (opts: { sessionId: string; texts: string[]; model: string; metadata?: any[] }): Promise<any> =>
+      invoke("embeddings:generate", opts),
+    search: (opts: { sessionId: string; query: string; model: string; topK?: number }): Promise<any> =>
+      invoke("embeddings:search", opts),
+    count: (sessionId: string): Promise<any> =>
+      invoke("embeddings:count", sessionId),
+  },
+
+  cost: {
+    estimate: (opts: { providerId: string; modelId: string; usage: { promptTokens: number; completionTokens: number } }): Promise<any> =>
+      invoke("cost:estimate", opts),
   },
 
   // ── Files ──────────────────────────────────────────────────────────────────

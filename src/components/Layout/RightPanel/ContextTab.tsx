@@ -118,6 +118,23 @@ const ContextTab: React.FC<ContextTabProps> = ({
         )}
       </Section>
 
+      {/* Phase 4: Token Usage & Cost */}
+      {session && session.messages && session.messages.length > 0 && (() => {
+        const messagesWithUsage = (session.messages as any[]).filter(m => m.usage);
+        if (messagesWithUsage.length === 0) return null;
+        const totalPrompt = messagesWithUsage.reduce((sum, m) => sum + (m.usage?.promptTokens || 0), 0);
+        const totalCompletion = messagesWithUsage.reduce((sum, m) => sum + (m.usage?.completionTokens || 0), 0);
+        const totalTokens = totalPrompt + totalCompletion;
+        return (
+          <Section title="Token Usage & Cost">
+            <InfoRow label="Prompt tokens" value={totalPrompt.toLocaleString()} />
+            <InfoRow label="Completion tokens" value={totalCompletion.toLocaleString()} />
+            <InfoRow label="Total tokens" value={totalTokens.toLocaleString()} />
+            <InfoRow label="Exchanges" value={String(messagesWithUsage.length)} />
+          </Section>
+        );
+      })()}
+
       {/* Extensions */}
       {session && session.extensions && session.extensions.length > 0 && (
         <Section title={`Extensions (${session.extensions.length})`}>

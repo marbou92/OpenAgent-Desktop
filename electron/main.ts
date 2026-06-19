@@ -52,6 +52,8 @@ import { CrashLogger, CrashDetector } from './crash';
 import { AuthStore } from './providers/auth-store-v2';
 import { ProviderClient, setSidecarEndpoint } from './providers/provider-client';
 import { ChatEngine } from './providers/chat-engine';
+import { calculateCost, formatCost } from './providers/cost-calculator';
+import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
 import { getModelsDevClient } from './providers/models-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
@@ -1625,8 +1627,9 @@ function registerIpcHandlers(): void {
     session: any;
     send: (channel: string, data: Record<string, unknown>) => void;
     signal?: AbortSignal;
+    images?: string[]; // Phase 4: base64 data URLs for multi-modal
   }): Promise<{ content: string; steps: number; status: string }> {
-    const { sessionId, message, session, send } = opts;
+    const { sessionId, message, session, send, images } = opts;
 
     // Resolve the agent for this session.
     const agentId = agentSessionBridge.getCurrentAgentId(sessionId);
@@ -1676,12 +1679,14 @@ function registerIpcHandlers(): void {
       : `You are an AI assistant in ${agent.mode.toUpperCase()} mode. Working directory: ${toolDeps.workingDirectory}`;
 
     // Build messages array from session history.
+    // Phase 4: attach images to the latest user message for multi-modal.
     const messages = [
       ...(session.messages || []).map((m: any) => ({
         role: m.role,
         content: m.content || '',
+        images: (m as any).images,
       })),
-      { role: 'user' as const, content: message },
+      { role: 'user' as const, content: message, images },
     ];
 
     // Run the AI SDK streamText() with tools + maxSteps.
@@ -1867,7 +1872,7 @@ function registerIpcHandlers(): void {
       _event,
       sessionId: string,
       message: string,
-      _options?: Record<string, unknown>
+      options?: Record<string, unknown>
     ) => {
       try {
         // Run pre-session hooks
@@ -1900,7 +1905,9 @@ function registerIpcHandlers(): void {
           // distinguish between the two paths.
           (async () => {
             try {
-              const agentResult = await runAgent({ sessionId, message, session, send });
+              // Phase 4: pass images from options to runAgent for multi-modal
+              const images = (options?.images as string[]) || undefined;
+              const agentResult = await runAgent({ sessionId, message, session, send, images });
               await sessionManager.addMessage(sessionId, { role: 'user', content: message });
               await sessionManager.addMessage(sessionId, { role: 'assistant', content: agentResult.content });
               send('chat:stream-end', { content: agentResult.content });
@@ -1936,11 +1943,13 @@ function registerIpcHandlers(): void {
         (async () => {
           try {
             let fullResponse = '';
+            // Phase 4: pass images for multi-modal support
+            const chatImages = (options?.images as string[]) || undefined;
             for await (const chunk of chatEngine.chatStream({
               model: `${providerId}/${model}`,
               messages: [
-                ...session.messages.map((m: any) => ({ role: m.role, content: m.content })),
-                { role: 'user', content: message },
+                ...session.messages.map((m: any) => ({ role: m.role, content: m.content, images: (m as any).images })),
+                { role: 'user' as const, content: message, images: chatImages },
               ],
             })) {
               switch (chunk.type) {
@@ -2014,6 +2023,134 @@ function registerIpcHandlers(): void {
     await providerManager.cancelStream(sessionId);
     mainWindow?.webContents.send("chat:stream-cancelled", { sessionId });
     return { success: true };
+  }));
+
+  // ── Phase 4: Structured Outputs (generateObject) ──────────────────────────
+
+  ipcMain.handle("chat:generate-object", wrapIPC(async (_event, request: any) => {
+    try {
+      const result = await chatEngine.generateObject({
+        model: request.model,
+        messages: (request.messages || []).map((m: any) => ({ role: m.role, content: m.content })),
+        schema: request.schema,
+        systemPrompt: request.systemPrompt,
+      });
+      // Track token usage if available
+      if (result.usage) {
+        const cost = calculateCost(
+          request.model.split('/')[0],
+          request.model.split('/').slice(1).join('/'),
+          result.usage
+        );
+        return {
+          success: true,
+          data: {
+            object: result.object,
+            usage: result.usage,
+            cost: cost,
+          },
+        };
+      }
+      return { success: true, data: { object: result.object } };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }));
+
+  // ── Phase 4: Embeddings (generate + search) ───────────────────────────────
+
+  ipcMain.handle("embeddings:generate", wrapIPC(async (_event, opts: any) => {
+    try {
+      const { sessionId, texts, model, metadata } = opts;
+      if (!sessionId || !texts || !Array.isArray(texts) || !model) {
+        return { success: false, error: 'Missing sessionId, texts, or model' };
+      }
+
+      // Generate embeddings via the chat engine
+      const embeddings = await chatEngine.embedMany(model, texts);
+
+      // Store them
+      const store = getEmbeddingsStore();
+      const crypto = require('crypto');
+      const entries = texts.map((text: string, i: number) => ({
+        id: crypto.randomUUID(),
+        sessionId,
+        text,
+        embedding: embeddings[i],
+        metadata: metadata?.[i] || {},
+      }));
+      store.addMany(entries);
+
+      return {
+        success: true,
+        data: {
+          count: entries.length,
+          totalInSession: store.count(sessionId),
+        },
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }));
+
+  ipcMain.handle("embeddings:search", wrapIPC(async (_event, opts: any) => {
+    try {
+      const { sessionId, query, model, topK } = opts;
+      if (!sessionId || !query || !model) {
+        return { success: false, error: 'Missing sessionId, query, or model' };
+      }
+
+      // Generate embedding for the query
+      const queryEmbedding = await chatEngine.embed(model, query);
+
+      // Search the store
+      const store = getEmbeddingsStore();
+      const results = store.search(sessionId, queryEmbedding, topK || 5);
+
+      return {
+        success: true,
+        data: {
+          results: results.map(r => ({
+            text: r.entry.text,
+            score: r.score,
+            metadata: r.entry.metadata,
+          })),
+          totalInSession: store.count(sessionId),
+        },
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }));
+
+  ipcMain.handle("embeddings:count", wrapIPC(async (_event, sessionId: string) => {
+    const store = getEmbeddingsStore();
+    return { success: true, data: { count: store.count(sessionId) } };
+  }));
+
+  // ── Phase 4: Cost Estimation ──────────────────────────────────────────────
+
+  ipcMain.handle("cost:estimate", wrapIPC(async (_event, opts: any) => {
+    try {
+      const { providerId, modelId, usage } = opts;
+      if (!providerId || !modelId || !usage) {
+        return { success: false, error: 'Missing providerId, modelId, or usage' };
+      }
+      const cost = calculateCost(providerId, modelId, usage);
+      return {
+        success: true,
+        data: {
+          ...cost,
+          formatted: {
+            input: formatCost(cost.inputCost),
+            output: formatCost(cost.outputCost),
+            total: formatCost(cost.totalCost),
+          },
+        },
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
   }));
 
   // ── File IPC ──────────────────────────────────────────────────────────────

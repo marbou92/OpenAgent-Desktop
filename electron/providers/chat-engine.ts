@@ -25,7 +25,7 @@ import { AuthProvider, ChatRequest, ChatResponse, StreamChunk, ProviderDefinitio
 import { AuthStore } from './auth-store-v2';
 import { OpencodeConfig } from './opencode-config';
 import { getOpencodeRegistry } from './opencode-registry';
-import { loadAiSdk, isAiSdkAvailable, createSdkModel, getStreamText, getGenerateText } from './ai-sdk-loader';
+import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getSmoothStream, getJsonSchema } from './ai-sdk-loader';
 import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
 
 // AI SDK loading state.
@@ -214,7 +214,11 @@ export class ChatEngine {
           try {
             const result = await generateText({
               model,
-              messages: request.messages.map(m => ({ role: m.role, content: m.content })),
+              // Phase 4: multi-modal support via toAiSdkMessages
+              messages: this.toAiSdkMessages(
+                request.messages.map(m => ({ role: m.role, content: m.content, images: (m as any).images }))
+              ),
+              system: request.systemPrompt,
               temperature: request.temperature,
               maxTokens: request.maxTokens,
             });
@@ -280,25 +284,28 @@ export class ChatEngine {
         const model = createSdkModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
         if (model) {
           console.info(`[ChatEngine] AI SDK path for ${provider.id}/${modelId} (tools: ${!!options?.tools}, maxSteps: ${options?.maxSteps || 'none'}, system: ${!!request.systemPrompt})`);
-          // Convert messages — support multi-modal content arrays.
-          const messages = request.messages.map(m => ({
-            role: m.role,
-            content: m.content,
-          }));
 
           try {
+            // Phase 4: use toAiSdkMessages for multi-modal (images) support
+            // and smoothStream for buffered token delivery.
+            const aiMessages = this.toAiSdkMessages(
+              request.messages.map(m => ({ role: m.role, content: m.content, images: (m as any).images }))
+            );
+            const smoothStreamFn = getSmoothStream();
+
             const result = streamText({
               model,
-              messages,
-              // Phase 2.7: pass the system prompt to the AI SDK. Previously
-              // this was silently dropped — the LLM never saw the Build/Plan
-              // agent instructions.
+              messages: aiMessages,
+              // Phase 2.7: pass the system prompt to the AI SDK.
               system: request.systemPrompt,
               tools: options?.tools,
               maxSteps: options?.maxSteps,
               temperature: request.temperature,
               maxTokens: request.maxTokens,
               abortSignal: options?.signal,
+              // Phase 4: smoothStream buffers tokens for smoother delivery
+              // on slow providers. Falls back to no transform if unavailable.
+              experimental_transform: smoothStreamFn ? smoothStreamFn() : undefined,
               onStepFinish: (step: any) => {
                 // Forward tool calls + results from each step.
                 if (step?.toolCalls) {
@@ -609,5 +616,124 @@ export class ChatEngine {
     }
 
     return tools;
+  }
+
+  // ─── Phase 4: Advanced AI SDK Features ────────────────────────────────────
+
+  /**
+   * Convert internal messages to AI SDK multi-modal format.
+   *
+   * If a message has `images` (array of base64 data URLs or Uint8Array),
+   * the content becomes a multi-part array:
+   *   [{ type: 'text', text: "..." }, { type: 'image', image: <data> }]
+   *
+   * Otherwise, content stays as a plain string (the simple path).
+   */
+  private toAiSdkMessages(messages: Array<{ role: string; content: any; images?: string[] }>): any[] {
+    return messages.map(m => {
+      if (m.images && m.images.length > 0) {
+        // Multi-modal: build a content array with text + image parts.
+        const parts: any[] = [];
+        if (m.content) {
+          parts.push({ type: 'text', text: m.content });
+        }
+        for (const img of m.images) {
+          if (img.startsWith('data:')) {
+            // Data URL — extract the base64 portion
+            const base64 = img.split(',')[1];
+            parts.push({ type: 'image', image: Buffer.from(base64, 'base64') });
+          } else {
+            // Assume it's a file path — the AI SDK can handle paths
+            parts.push({ type: 'image', image: img });
+          }
+        }
+        return { role: m.role, content: parts };
+      }
+      return { role: m.role, content: m.content };
+    });
+  }
+
+  /**
+   * Phase 4: generateObject() — structured outputs.
+   * Returns a typed JSON object matching the given schema.
+   *
+   * The schema is a plain JSON Schema object. We wrap it with the AI SDK's
+   * jsonSchema() helper so the SDK accepts it.
+   */
+  async generateObject(
+    request: ChatRequest & { schema: Record<string, unknown> }
+  ): Promise<{ object: any; usage?: { promptTokens: number; completionTokens: number } }> {
+    const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
+    const available = await ensureAiSdk();
+    if (!available) throw new Error('AI SDK not available');
+
+    const generateObjectFn = getGenerateObject();
+    if (!generateObjectFn) throw new Error('generateObject not available in AI SDK');
+
+    const model = createSdkModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
+    if (!model) throw new Error(`Failed to create model for ${provider.id}/${modelId}`);
+
+    const jsonSchemaFn = getJsonSchema();
+    const schema = jsonSchemaFn ? jsonSchemaFn(request.schema) : request.schema;
+
+    const result = await generateObjectFn({
+      model,
+      messages: this.toAiSdkMessages(
+        request.messages.map(m => ({ role: m.role, content: m.content }))
+      ),
+      schema,
+      system: request.systemPrompt,
+      temperature: request.temperature,
+    });
+
+    return {
+      object: result.object,
+      usage: result.usage ? {
+        promptTokens: result.usage.promptTokens || 0,
+        completionTokens: result.usage.completionTokens || 0,
+      } : undefined,
+    };
+  }
+
+  /**
+   * Phase 4: embed() — generate a vector embedding for a single text.
+   */
+  async embed(
+    model: string,
+    text: string
+  ): Promise<number[]> {
+    const { provider, auth, baseUrl, modelId } = this.resolveModel(model);
+    const available = await ensureAiSdk();
+    if (!available) throw new Error('AI SDK not available');
+
+    const embedFn = getEmbed();
+    if (!embedFn) throw new Error('embed not available in AI SDK');
+
+    const embeddingModel = createSdkEmbeddingModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
+    if (!embeddingModel) throw new Error(`Failed to create embedding model for ${provider.id}/${modelId}`);
+
+    const result = await embedFn({ model: embeddingModel, value: text });
+    return result.embedding;
+  }
+
+  /**
+   * Phase 4: embedMany() — generate embeddings for multiple texts at once.
+   */
+  async embedMany(
+    model: string,
+    texts: string[]
+  ): Promise<number[][]> {
+    const { provider, auth, baseUrl, modelId } = this.resolveModel(model);
+    const available = await ensureAiSdk();
+    if (!available) throw new Error('AI SDK not available');
+
+    const embedManyFn = getEmbedMany();
+    if (!embedManyFn) throw new Error('embedMany not available in AI SDK');
+
+    const embeddingModel = createSdkEmbeddingModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
+    if (!embeddingModel) throw new Error(`Failed to create embedding model for ${provider.id}/${modelId}`);
+
+    const result = await embedManyFn({ model: embeddingModel, values: texts });
+    return result.embeddings;
   }
 }

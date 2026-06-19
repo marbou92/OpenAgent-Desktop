@@ -53,6 +53,7 @@ import ChatInput from './ChatInput';
 import ChatEmptyState from './ChatEmptyState';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
+import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
 
 // Phase 2.2: ModeSwitch is gone. The Build/Plan selector now lives inside
@@ -106,6 +107,9 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [selectedModel, setSelectedModel] = useState('');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
+  // Phase 4: image attachments (base64 data URLs) + structured output panel
+  const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  const [structurePanelOpen, setStructurePanelOpen] = useState(false);
 
   const {
     messages,
@@ -186,11 +190,24 @@ const ChatView: React.FC<ChatViewProps> = ({
 
   const handleSend = useCallback(
     async (content: string, files?: AttachedFile[]) => {
-      await sendMessage(content, files);
+      // Phase 4: pass attached images to sendMessage for multi-modal support
+      const images = attachedImages.length > 0 ? attachedImages : undefined;
+      await sendMessage(content, files, images);
       clearFiles();
+      setAttachedImages([]); // Clear images after send
     },
-    [sendMessage, clearFiles],
+    [sendMessage, clearFiles, attachedImages],
   );
+
+  // Phase 4: handle image attachment from the file picker
+  const handleImagesAttached = useCallback((images: string[]) => {
+    setAttachedImages(prev => [...prev, ...images]);
+  }, []);
+
+  // Phase 4: remove an attached image
+  const handleRemoveImage = useCallback((index: number) => {
+    setAttachedImages(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
   // Called when the empty-state "suggested prompt" button is clicked.
   // We don't auto-send — we pre-fill the composer and let the user edit.
@@ -644,10 +661,48 @@ const ChatView: React.FC<ChatViewProps> = ({
         // Pre-fill support: empty-state prompts flow into the textarea.
         pendingPrompt={pendingPrompt}
         onPendingPromptConsumed={handlePendingPromptConsumed}
+        // Phase 4: image attachment callback
+        onImagesAttached={handleImagesAttached}
+        // Phase 4: /structure slash command opens the structured output panel
+        onStructureCommand={() => setStructurePanelOpen(true)}
       />
+
+      {/* ─── Phase 4: Image attachment preview ─────────────────────────── */}
+      {attachedImages.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-4 pb-2">
+          {attachedImages.map((img, idx) => (
+            <div key={idx} className="relative group">
+              <img
+                src={img}
+                alt={`Attachment ${idx + 1}`}
+                className="w-16 h-16 rounded-lg object-cover border"
+                style={{ borderColor: 'var(--color-border-primary)' }}
+              />
+              <button
+                onClick={() => handleRemoveImage(idx)}
+                className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ background: 'var(--color-error)', color: 'white' }}
+                aria-label="Remove image"
+              >
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ─── Permission Dialog ────────────────────────────────────────── */}
       <PermissionDialog request={permissionRequest} onRespond={handlePermissionRespond} />
+
+      {/* ─── Phase 4: Structured Output Panel ──────────────────────────── */}
+      <StructuredOutputPanel
+        open={structurePanelOpen}
+        onClose={() => setStructurePanelOpen(false)}
+        model={selectedProviderId && selectedModel ? `${selectedProviderId}/${selectedModel}` : ''}
+      />
     </div>
   );
 };

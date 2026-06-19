@@ -236,3 +236,98 @@ export function getGenerateText(): Function | null {
 export function getTool(): Function | null {
   return _aiSdk?.tool || null;
 }
+
+// ─── Phase 4: Advanced AI SDK feature getters ────────────────────────────────
+
+/** Get generateObject() for structured outputs. */
+export function getGenerateObject(): Function | null {
+  return _aiSdk?.generateObject || null;
+}
+
+/** Get streamObject() for streaming structured outputs. */
+export function getStreamObject(): Function | null {
+  return _aiSdk?.streamObject || null;
+}
+
+/** Get embed() for single-text embeddings. */
+export function getEmbed(): Function | null {
+  return _aiSdk?.embed || null;
+}
+
+/** Get embedMany() for batch embeddings. */
+export function getEmbedMany(): Function | null {
+  return _aiSdk?.embedMany || null;
+}
+
+/** Get smoothStream() middleware for buffered token delivery. */
+export function getSmoothStream(): Function | null {
+  return _aiSdk?.smoothStream || null;
+}
+
+/** Get jsonSchema() helper for wrapping plain JSON schemas (used by generateObject). */
+export function getJsonSchema(): Function | null {
+  return _aiSdk?.jsonSchema || null;
+}
+
+/**
+ * Create an embedding model instance for a provider + model ID.
+ * Uses the same provider factory as chat models but calls the
+ * `.textEmbeddingModel(modelId)` method instead of `(modelId)`.
+ */
+export function createSdkEmbeddingModel(
+  providerId: string,
+  modelId: string,
+  auth: AuthProvider,
+  options?: { baseURL?: string }
+): any | null {
+  if (!_loadSucceeded || !_aiSdk) return null;
+
+  let factoryMod = _providerFactories.get(providerId);
+  if (!factoryMod) {
+    factoryMod = _providerFactories.get('__openai-compatible__');
+    if (!factoryMod) return null;
+  }
+
+  const apiKey = auth.type === 'api' ? auth.key :
+                 auth.type === 'oauth' ? auth.access :
+                 auth.type === 'wellknown' ? auth.token : '';
+  if (!apiKey) return null;
+
+  try {
+    // For openai-compatible providers
+    if (providerId !== 'openai' && providerId !== 'anthropic' && providerId !== 'google' &&
+        providerId !== 'google-vertex' && providerId !== 'amazon-bedrock' && providerId !== 'azure' &&
+        providerId !== 'mistral' && providerId !== 'groq' && providerId !== 'cohere' &&
+        providerId !== 'xai' && providerId !== 'deepinfra' && providerId !== 'togetherai' &&
+        providerId !== 'perplexity') {
+      const compatMod = _providerFactories.get('__openai-compatible__');
+      if (compatMod) {
+        const createFn = compatMod.createOpenAICompatible || compatMod.default;
+        const baseURL = options?.baseURL;
+        if (!baseURL || baseURL.trim() === '') return null;
+        const provider = createFn({ name: providerId, apiKey, baseURL });
+        // openai-compatible providers expose .textEmbeddingModel(modelId)
+        if (typeof provider.textEmbeddingModel === 'function') {
+          return provider.textEmbeddingModel(modelId);
+        }
+        return null;
+      }
+      return null;
+    }
+
+    // Official providers: find the create function, call it, then .textEmbeddingModel
+    const factoryName = `create${providerId.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('')}`;
+    const createFn = factoryMod[factoryName] || factoryMod.default;
+    if (!createFn) return null;
+    const config: Record<string, unknown> = { apiKey };
+    if (options?.baseURL) config.baseURL = options.baseURL;
+    const providerInstance = createFn(config);
+    if (typeof providerInstance.textEmbeddingModel === 'function') {
+      return providerInstance.textEmbeddingModel(modelId);
+    }
+    return null;
+  } catch (err) {
+    console.warn(`[AiSdk] Failed to create embedding model for ${providerId}/${modelId}:`, err);
+    return null;
+  }
+}
