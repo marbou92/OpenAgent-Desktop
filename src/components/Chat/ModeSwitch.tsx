@@ -13,16 +13,45 @@ interface ModeOption {
   id: AgentMode;
   label: string;
   color: string;
-  icon: string;
+  // SVG path data for the icon — rendered at 12x12.
+  iconPath: string;
   description: string;
   shortcut: string;
 }
 
 const MODES: ModeOption[] = [
-  { id: 'build', label: 'Build', color: '#22c55e', icon: '⚡', description: 'Full autonomy — all tools enabled', shortcut: '1' },
-  { id: 'plan', label: 'Plan', color: '#3b82f6', icon: '📋', description: 'Read-only analysis — no changes', shortcut: '2' },
-  { id: 'chat', label: 'Chat', color: '#8b5cf6', icon: '💬', description: 'Pure conversation — no tools', shortcut: '3' },
-  { id: 'smart', label: 'Smart', color: '#f59e0b', icon: '🛡️', description: 'Safe ops auto-approved, sensitive needs confirmation', shortcut: '4' },
+  {
+    id: 'build',
+    label: 'Build',
+    color: '#22c55e',
+    iconPath: 'M13 2L3 14h7l-1 8 10-12h-7l1-8z',
+    description: 'Full autonomy — all tools enabled',
+    shortcut: '1',
+  },
+  {
+    id: 'plan',
+    label: 'Plan',
+    color: '#3b82f6',
+    iconPath: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
+    description: 'Read-only analysis — no changes',
+    shortcut: '2',
+  },
+  {
+    id: 'chat',
+    label: 'Chat',
+    color: '#8b5cf6',
+    iconPath: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+    description: 'Pure conversation — no tools',
+    shortcut: '3',
+  },
+  {
+    id: 'smart',
+    label: 'Smart',
+    color: '#f59e0b',
+    iconPath: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+    description: 'Safe ops auto-approved, sensitive needs confirmation',
+    shortcut: '4',
+  },
 ];
 
 interface ModeSwitchProps {
@@ -153,7 +182,19 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
                     }}
                   />
                 )}
-                <span>{mode.icon}</span>
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ flexShrink: 0 }}
+                >
+                  <path d={mode.iconPath} />
+                </svg>
                 <span>{mode.label}</span>
 
                 {/* Auto-detected indicator */}
@@ -197,7 +238,19 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
               border: showCustomAgents ? `1px solid ${activeModeConfig.color}40` : '1px solid transparent',
             }}
           >
-            <span>👤</span>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
             <span>{agentsForCurrentMode.length}</span>
             <svg
               className="w-3 h-3 transition-transform"

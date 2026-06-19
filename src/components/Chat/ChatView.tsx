@@ -1,22 +1,48 @@
 /**
- * OpenAgent-Desktop - Unified Chat View Component
+ * OpenAgent-Desktop - Chat View (Phase 2 Redesign)
  *
- * Merged from ChatView + ChatArea. Main chat view with:
- * - Mode switch (Build/Plan/Chat/Smart)
- * - Execution context bar
- * - Provider/model selector dropdown
- * - Message list with auto-scroll
- * - Permission request handling
- * - Streaming display, tool calls, and empty state
+ * Redesigned chat surface inspired by open-cowork / opencode-desktop:
+ *
+ *   ┌──────────────────────────────────────────────────────┐
+ *   │ ◀ ModeSwitch  Session name (editable)        ⚙ 📋 +  │ ← slim header
+ *   ├──────────────────────────────────────────────────────┤
+ *   │                                                      │
+ *   │            ┌─ centered message column ─┐             │
+ *   │            │  user message             │             │
+ *   │            │  assistant message        │             │
+ *   │            │  tool call (inline)       │             │
+ *   │            │  ...                      │             │
+ *   │            └───────────────────────────┘             │
+ *   │                                                      │
+ *   ├──────────────────────────────────────────────────────┤
+ *   │ [Model ▾]  ╭─────────────────────────────────────╮   │ ← composer
+ *   │            │  Type a message... (/ for commands) │   │
+ *   │            ╰──────────────────────────────────────╯  │
+ *   │            [📎]                              [➤]     │
+ *   └──────────────────────────────────────────────────────┘
+ *
+ * The composer lives in ChatInput. The model selector is rendered inside the
+ * composer so it's always one click away without taking header space.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ChatMessage, ProviderInfo, SessionData, AppSettings, TraceEntry, Toast, PermissionRequest, AgentMode, AttachedFile } from '../../types';
+import {
+  ChatMessage,
+  ProviderInfo,
+  SessionData,
+  AppSettings,
+  TraceEntry,
+  Toast,
+  PermissionRequest,
+  AgentMode,
+  AttachedFile,
+} from '../../types';
 import { useChat } from '../../hooks/useChat';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import ModeSwitch from './ModeSwitch';
+import ChatEmptyState from './ChatEmptyState';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
 import { getAPI } from '../../utils/api';
@@ -64,20 +90,28 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
-  const [availableModels, setAvailableModels] = useState<Array<{ id: string; displayName: string }>>([]);
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<string>('');
 
-  const { messages, isStreaming, error, streamingContent, streamingThinking, activeToolCalls, sendMessage, stopStreaming, retryLastMessage } =
-    useChat({
-      sessionId,
-      providers,
-      permissionMode: settings.permissionMode ?? 'smart_approve',
-      onMessagesUpdate,
-      onTraceEntry: addTraceEntry,
-      onPermissionRequest: (req) => setPermissionRequest(req),
-      // BUGFIX: pass messages through so loading a saved session shows them.
-      externalMessages,
-    });
+  const {
+    messages,
+    isStreaming,
+    error,
+    streamingContent,
+    streamingThinking,
+    activeToolCalls,
+    sendMessage,
+    stopStreaming,
+    retryLastMessage,
+  } = useChat({
+    sessionId,
+    providers,
+    permissionMode: settings.permissionMode ?? 'smart_approve',
+    onMessagesUpdate,
+    onTraceEntry: addTraceEntry,
+    onPermissionRequest: (req) => setPermissionRequest(req),
+    externalMessages,
+  });
 
   const { droppedFiles, removeFile, clearFiles, fileError } = useFileDrop({
     onFilesDropped: (files) => {
@@ -100,34 +134,29 @@ const ChatView: React.FC<ChatViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // Load models when provider changes
-  useEffect(() => {
-    if (!selectedProviderId || !api?.providers?.listModels) {
-      setAvailableModels([]);
-      return;
-    }
-    api.providers.listModels(selectedProviderId).then((models: any[]) => {
-      setAvailableModels((models || []).map((m: any) => ({ id: m.id, displayName: m.displayName || m.id })));
-    }).catch(() => setAvailableModels([]));
-  }, [selectedProviderId]);
-
   // Save provider+model to session when changed
-  const handleProviderChange = useCallback((providerId: string) => {
-    setSelectedProviderId(providerId);
-    setSelectedModel('');
-    if (sessionId && api?.sessions?.update) {
-      api.sessions.update(sessionId, { providerId, model: '' });
-    }
-  }, [sessionId, api]);
+  const handleProviderChange = useCallback(
+    (providerId: string) => {
+      setSelectedProviderId(providerId);
+      setSelectedModel('');
+      if (sessionId && api?.sessions?.update) {
+        api.sessions.update(sessionId, { providerId, model: '' });
+      }
+    },
+    [sessionId],
+  );
 
-  const handleModelChange = useCallback((model: string) => {
-    setSelectedModel(model);
-    if (sessionId && api?.sessions?.update) {
-      api.sessions.update(sessionId, { model });
-    }
-  }, [sessionId, api]);
+  const handleModelChange = useCallback(
+    (model: string) => {
+      setSelectedModel(model);
+      if (sessionId && api?.sessions?.update) {
+        api.sessions.update(sessionId, { model });
+      }
+    },
+    [sessionId],
+  );
 
-  // Auto-scroll
+  // Auto-scroll — only when messages length or streaming content actually changes.
   useEffect(() => {
     if (autoScroll && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -141,38 +170,61 @@ const ChatView: React.FC<ChatViewProps> = ({
     setAutoScroll(atBottom);
   }, []);
 
-  const handleSend = useCallback(async (content: string, files?: AttachedFile[]) => {
-    await sendMessage(content, files);
-    clearFiles();
-  }, [sendMessage, clearFiles]);
+  const handleSend = useCallback(
+    async (content: string, files?: AttachedFile[]) => {
+      await sendMessage(content, files);
+      clearFiles();
+    },
+    [sendMessage, clearFiles],
+  );
 
-  const handlePermissionRespond = useCallback((response: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny') => {
-    if (permissionRequest) {
-      if (api?.permissions?.respond) {
-        api.permissions.respond(permissionRequest.id, response);
+  // Called when the empty-state "suggested prompt" button is clicked.
+  // We don't auto-send — we pre-fill the composer and let the user edit.
+  const handlePickPrompt = useCallback((prompt: string) => {
+    setPendingPrompt(prompt);
+  }, []);
+
+  // Clear the pending prompt once ChatInput has consumed it.
+  const handlePendingPromptConsumed = useCallback(() => {
+    setPendingPrompt('');
+  }, []);
+
+  const handlePermissionRespond = useCallback(
+    (response: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny') => {
+      if (permissionRequest) {
+        if (api?.permissions?.respond) {
+          api.permissions.respond(permissionRequest.id, response);
+        }
+        setPermissionRequest(null);
       }
-      setPermissionRequest(null);
-    }
-  }, [permissionRequest]);
+    },
+    [permissionRequest],
+  );
 
   const handleNameSubmit = useCallback(() => {
     setIsEditingName(false);
-  }, []);
+    if (sessionId && api?.sessions?.update && sessionName) {
+      api.sessions.update(sessionId, { name: sessionName });
+    }
+  }, [sessionId, sessionName]);
 
-  const handleCopyMessage = useCallback((content: string) => {
-    navigator.clipboard.writeText(content).then(() => {
-      addToast({ type: 'success', title: 'Copied to clipboard' });
-    });
-  }, [addToast]);
+  const handleCopyMessage = useCallback(
+    (content: string) => {
+      navigator.clipboard.writeText(content).then(() => {
+        addToast({ type: 'success', title: 'Copied to clipboard' });
+      });
+    },
+    [addToast],
+  );
 
   const hasConnectedProvider = providers.length > 0 && providers.some((p) => p.configured);
-  const canSend = selectedProviderId && selectedModel;
+  const hasMessages = messages.length > 0;
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
-      {/* Top Bar */}
+      {/* ─── Slim Header ───────────────────────────────────────────────── */}
       <div
-        className="flex items-center justify-between px-4 border-b"
+        className="flex items-center justify-between px-3 border-b flex-shrink-0"
         style={{
           borderColor: 'var(--color-border-secondary)',
           background: 'var(--color-bg-secondary)',
@@ -181,6 +233,8 @@ const ChatView: React.FC<ChatViewProps> = ({
       >
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <ModeSwitch activeMode={activeMode} onModeChange={setActiveMode} />
+
+          {/* Session name (inline-editable) */}
           <div className="flex items-center min-w-0">
             {isEditingName ? (
               <input
@@ -193,13 +247,17 @@ const ChatView: React.FC<ChatViewProps> = ({
                   if (e.key === 'Escape') setIsEditingName(false);
                 }}
                 className="text-sm font-medium bg-transparent outline-none border-b px-1"
-                style={{ color: 'var(--color-text-primary)', borderColor: 'var(--color-accent)', width: '150px' }}
+                style={{
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-accent)',
+                  width: '180px',
+                }}
                 autoFocus
               />
             ) : (
               <button
                 onClick={() => setIsEditingName(true)}
-                className="text-sm font-medium truncate hover:opacity-80 transition-opacity max-w-[200px]"
+                className="text-sm font-medium truncate hover:opacity-80 transition-opacity max-w-[220px]"
                 style={{ color: 'var(--color-text-primary)' }}
                 title="Click to edit session name"
               >
@@ -209,70 +267,98 @@ const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <select
-              value={selectedProviderId}
-              onChange={(e) => handleProviderChange(e.target.value)}
-              className="text-xs px-2 py-1 rounded-md border outline-none cursor-pointer"
-              style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
-            >
-              <option value="">Provider</option>
-              {providers.filter((p) => p.configured).map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <select
-              value={selectedModel}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="text-xs px-2 py-1 rounded-md border outline-none cursor-pointer max-w-[160px]"
-              style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
-              disabled={!selectedProviderId}
-            >
-              <option value="">Model</option>
-              {availableModels.map((m) => (
-                <option key={m.id} value={m.id}>{m.displayName}</option>
-              ))}
-            </select>
+        {/* Header actions */}
+        <div className="flex items-center gap-1">
+          {/* Connection status pill */}
+          <div
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium"
+            style={{
+              background: hasConnectedProvider
+                ? 'rgba(34,197,94,0.1)'
+                : 'rgba(239,68,68,0.1)',
+              color: hasConnectedProvider ? 'var(--color-success)' : 'var(--color-error)',
+            }}
+            title={hasConnectedProvider ? 'At least one provider is configured' : 'No providers configured — open Settings'}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ background: hasConnectedProvider ? 'var(--color-success)' : 'var(--color-error)' }}
+            />
+            <span>{hasConnectedProvider ? 'Ready' : 'Setup needed'}</span>
           </div>
 
-          <div className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full" style={{ background: hasConnectedProvider ? 'var(--color-success)' : 'var(--color-error)' }} />
-            <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
-              {hasConnectedProvider ? 'Connected' : 'Disconnected'}
-            </span>
-          </div>
+          {/* Trace panel toggle */}
+          <button
+            onClick={onToggleTracePanel}
+            className="p-1.5 rounded-lg transition-colors"
+            style={{
+              color: tracePanelOpen ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+              background: tracePanelOpen ? 'var(--color-accent-soft)' : 'transparent',
+            }}
+            onMouseEnter={(e) => {
+              if (!tracePanelOpen) {
+                e.currentTarget.style.background = 'var(--color-bg-hover)';
+                e.currentTarget.style.color = 'var(--color-text-primary)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!tracePanelOpen) {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--color-text-tertiary)';
+              }
+            }}
+            title="Toggle trace panel"
+            aria-label="Toggle trace panel"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="15" y1="3" x2="15" y2="21" />
+            </svg>
+          </button>
 
+          {/* New chat */}
           <button
             onClick={onNewSession}
             className="p-1.5 rounded-lg transition-colors"
             style={{ color: 'var(--color-text-tertiary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; e.currentTarget.style.color = 'var(--color-accent)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
-            title="New chat" aria-label="New chat"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--color-bg-hover)';
+              e.currentTarget.style.color = 'var(--color-accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--color-text-tertiary)';
+            }}
+            title="New chat"
+            aria-label="New chat"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
-
-          <button
-            onClick={onToggleTracePanel}
-            className="p-1.5 rounded-lg transition-colors"
-            style={{ color: tracePanelOpen ? 'var(--color-accent)' : 'var(--color-text-tertiary)', background: tracePanelOpen ? 'var(--color-accent-soft)' : 'transparent' }}
-            onMouseEnter={(e) => { if (!tracePanelOpen) { e.currentTarget.style.background = 'var(--color-bg-hover)'; e.currentTarget.style.color = 'var(--color-text-primary)'; }}}
-            onMouseLeave={(e) => { if (!tracePanelOpen) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}}
-            title="Toggle trace panel" aria-label="Toggle trace panel"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* Execution Context Bar */}
-      {executionContext && (
+      {/* ─── Execution Context Bar (only when running) ────────────────── */}
+      {executionContext && executionContext.isRunning && (
         <ExecutionContextBar
           isRunning={executionContext.isRunning ?? false}
           isPaused={executionContext.isPaused}
@@ -292,46 +378,82 @@ const ChatView: React.FC<ChatViewProps> = ({
         />
       )}
 
-      {/* Messages Area */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto" onScroll={handleScroll}>
-        {messages.length === 0 ? (
-          <EmptyState onNewSession={onNewSession} />
+      {/* ─── Messages Area ────────────────────────────────────────────── */}
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto"
+        onScroll={handleScroll}
+      >
+        {!hasMessages ? (
+          <ChatEmptyState
+            onPickPrompt={handlePickPrompt}
+            onNewSession={onNewSession}
+            noProvidersConfigured={!hasConnectedProvider}
+          />
         ) : (
-          <div className="max-w-3xl mx-auto px-4 py-4 space-y-4">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
             {messages.map((message, index) => (
               <MessageBubble
                 key={message.id}
                 message={message}
                 isLast={index === messages.length - 1}
-                onRetry={message.role === 'assistant' && (message.error || index === messages.length - 1) ? retryLastMessage : undefined}
+                onRetry={
+                  message.role === 'assistant' &&
+                  (message.error || index === messages.length - 1)
+                    ? retryLastMessage
+                    : undefined
+                }
                 onCopy={handleCopyMessage}
               />
             ))}
 
-            {/* Active Tool Calls */}
+            {/* Active tool calls (when streaming) */}
             {activeToolCalls.length > 0 && (
               <div className="space-y-2">
                 {activeToolCalls.map((tc) => (
                   <div
                     key={tc.id}
-                    className="rounded-lg p-3 border"
-                    style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)' }}
+                    className="rounded-lg border px-3 py-2 flex items-center gap-2.5"
+                    style={{
+                      background: 'var(--color-bg-secondary)',
+                      borderColor: 'var(--color-border-primary)',
+                    }}
                   >
-                    <div className="flex items-center gap-2">
-                      {tc.status === 'pending' ? (
-                        <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin-slow" style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }} />
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                      <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {tc.name}
-                      </span>
-                      <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                        {tc.status}
-                      </span>
-                    </div>
+                    {tc.status === 'pending' ? (
+                      <div
+                        className="w-3.5 h-3.5 border-2 rounded-full animate-spin-slow flex-shrink-0"
+                        style={{
+                          borderColor: 'var(--color-accent)',
+                          borderTopColor: 'transparent',
+                        }}
+                      />
+                    ) : (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--color-success)"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="flex-shrink-0"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                    <span
+                      className="text-xs font-medium font-mono"
+                      style={{ color: 'var(--color-text-primary)' }}
+                    >
+                      {tc.name}
+                    </span>
+                    <span
+                      className="text-[10px] uppercase tracking-wider"
+                      style={{ color: 'var(--color-text-muted)' }}
+                    >
+                      {tc.status}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -342,72 +464,140 @@ const ChatView: React.FC<ChatViewProps> = ({
         )}
       </div>
 
-      {/* Thinking indicator overlay */}
-      {isStreaming && streamingThinking && (
+      {/* ─── Streaming status bar (thinking / writing) ────────────────── */}
+      {isStreaming && (
         <div
-          className="px-4 py-2 flex items-center gap-3 border-t animate-fade-in"
-          style={{ background: 'rgba(168,85,247,0.05)', borderColor: 'rgba(168,85,247,0.2)' }}
+          className="flex items-center gap-2 px-4 py-1.5 border-t text-xs"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            borderColor: 'var(--color-border-secondary)',
+            color: 'var(--color-text-tertiary)',
+          }}
         >
-          <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin-slow" style={{ borderColor: 'var(--color-trace-thinking)', borderTopColor: 'transparent' }} />
-          <span className="text-xs font-medium" style={{ color: 'var(--color-trace-thinking)' }}>Thinking...</span>
-          <span className="text-xs flex-1 truncate" style={{ color: 'var(--color-text-tertiary)' }}>
-            {streamingThinking.slice(0, 120)}{streamingThinking.length > 120 ? '...' : ''}
-          </span>
+          {streamingThinking ? (
+            <>
+              <div
+                className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
+                style={{
+                  borderColor: 'var(--color-trace-thinking)',
+                  borderTopColor: 'transparent',
+                }}
+              />
+              <span style={{ color: 'var(--color-trace-thinking)' }}>Thinking...</span>
+              <span className="flex-1 truncate" style={{ color: 'var(--color-text-muted)' }}>
+                {streamingThinking.slice(0, 140)}
+                {streamingThinking.length > 140 ? '…' : ''}
+              </span>
+            </>
+          ) : streamingContent ? (
+            <>
+              <div
+                className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
+                style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
+              />
+              <span>Generating...</span>
+              <span className="flex-1 truncate" style={{ color: 'var(--color-text-muted)' }}>
+                {streamingContent.slice(-140)}
+              </span>
+            </>
+          ) : (
+            <>
+              <div
+                className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
+                style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
+              />
+              <span>Connecting...</span>
+            </>
+          )}
         </div>
       )}
 
-      {/* Auto-scroll indicator */}
-      {!autoScroll && messages.length > 0 && (
-        <div className="flex justify-center pb-1">
+      {/* ─── Scroll-to-bottom indicator ───────────────────────────────── */}
+      {!autoScroll && hasMessages && (
+        <div className="flex justify-center pb-1.5 -mt-9 relative z-10">
           <button
-            onClick={() => { setAutoScroll(true); messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors shadow-lg"
-            style={{ background: 'var(--color-bg-elevated)', color: 'var(--color-accent)', border: '1px solid var(--color-border-primary)' }}
+            onClick={() => {
+              setAutoScroll(true);
+              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium shadow-lg transition-colors"
+            style={{
+              background: 'var(--color-bg-elevated)',
+              color: 'var(--color-accent)',
+              border: '1px solid var(--color-border-primary)',
+            }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polyline points="6 9 12 15 18 9" />
             </svg>
-            Scroll to bottom
+            Jump to latest
           </button>
         </div>
       )}
 
-      {/* Error Bar */}
+      {/* ─── Error Bar ────────────────────────────────────────────────── */}
       {error && (
         <div
-          className="px-4 py-2 flex items-center gap-2 border-t text-sm"
+          className="px-4 py-2 flex items-center gap-2 border-t text-xs"
           style={{
             background: 'rgba(239,68,68,0.08)',
             borderColor: 'var(--color-error)',
             color: 'var(--color-error)',
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
             <line x1="9" y1="9" x2="15" y2="15" />
           </svg>
-          <span>{error}</span>
+          <span className="flex-1 truncate">{error}</span>
           <button
             onClick={retryLastMessage}
-            className="ml-auto text-xs font-medium underline"
+            className="text-xs font-medium underline"
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* File Error */}
+      {/* ─── File Error ───────────────────────────────────────────────── */}
       {fileError && (
         <div
-          className="px-4 py-2 flex items-center gap-2 border-t text-sm"
+          className="px-4 py-2 flex items-center gap-2 border-t text-xs"
           style={{
             background: 'rgba(245,158,11,0.08)',
             borderColor: 'var(--color-warning)',
             color: 'var(--color-warning)',
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -416,7 +606,7 @@ const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
-      {/* Chat Input */}
+      {/* ─── Composer (with inline model selector) ────────────────────── */}
       <ChatInput
         onSend={handleSend}
         onStop={stopStreaming}
@@ -427,54 +617,22 @@ const ChatView: React.FC<ChatViewProps> = ({
         disabled={!sessionId}
         streamingThinking={streamingThinking}
         onNewSession={onNewSession}
+        // Phase 2: pass provider/model state down so the selector lives
+        // inside the composer, not the header.
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        selectedModel={selectedModel}
+        onProviderChange={handleProviderChange}
+        onModelChange={handleModelChange}
+        // Pre-fill support: empty-state prompts flow into the textarea.
+        pendingPrompt={pendingPrompt}
+        onPendingPromptConsumed={handlePendingPromptConsumed}
       />
 
-      {/* Permission Dialog */}
+      {/* ─── Permission Dialog ────────────────────────────────────────── */}
       <PermissionDialog request={permissionRequest} onRespond={handlePermissionRespond} />
     </div>
   );
 };
-
-// Empty State component
-const EmptyState: React.FC<{ onNewSession: () => void }> = ({ onNewSession }) => (
-  <div className="flex flex-col items-center justify-center h-full px-4">
-    <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--color-accent-soft)' }}>
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    </div>
-    <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>Welcome to OpenAgent</h2>
-    <p className="text-sm text-center max-w-sm mb-6" style={{ color: 'var(--color-text-tertiary)' }}>
-      Start a conversation with your AI agent. Choose a mode, select a provider, and type your message below.
-    </p>
-    <div className="flex gap-2">
-      <button
-        onClick={onNewSession}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        style={{ background: 'var(--color-accent)', color: 'white' }}
-        onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
-        onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-        New Chat
-      </button>
-    </div>
-    <div className="flex flex-wrap gap-2 mt-6 justify-center max-w-md">
-      {['Explain this code', 'Write a test', 'Debug an error', 'Refactor function'].map((prompt) => (
-        <button
-          key={prompt}
-          className="px-3 py-1.5 rounded-lg text-xs border transition-colors"
-          style={{ background: 'transparent', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-secondary)' }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.background = 'var(--color-accent-soft)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-primary)'; e.currentTarget.style.color = 'var(--color-text-secondary)'; e.currentTarget.style.background = 'transparent'; }}
-        >
-          {prompt}
-        </button>
-      ))}
-    </div>
-  </div>
-);
 
 export default ChatView;
