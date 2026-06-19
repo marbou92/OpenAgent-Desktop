@@ -25,7 +25,7 @@ import { AuthProvider, ChatRequest, ChatResponse, StreamChunk, ProviderDefinitio
 import { AuthStore } from './auth-store-v2';
 import { OpencodeConfig } from './opencode-config';
 import { getOpencodeRegistry } from './opencode-registry';
-import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getSmoothStream, getJsonSchema } from './ai-sdk-loader';
+import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
 import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
 
 // AI SDK loading state.
@@ -286,13 +286,16 @@ export class ChatEngine {
           console.info(`[ChatEngine] AI SDK path for ${provider.id}/${modelId} (tools: ${!!options?.tools}, maxSteps: ${options?.maxSteps || 'none'}, system: ${!!request.systemPrompt})`);
 
           try {
-            // Phase 4: use toAiSdkMessages for multi-modal (images) support
-            // and smoothStream for buffered token delivery.
+            // Phase 4: use toAiSdkMessages for multi-modal (images) support.
             const aiMessages = this.toAiSdkMessages(
               request.messages.map(m => ({ role: m.role, content: m.content, images: (m as any).images }))
             );
-            const smoothStreamFn = getSmoothStream();
 
+            // Phase 4.1: REMOVED smoothStream() — it was breaking text-delta
+            // delivery on OpenAI-compatible providers (OpenCode Zen, etc.).
+            // The experimental_transform option buffers text chunks but never
+            // releases them to the fullStream iterator on some providers,
+            // causing "thinking shows but no answer" behaviour.
             const result = streamText({
               model,
               messages: aiMessages,
@@ -303,9 +306,6 @@ export class ChatEngine {
               temperature: request.temperature,
               maxTokens: request.maxTokens,
               abortSignal: options?.signal,
-              // Phase 4: smoothStream buffers tokens for smoother delivery
-              // on slow providers. Falls back to no transform if unavailable.
-              experimental_transform: smoothStreamFn ? smoothStreamFn() : undefined,
               onStepFinish: (step: any) => {
                 // Forward tool calls + results from each step.
                 if (step?.toolCalls) {
@@ -323,14 +323,20 @@ export class ChatEngine {
 
             // Stream the full stream — includes text deltas, tool calls, reasoning, etc.
             // Phase 2.6: track whether we've yielded any content/tool events.
-            // If an error occurs BEFORE any content was streamed, we break out
-            // of the loop and fall back to the protocol adapters (which give
-            // better error messages). If content was already streamed, we
-            // yield the error and return (can't fall back — would duplicate).
+            // Phase 4.1: also track accumulated reasoning content — if the
+            // stream finishes with no text-delta parts (common with reasoning
+            // models like DeepSeek that put everything in reasoning_content),
+            // we fall back to using the reasoning as the answer.
             let yieldedContent = false;
             let fallbackToAdapter = false;
+            let accumulatedReasoning = '';
+            let partCount = 0;
             streamLoop:
             for await (const part of result.fullStream) {
+              partCount++;
+              if (partCount <= 10 || partCount % 50 === 0) {
+                console.info(`[ChatEngine] stream part #${partCount}: ${part.type}`);
+              }
               switch (part.type) {
                 case 'text-delta':
                   if (part.textDelta) {
@@ -341,6 +347,7 @@ export class ChatEngine {
 
                 case 'reasoning':
                   if (part.textDelta) {
+                    accumulatedReasoning += part.textDelta;
                     yield { type: 'thinking', content: part.textDelta };
                   }
                   break;
@@ -406,6 +413,15 @@ export class ChatEngine {
                   return;
 
                 case 'finish':
+                  // Phase 4.1: if we got NO text-delta parts but DID get
+                  // reasoning content, yield the reasoning as the answer.
+                  // This happens with reasoning models (DeepSeek, o1, etc.)
+                  // that put everything in reasoning_content and leave the
+                  // regular content field empty.
+                  if (!yieldedContent && accumulatedReasoning.trim()) {
+                    console.info(`[ChatEngine] No text-delta parts received, using ${accumulatedReasoning.length} chars of reasoning as content`);
+                    yield { type: 'content', content: accumulatedReasoning };
+                  }
                   if (result.usage) {
                     yield {
                       type: 'usage',
@@ -415,6 +431,7 @@ export class ChatEngine {
                       },
                     };
                   }
+                  console.info(`[ChatEngine] Stream finished after ${partCount} parts (yieldedContent: ${yieldedContent})`);
                   yield { type: 'done' };
                   return;
 
