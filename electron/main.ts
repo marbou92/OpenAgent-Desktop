@@ -1740,6 +1740,17 @@ function registerIpcHandlers(): void {
       }
     }
 
+    // Phase 2.7: if the model returned an empty response (no content, no
+    // error), send a clear error so the user isn't left staring at a blank
+    // bubble. This happens with some free models that return empty SSE
+    // streams, or when the agent loop exhausts maxSteps with only tool
+    // calls and no final text.
+    if (!fullContent && status !== 'error') {
+      const errMsg = `The model ${providerId}/${modelId} returned an empty response. This can happen with free models that have rate limits, or when the model only made tool calls without producing a final answer. Try sending the message again, or switch to a different model.`;
+      send('chat:stream-error', { error: errMsg });
+      return { content: '', steps: stepCount, status: 'error' };
+    }
+
     return { content: fullContent, steps: stepCount, status };
   }
 
@@ -1961,6 +1972,18 @@ function registerIpcHandlers(): void {
                   send('chat:stream-end', { content: fullResponse });
                   return;
               }
+            }
+            // Phase 2.7: stream ended without an explicit 'done' or 'error'.
+            // If we got content, finalize normally. If not, send a clear
+            // error so the user isn't left with a blank bubble.
+            if (fullResponse) {
+              await sessionManager.addMessage(sessionId, { role: 'user', content: message });
+              await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
+              send('chat:stream-end', { content: fullResponse });
+            } else {
+              send('chat:stream-error', {
+                error: `The model ${session.providerId}/${session.model} returned an empty response. Try sending again or switch to a different model.`,
+              });
             }
           } catch (err: any) {
             // Phase 2.5: same actionable-error handling as the agent path.

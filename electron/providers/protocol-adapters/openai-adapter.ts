@@ -181,6 +181,11 @@ export class OpenAIAdapter implements ProtocolAdapter {
     let buffer = '';
     // Accumulate tool-call argument fragments per index.
     const toolCallAccum: Map<number, { id: string; name: string; argsBuf: string }> = new Map();
+    // Phase 2.7: track whether we parsed ANY SSE data lines. If the stream
+    // ends with zero data lines, the response wasn't SSE (e.g. the provider
+    // returned regular JSON) and we should yield an error instead of a
+    // silent empty 'done'.
+    let parsedAnyData = false;
 
     try {
       while (true) {
@@ -193,6 +198,7 @@ export class OpenAIAdapter implements ProtocolAdapter {
           const line = buffer.slice(0, newlineIdx).trim();
           buffer = buffer.slice(newlineIdx + 1);
           if (!line || !line.startsWith('data:')) continue;
+          parsedAnyData = true;
           const payload = line.slice(5).trim();
           if (payload === '[DONE]') {
             // Flush any in-flight tool calls.
@@ -253,6 +259,19 @@ export class OpenAIAdapter implements ProtocolAdapter {
       // Stream ended without [DONE] — flush.
       for (const [, acc] of toolCallAccum) {
         yield { type: 'tool_call_end', toolCall: { id: acc.id, name: acc.name, arguments: safeParseJSON(acc.argsBuf, {}) } };
+      }
+      // Phase 2.7: if we never parsed any SSE data lines, the response
+      // wasn't a valid SSE stream. Yield an error instead of a silent
+      // empty 'done' so the caller knows something went wrong.
+      if (!parsedAnyData) {
+        yield {
+          type: 'error',
+          error: {
+            message: `Provider returned a non-streaming response (no SSE data lines). The response body was ${buffer.length} bytes but did not contain any "data:" lines. This model may not support streaming.`,
+            code: 'NON_SSE_RESPONSE',
+          },
+        };
+        return;
       }
       yield { type: 'done' };
     } finally {

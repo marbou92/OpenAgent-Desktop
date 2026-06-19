@@ -279,6 +279,7 @@ export class ChatEngine {
       if (streamText) {
         const model = createSdkModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
         if (model) {
+          console.info(`[ChatEngine] AI SDK path for ${provider.id}/${modelId} (tools: ${!!options?.tools}, maxSteps: ${options?.maxSteps || 'none'}, system: ${!!request.systemPrompt})`);
           // Convert messages — support multi-modal content arrays.
           const messages = request.messages.map(m => ({
             role: m.role,
@@ -289,6 +290,10 @@ export class ChatEngine {
             const result = streamText({
               model,
               messages,
+              // Phase 2.7: pass the system prompt to the AI SDK. Previously
+              // this was silently dropped — the LLM never saw the Build/Plan
+              // agent instructions.
+              system: request.systemPrompt,
               tools: options?.tools,
               maxSteps: options?.maxSteps,
               temperature: request.temperature,
@@ -438,8 +443,19 @@ export class ChatEngine {
     }
 
     // Fallback: use the hand-rolled adapters.
+    // Phase 2.7: inject the systemPrompt as a system message at the start
+    // of the messages array, since the adapter doesn't have a `system`
+    // parameter like the AI SDK does.
     const adapter = getAdapterForProvider(provider);
-    yield* adapter.chatStream({ ...request, model: modelId }, { auth, baseUrl, signal: options?.signal });
+    const adapterRequest = { ...request, model: modelId };
+    if (request.systemPrompt && adapterRequest.messages[0]?.role !== 'system') {
+      adapterRequest.messages = [
+        { role: 'system' as any, content: request.systemPrompt },
+        ...adapterRequest.messages,
+      ];
+    }
+    console.info(`[ChatEngine] Using protocol adapter for ${provider.id}/${modelId}`);
+    yield* adapter.chatStream(adapterRequest, { auth, baseUrl, signal: options?.signal });
   }
 
   /**
