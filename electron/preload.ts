@@ -656,6 +656,9 @@ const electronAPI = {
     mainReady: (callback: () => void): (() => void) => {
       const handler = () => callback();
       ipcRenderer.on("main:ready", handler);
+      // Phase 4.3: also dispatch a custom DOM event so the splash screen
+      // (which runs before the React app mounts) can receive it.
+      (globalThis as any).dispatchEvent(new (globalThis as any).CustomEvent('openagent:main-ready'));
       return () => ipcRenderer.removeListener("main:ready", handler);
     },
 
@@ -665,6 +668,30 @@ const electronAPI = {
       const handler = (_event: Electron.IpcRendererEvent, data: { providerCount: number; modelCount: number; previousModelCount: number }) => callback(data);
       ipcRenderer.on("provider:catalog-updated", handler);
       return () => ipcRenderer.removeListener("provider:catalog-updated", handler);
+    },
+
+    // Phase 4.3: Catalog refresh progress — forwarded as custom DOM events
+    // so the splash screen (which runs before React mounts) can update its
+    // progress bar. These are ALSO available as regular IPC events for the
+    // React app if needed.
+    catalogProgress: (callback: (data: { percent: number; message: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { percent: number; message: string }) => {
+        callback(data);
+        // Dispatch as a custom DOM event for the splash screen
+        (globalThis as any).dispatchEvent(new (globalThis as any).CustomEvent('openagent:catalog-progress', { detail: data }));
+      };
+      ipcRenderer.on("main:catalog-progress", handler);
+      return () => ipcRenderer.removeListener("main:catalog-progress", handler);
+    },
+
+    catalogReady: (callback: (data: { providerCount: number; modelCount: number }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { providerCount: number; modelCount: number }) => {
+        callback(data);
+        // Dispatch as a custom DOM event for the splash screen
+        (globalThis as any).dispatchEvent(new (globalThis as any).CustomEvent('openagent:catalog-ready', { detail: data }));
+      };
+      ipcRenderer.on("main:catalog-ready", handler);
+      return () => ipcRenderer.removeListener("main:catalog-ready", handler);
     },
 
     // Permission request (AgentRunner asks the user to approve a tool call)

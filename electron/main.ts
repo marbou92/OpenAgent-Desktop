@@ -898,11 +898,33 @@ async function initializeSubsystems(): Promise<void> {
 
   modelsDevClient = getModelsDevClient();
   modelsDevClient.loadCache();
-  // Refresh models.dev catalog in the background (non-blocking).
+
+  // Phase 4.3: Send catalog progress events to the renderer so the splash
+  // screen can show a progress bar. The refresh is still non-blocking —
+  // the app works with cached/embedded data while the refresh runs.
+  function sendCatalogProgress(percent: number, message: string) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('main:catalog-progress', { percent, message });
+    }
+  }
+  function sendCatalogReady() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('main:catalog-ready', {
+        providerCount: modelsDevClient.getCachedProviderIds().length,
+        modelCount: modelsDevClient.getTotalModelCount(),
+      });
+    }
+  }
+
+  sendCatalogProgress(5, 'Fetching model catalog…');
   modelsDevClient.refresh().then(() => {
     logger.info('ModelsDev', `Catalog refreshed — ${modelsDevClient.getTotalModelCount()} models across ${modelsDevClient.getCachedProviderIds().length} providers`);
+    sendCatalogProgress(100, `Loaded ${modelsDevClient.getTotalModelCount()} models`);
+    sendCatalogReady();
   }).catch((err: unknown) => {
     logger.warn('ModelsDev', 'Failed to refresh catalog (using cached/hardcoded fallback)', err);
+    sendCatalogProgress(100, 'Using cached catalog');
+    sendCatalogReady();
   });
 
   // Forward catalog-updated events to the renderer so the UI can refresh.

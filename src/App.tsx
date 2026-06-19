@@ -272,10 +272,22 @@ const App: React.FC = () => {
     const unsubStatus = (api as any)?.on?.providerStatusChanged?.(() => refreshProviders());
     const unsubCatalog = (api as any)?.on?.catalogUpdated?.(() => refreshProviders());
 
+    // Phase 4.3: Register catalog progress + ready listeners so the preload
+    // dispatches the custom DOM events that the splash screen listens for.
+    // These callbacks are no-ops — the real work is done by the DOM event
+    // dispatch inside the preload. We just need to register the IPC listener.
+    const unsubCatalogProgress = (api as any)?.on?.catalogProgress?.(() => {});
+    const unsubCatalogReady = (api as any)?.on?.catalogReady?.(() => {
+      // When the catalog is ready, refresh the provider list.
+      refreshProviders();
+    });
+
     return () => {
       unsubHealth?.();
       unsubStatus?.();
       unsubCatalog?.();
+      unsubCatalogProgress?.();
+      unsubCatalogReady?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
