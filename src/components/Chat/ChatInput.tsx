@@ -1,32 +1,30 @@
 /**
- * OpenAgent-Desktop - Chat Input (Phase 2 Redesign)
+ * OpenAgent-Desktop - Chat Input (Phase 2.2 Redesign)
  *
  * Redesigned composer inspired by open-cowork / opencode-desktop:
  *
  *   ╭──────────────────────────────────────────────────────────╮
- *   │ [📎] [Model ▾]    ╭──────────────────────────────────╮  │
- *   │                   │ Type a message...               │  │
- *   │                   │ (/ for commands)                │  │
- *   │                   ╰──────────────────────────────────╯  │
- *   │                                              [➤ / ⏹]    │
+ *   │ [📎] [Build ▾] [Model ▾]   ╭──────────────────────────╮  │
+ *   │                            │ Type a message...       │  │
+ *   │                            │ (/ for commands)        │  │
+ *   │                            ╰──────────────────────────╯  │
+ *   │                                                [➤ / ⏹]  │
  *   ╰──────────────────────────────────────────────────────────╯
  *
- * Improvements over the previous version:
- *   - Inline model selector (no longer in the header) so users always know
- *     which provider+model they're talking to.
- *   - Bigger, softer textarea with rounded container.
- *   - Attachment chips render ABOVE the input row, not inside it.
- *   - Pending-prompt support: ChatView can pre-fill the input via pendingPrompt
- *     (used by the empty-state suggested-prompts grid).
- *   - Cleaner send/stop button with icon-only compact form.
- *   - Slash-command palette redesigned with keyboard nav.
+ * Phase 2.2 changes:
+ *   - Agent (Build/Plan) selector moved INTO the composer bottom-left
+ *     row, sitting next to the model selector. This matches opencode
+ *     desktop, which places the agent dropdown inside the prompt input
+ *     footer — NOT in the header.
+ *   - Only Build and Plan are selectable. Chat is no longer a UI mode.
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { AttachedFile, SlashCommand, ProviderInfo } from '../../types';
+import { AttachedFile, SlashCommand, ProviderInfo, AgentMode, AgentDefinition } from '../../types';
 import { formatFileSize } from '../../utils/format';
 import { getAPI } from '../../utils/api';
 import ModelSelector from './ModelSelector';
+import AgentSelector from './AgentSelector';
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/recipe', label: '/recipe', description: 'Run a recipe' },
@@ -57,6 +55,11 @@ interface ChatInputProps {
   selectedModel?: string;
   onProviderChange?: (providerId: string) => void;
   onModelChange?: (model: string) => void;
+  // Phase 2.2: inline agent (Build/Plan) selector props — moved here from
+  // the chat header to match opencode desktop's composer layout.
+  activeMode?: AgentMode;
+  onModeChange?: (mode: AgentMode) => void;
+  customAgents?: AgentDefinition[];
   // Phase 2: pre-fill support (used by empty-state prompt grid)
   pendingPrompt?: string;
   onPendingPromptConsumed?: () => void;
@@ -77,6 +80,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   selectedModel = '',
   onProviderChange,
   onModelChange,
+  activeMode,
+  onModeChange,
+  customAgents,
   pendingPrompt,
   onPendingPromptConsumed,
 }) => {
@@ -416,6 +422,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
+
+            {/* Inline agent selector (Phase 2.2 — moved here from the header
+                to match opencode desktop's composer layout). Sits BEFORE
+                the model selector, so the order is: [📎] [Build ▾] [Model ▾]. */}
+            {onModeChange && activeMode !== undefined && (
+              <AgentSelector
+                activeMode={activeMode}
+                onModeChange={onModeChange}
+                customAgents={customAgents}
+                disabled={disabled || isStreaming}
+              />
+            )}
 
             {/* Inline model selector (Phase 2 — moved here from the header) */}
             {onProviderChange && onModelChange && (

@@ -1,10 +1,10 @@
 /**
- * OpenAgent-Desktop - Chat View (Phase 2 Redesign)
+ * OpenAgent-Desktop - Chat View (Phase 2.2 Redesign)
  *
  * Redesigned chat surface inspired by open-cowork / opencode-desktop:
  *
  *   ┌──────────────────────────────────────────────────────┐
- *   │ ◀ ModeSwitch  Session name (editable)        ⚙ 📋 +  │ ← slim header
+ *   │  Session name (editable)              Ready  ⚙  +    │ ← minimal header
  *   ├──────────────────────────────────────────────────────┤
  *   │                                                      │
  *   │            ┌─ centered message column ─┐             │
@@ -15,14 +15,23 @@
  *   │            └───────────────────────────┘             │
  *   │                                                      │
  *   ├──────────────────────────────────────────────────────┤
- *   │ [Model ▾]  ╭─────────────────────────────────────╮   │ ← composer
- *   │            │  Type a message... (/ for commands) │   │
- *   │            ╰──────────────────────────────────────╯  │
- *   │            [📎]                              [➤]     │
+ *   │ ╭──────────────────────────────────────────────────╮ │ ← composer
+ *   │ │  Type a message... (/ for commands)              │ │
+ *   │ ╰──────────────────────────────────────────────────╯ │
+ *   │ [📎] [Build ▾] [Model ▾]                  [➤ Send]  │
+ *   │  ^^^^^^^^^^^  ^^^^^^^^^^^^^                          │
+ *   │  AgentSelector  ModelSelector                        │
  *   └──────────────────────────────────────────────────────┘
  *
- * The composer lives in ChatInput. The model selector is rendered inside the
- * composer so it's always one click away without taking header space.
+ * Phase 2.2 changes (vs Phase 2):
+ *   - Mode switch REMOVED from the header. The header is now minimal:
+ *     just the session name on the left and connection/trace/new-chat on
+ *     the right.
+ *   - Build/Plan selector moved INTO the composer's bottom-left row,
+ *     sitting next to the model selector. This matches opencode desktop,
+ *     which places the agent dropdown inside the prompt-input footer.
+ *   - Only Build and Plan are exposed. Chat is no longer a UI mode (old
+ *     sessions with mode='chat' or 'smart' normalize to 'build').
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
@@ -41,11 +50,13 @@ import { useChat } from '../../hooks/useChat';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
-import ModeSwitch from './ModeSwitch';
 import ChatEmptyState from './ChatEmptyState';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
 import { getAPI } from '../../utils/api';
+
+// Phase 2.2: ModeSwitch is gone. The Build/Plan selector now lives inside
+// the composer (AgentSelector component), matching opencode desktop.
 
 const api = getAPI();
 
@@ -85,7 +96,10 @@ const ChatView: React.FC<ChatViewProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [activeMode, setActiveMode] = useState<AgentMode>('chat');
+  // Phase 2.2: default to 'build' (was 'chat'). Only Build and Plan are
+  // selectable from the UI now; old sessions with 'chat'/'smart' normalize
+  // to 'build' via AgentSelector's normalizeMode().
+  const [activeMode, setActiveMode] = useState<AgentMode>('build');
   const [sessionName, setSessionName] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
@@ -222,7 +236,7 @@ const ChatView: React.FC<ChatViewProps> = ({
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
-      {/* ─── Slim Header ───────────────────────────────────────────────── */}
+      {/* ─── Slim Header (Phase 2.2 — minimal, no mode switch) ──────────── */}
       <div
         className="flex items-center justify-between px-3 border-b flex-shrink-0"
         style={{
@@ -231,10 +245,9 @@ const ChatView: React.FC<ChatViewProps> = ({
           height: 'var(--titlebar-height)',
         }}
       >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <ModeSwitch activeMode={activeMode} onModeChange={setActiveMode} />
-
-          {/* Session name (inline-editable) */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* Session name (inline-editable) — moved to the leading edge
+              now that the mode switch lives in the composer. */}
           <div className="flex items-center min-w-0">
             {isEditingName ? (
               <input
@@ -250,14 +263,14 @@ const ChatView: React.FC<ChatViewProps> = ({
                 style={{
                   color: 'var(--color-text-primary)',
                   borderColor: 'var(--color-accent)',
-                  width: '180px',
+                  width: '220px',
                 }}
                 autoFocus
               />
             ) : (
               <button
                 onClick={() => setIsEditingName(true)}
-                className="text-sm font-medium truncate hover:opacity-80 transition-opacity max-w-[220px]"
+                className="text-sm font-medium truncate hover:opacity-80 transition-opacity max-w-[280px]"
                 style={{ color: 'var(--color-text-primary)' }}
                 title="Click to edit session name"
               >
@@ -606,7 +619,7 @@ const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
-      {/* ─── Composer (with inline model selector) ────────────────────── */}
+      {/* ─── Composer (with inline agent + model selectors) ────────────── */}
       <ChatInput
         onSend={handleSend}
         onStop={stopStreaming}
@@ -624,6 +637,10 @@ const ChatView: React.FC<ChatViewProps> = ({
         selectedModel={selectedModel}
         onProviderChange={handleProviderChange}
         onModelChange={handleModelChange}
+        // Phase 2.2: pass agent (Build/Plan) state down — the selector now
+        // lives in the composer's bottom-left row, next to the model selector.
+        activeMode={activeMode}
+        onModeChange={setActiveMode}
         // Pre-fill support: empty-state prompts flow into the textarea.
         pendingPrompt={pendingPrompt}
         onPendingPromptConsumed={handlePendingPromptConsumed}
