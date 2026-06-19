@@ -6,6 +6,15 @@
  * deep links, and coordinates all subsystems.
  */
 
+// ─── fetch globals polyfill (MUST be the first import) ───────────────────────
+// On Windows 7 / Electron 22 / Node 16, `globalThis.fetch` does not exist.
+// Both the Vercel AI SDK AND our hand-rolled protocol adapters call fetch()
+// directly, so we polyfill it from undici BEFORE any other module loads.
+// On Node 18+ (Electron 28+) this is a no-op (native fetch detected).
+//
+// Ref: Phase 2.3 — fixes "fetch is not defined" when chatting with any provider.
+import './polyfills/fetch-globals';
+
 import {
   app,
   BrowserWindow,

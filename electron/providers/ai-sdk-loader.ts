@@ -6,10 +6,11 @@
  * process compiles to CommonJS. Dynamic import() works in Node 16+ (Electron 22+).
  *
  * Windows 7 / Electron 22 compatibility:
- *   The AI SDK internally uses `fetch`, `Headers`, `Request`, `Response`,
- *   and `ReadableStream` — globals that don't exist in Node 16. We polyfill
- *   them using `undici` (pure JS, CommonJS-compatible, works on Node 16)
- *   before loading the AI SDK.
+ *   The fetch/Headers/Request/Response/ReadableStream globals are now
+ *   polyfilled GLOBALLY at the top of `electron/main.ts` via
+ *   `electron/polyfills/fetch-globals.ts`. This module no longer needs to
+ *   do its own polyfilling — the globals are guaranteed to be present by
+ *   the time any provider client method runs.
  *
  * If the import fails (e.g. package not installed or ESM not supported),
  * falls back gracefully — the provider client will use the hand-rolled
@@ -30,50 +31,20 @@ let _loadSucceeded = false;
  * Polyfill global `fetch`, `Headers`, `Request`, `Response`, and
  * `ReadableStream` using `undici` if they don't exist.
  *
- * This is required for Windows 7 / Electron 22 (Node 16) where these
- * globals are not available. The Vercel AI SDK depends on them internally.
- *
- * `undici` is pure JavaScript (no native modules) and works on Node 16+.
+ * @deprecated As of Phase 2.3, the polyfill is installed globally at the
+ * top of `electron/main.ts` via `electron/polyfills/fetch-globals.ts`.
+ * This function is kept as a no-op for backward compatibility — any
+ * external callers still work, they just don't do anything.
  */
 function polyfillFetchGlobals(): void {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const undici = require('undici');
-
-    if (typeof globalThis.fetch !== 'function') {
-      (globalThis as any).fetch = undici.fetch;
-    }
-    if (typeof globalThis.Headers !== 'function') {
-      (globalThis as any).Headers = undici.Headers;
-    }
-    if (typeof globalThis.Request !== 'function') {
-      (globalThis as any).Request = undici.Request;
-    }
-    if (typeof globalThis.Response !== 'function') {
-      (globalThis as any).Response = undici.Response;
-    }
-    if (typeof globalThis.ReadableStream !== 'function') {
-      (globalThis as any).ReadableStream = undici.ReadableStream;
-    }
-    if (typeof globalThis.FormData !== 'function' && undici.FormData) {
-      (globalThis as any).FormData = undici.FormData;
-    }
-    if (typeof globalThis.Blob !== 'function' && undici.Blob) {
-      (globalThis as any).Blob = undici.Blob;
-    }
-    if (typeof (globalThis as any).File !== 'function' && undici.File) {
-      (globalThis as any).File = undici.File;
-    }
-
-    console.info('[AiSdk] Polyfilled fetch globals via undici');
-  } catch (err) {
-    // undici not installed — on Node 18+ (Electron 28+) these globals
-    // exist natively, so this is only a problem on Node 16 / Win7.
-    if (typeof globalThis.fetch !== 'function') {
-      console.warn('[AiSdk] undici not available and globalThis.fetch missing — AI SDK will not work on this platform');
-    } else {
-      console.info('[AiSdk] Global fetch already available — no polyfill needed');
-    }
+  // No-op — the polyfill is now installed at app startup.
+  // See `electron/polyfills/fetch-globals.ts` for the real implementation.
+  if (typeof globalThis.fetch !== 'function') {
+    console.warn(
+      '[AiSdk] globalThis.fetch is still missing — the early polyfill in ' +
+      'electron/polyfills/fetch-globals.ts did not run. Make sure ' +
+      '`import "./polyfills/fetch-globals"` is the first line of main.ts.'
+    );
   }
 }
 
