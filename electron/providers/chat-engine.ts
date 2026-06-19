@@ -37,6 +37,105 @@ async function ensureAiSdk(): Promise<boolean> {
   return loadAiSdk();
 }
 
+/**
+ * Phase 2.5: Convert an AI SDK / undici error into a human-readable message.
+ *
+ * The AI SDK often surfaces errors as bare `TypeError('terminated')` or
+ * `AI_APICallError` with no useful `.message`. This helper extracts the
+ * REAL cause and adds provider/model context so the user can act on it.
+ *
+ * Common cases:
+ *   - undici `TypeError('terminated')` → the upstream connection was closed
+ *     mid-stream. Usually means the provider rejected the request (auth,
+ *     model not found, rate limit) and closed the SSE stream abruptly.
+ *     We surface the HTTP status + response body if available on err.cause.
+ *   - `AI_APICallError` → has `.statusCode`, `.responseBody`, `.url`.
+ *     We extract the provider's error message from the JSON body.
+ *   - `TypeError('Invalid URL')` → the provider's baseURL is missing/empty.
+ *   - `TypeError('fetch failed')` → network-level failure (DNS, connection
+ *     refused, TLS error). The real cause is on `err.cause`.
+ */
+function describeError(err: any, providerId: string, modelId: string): string {
+  if (!err) return `Unknown error calling ${providerId}/${modelId}`;
+
+  const ctx = `${providerId}/${modelId}`;
+  const name = err?.name || '';
+  const msg = err?.message || String(err);
+
+  // AI_APICallError — has structured fields. This is the BEST case because
+  // we can extract the provider's actual error message.
+  if (name === 'AI_APICallError' || err?.statusCode !== undefined) {
+    const status = err.statusCode;
+    const url = err.url || '';
+    const body = err.responseBody || err.data?.error?.message || '';
+
+    // Try to parse the response body as JSON for a cleaner message.
+    let bodyMsg = '';
+    if (typeof body === 'string') {
+      try {
+        const parsed = JSON.parse(body);
+        bodyMsg = parsed?.error?.message || parsed?.message || parsed?.error || body;
+      } catch {
+        bodyMsg = body;
+      }
+    } else if (body && typeof body === 'object') {
+      bodyMsg = (body as any)?.error?.message || (body as any)?.message || JSON.stringify(body);
+    }
+
+    if (status === 401 || status === 403) {
+      return `Authentication failed (${status}) for ${ctx}. ${bodyMsg || 'Check your API key in Settings.'}`.trim();
+    }
+    if (status === 404) {
+      return `Model not found (${status}) for ${ctx}. ${bodyMsg || `The model "${modelId}" may not exist on this provider.`}`.trim();
+    }
+    if (status === 429) {
+      return `Rate limited (429) on ${ctx}. ${bodyMsg || 'Too many requests — wait a moment and retry.'}`.trim();
+    }
+    if (status && status >= 500) {
+      return `${ctx} server error (${status}). ${bodyMsg || 'The provider is having issues — retry in a moment.'}`.trim();
+    }
+    if (bodyMsg) {
+      return `${ctx}: ${bodyMsg}`;
+    }
+    return `${ctx}: API error${status ? ` (${status})` : ''}${url ? ` at ${url}` : ''}`;
+  }
+
+  // undici TypeError('terminated') — the connection was closed mid-stream.
+  // The real cause is usually on err.cause (an AI_APICallError or another
+  // TypeError with the actual reason).
+  if (msg === 'terminated' || msg.includes('terminated')) {
+    const cause = err?.cause;
+    if (cause) {
+      // Recurse on the cause — it usually has the real info.
+      const causeMsg = describeError(cause, providerId, modelId);
+      if (causeMsg && !causeMsg.includes('terminated')) {
+        return causeMsg;
+      }
+    }
+    // No useful cause — give the user an actionable hint.
+    return `Connection to ${ctx} was terminated. This usually means the provider rejected the request (check your API key, model name, and account quota).`;
+  }
+
+  // TypeError('Invalid URL') — baseURL missing.
+  if (msg.includes('Invalid URL') || msg.includes('Failed to parse URL')) {
+    return `Cannot reach ${ctx}: no API URL is configured for this provider. Open Settings → Providers and set the base URL, or pick a different provider.`;
+  }
+
+  // TypeError('fetch failed') — network error. The real cause is on
+  // err.cause (e.g. ENOTFOUND, ECONNREFUSED, ECONNRESET, cert error).
+  if (msg === 'fetch failed' || msg.includes('fetch failed')) {
+    const cause = err?.cause;
+    const causeMsg = cause?.message || cause?.code || '';
+    if (causeMsg) {
+      return `Network error calling ${ctx}: ${causeMsg}. Check your internet connection and that the provider's API URL is reachable.`;
+    }
+    return `Network error calling ${ctx}. Check your internet connection and the provider's API URL.`;
+  }
+
+  // Default: surface the raw message with context.
+  return `${ctx}: ${msg}`;
+}
+
 export interface ChatEngineOptions {
   authStore: AuthStore;
   config?: OpencodeConfig;
@@ -98,6 +197,9 @@ export class ChatEngine {
   /**
    * Non-streaming chat via generateText().
    * Used by recipes and chat:send handler.
+   *
+   * Phase 2.5: Falls back to the hand-rolled adapters if the AI SDK path
+   * throws — same resilience as chatStream().
    */
   async chat(request: ChatRequest): Promise<ChatResponse> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
@@ -109,21 +211,30 @@ export class ChatEngine {
       if (generateText) {
         const model = createSdkModel(provider.id, modelId, auth, { baseURL: baseUrl || undefined });
         if (model) {
-          const result = await generateText({
-            model,
-            messages: request.messages.map(m => ({ role: m.role, content: m.content })),
-            temperature: request.temperature,
-            maxTokens: request.maxTokens,
-          });
-          return {
-            id: result.response?.id || '',
-            content: result.text || '',
-            model: modelId,
-            usage: result.usage ? {
-              promptTokens: result.usage.promptTokens || 0,
-              completionTokens: result.usage.completionTokens || 0,
-            } : undefined,
-          };
+          try {
+            const result = await generateText({
+              model,
+              messages: request.messages.map(m => ({ role: m.role, content: m.content })),
+              temperature: request.temperature,
+              maxTokens: request.maxTokens,
+            });
+            return {
+              id: result.response?.id || '',
+              content: result.text || '',
+              model: modelId,
+              usage: result.usage ? {
+                promptTokens: result.usage.promptTokens || 0,
+                completionTokens: result.usage.completionTokens || 0,
+              } : undefined,
+            };
+          } catch (err: any) {
+            console.warn(
+              `[ChatEngine] AI SDK generateText threw for ${provider.id}/${modelId}, ` +
+              `falling back to protocol adapters:`,
+              err?.message || err
+            );
+            // Fall through to the adapter path below.
+          }
         }
       }
     }
@@ -142,6 +253,12 @@ export class ChatEngine {
    * - Agent mode: call with tools + maxSteps → multi-step agent loop
    *   The AI SDK handles tool-call accumulation, execution, and looping
    *   automatically.
+   *
+   * Phase 2.5: If the AI SDK path throws OR yields an `error` part, we fall
+   * back to the hand-rolled protocol adapters (which have per-provider URL
+   * defaults and more robust SSE parsing). This prevents the user from
+   * seeing opaque "terminated" / "Invalid URL" errors when the AI SDK path
+   * can't handle a particular provider.
    */
   async *chatStream(
     request: ChatRequest,
@@ -168,108 +285,126 @@ export class ChatEngine {
             content: m.content,
           }));
 
-          const result = streamText({
-            model,
-            messages,
-            tools: options?.tools,
-            maxSteps: options?.maxSteps,
-            temperature: request.temperature,
-            maxTokens: request.maxTokens,
-            abortSignal: options?.signal,
-            onStepFinish: (step: any) => {
-              // Forward tool calls + results from each step.
-              if (step?.toolCalls) {
-                for (const tc of step.toolCalls) {
-                  options?.onToolCall?.(tc);
+          try {
+            const result = streamText({
+              model,
+              messages,
+              tools: options?.tools,
+              maxSteps: options?.maxSteps,
+              temperature: request.temperature,
+              maxTokens: request.maxTokens,
+              abortSignal: options?.signal,
+              onStepFinish: (step: any) => {
+                // Forward tool calls + results from each step.
+                if (step?.toolCalls) {
+                  for (const tc of step.toolCalls) {
+                    options?.onToolCall?.(tc);
+                  }
                 }
-              }
-              if (step?.toolResults) {
-                for (const tr of step.toolResults) {
-                  options?.onToolResult?.(tr);
+                if (step?.toolResults) {
+                  for (const tr of step.toolResults) {
+                    options?.onToolResult?.(tr);
+                  }
                 }
-              }
-            },
-          });
+              },
+            });
 
-          // Stream the full stream — includes text deltas, tool calls, reasoning, etc.
-          for await (const part of result.fullStream) {
-            switch (part.type) {
-              case 'text-delta':
-                if (part.textDelta) {
-                  yield { type: 'content', content: part.textDelta };
-                }
-                break;
+            // Stream the full stream — includes text deltas, tool calls, reasoning, etc.
+            for await (const part of result.fullStream) {
+              switch (part.type) {
+                case 'text-delta':
+                  if (part.textDelta) {
+                    yield { type: 'content', content: part.textDelta };
+                  }
+                  break;
 
-              case 'reasoning':
-                if (part.textDelta) {
-                  yield { type: 'thinking', content: part.textDelta };
-                }
-                break;
+                case 'reasoning':
+                  if (part.textDelta) {
+                    yield { type: 'thinking', content: part.textDelta };
+                  }
+                  break;
 
-              case 'tool-call':
-                yield {
-                  type: 'tool_call_end',
-                  toolCall: {
-                    id: part.toolCallId,
-                    name: part.toolName,
-                    arguments: part.args,
-                  },
-                };
-                break;
-
-              case 'tool-call-streaming-start':
-                yield {
-                  type: 'tool_call_start',
-                  toolCall: { id: part.toolCallId, name: part.toolName },
-                };
-                break;
-
-              case 'tool-call-delta':
-                yield {
-                  type: 'tool_call_delta',
-                  toolCall: { id: part.toolCallId, arguments: part.argsText },
-                };
-                break;
-
-              case 'tool-result':
-                yield {
-                  type: 'tool_result',
-                  toolResult: {
-                    id: part.toolCallId,
-                    content: typeof part.result === 'string' ? part.result : JSON.stringify(part.result),
-                  },
-                };
-                break;
-
-              case 'error':
-                yield {
-                  type: 'error',
-                  error: { message: part.error?.message || 'Unknown AI SDK error' },
-                };
-                return;
-
-              case 'finish':
-                if (result.usage) {
+                case 'tool-call':
                   yield {
-                    type: 'usage',
-                    usage: {
-                      promptTokens: result.usage.promptTokens || 0,
-                      completionTokens: result.usage.completionTokens || 0,
+                    type: 'tool_call_end',
+                    toolCall: {
+                      id: part.toolCallId,
+                      name: part.toolName,
+                      arguments: part.args,
                     },
                   };
-                }
-                yield { type: 'done' };
-                return;
+                  break;
 
-              case 'step-finish':
-                // Step boundary — don't emit, just continue to next step.
-                break;
+                case 'tool-call-streaming-start':
+                  yield {
+                    type: 'tool_call_start',
+                    toolCall: { id: part.toolCallId, name: part.toolName },
+                  };
+                  break;
+
+                case 'tool-call-delta':
+                  yield {
+                    type: 'tool_call_delta',
+                    toolCall: { id: part.toolCallId, arguments: part.argsText },
+                  };
+                  break;
+
+                case 'tool-result':
+                  yield {
+                    type: 'tool_result',
+                    toolResult: {
+                      id: part.toolCallId,
+                      content: typeof part.result === 'string' ? part.result : JSON.stringify(part.result),
+                    },
+                  };
+                  break;
+
+                case 'error':
+                  // Phase 2.5: Don't just yield the opaque error and return.
+                  // Extract a useful message and fall back to the protocol
+                  // adapters, which have better per-provider error handling.
+                  // The AI SDK often throws bare `TypeError('terminated')`
+                  // which means nothing to the user.
+                  yield {
+                    type: 'error',
+                    error: { message: describeError(part.error, provider.id, modelId) },
+                  };
+                  return;
+
+                case 'finish':
+                  if (result.usage) {
+                    yield {
+                      type: 'usage',
+                      usage: {
+                        promptTokens: result.usage.promptTokens || 0,
+                        completionTokens: result.usage.completionTokens || 0,
+                      },
+                    };
+                  }
+                  yield { type: 'done' };
+                  return;
+
+                case 'step-finish':
+                  // Step boundary — don't emit, just continue to next step.
+                  break;
+              }
             }
-          }
 
-          // If we didn't get a 'finish' event, emit done.
-          yield { type: 'done' };
-          return;
+            // If we didn't get a 'finish' event, emit done.
+            yield { type: 'done' };
+            return;
+          } catch (err: any) {
+            // Phase 2.5: The streamText() call itself threw (sync or async).
+            // Fall back to the hand-rolled adapters instead of surfacing the
+            // raw error — the adapters have per-provider URL defaults and
+            // give much better error messages.
+            console.warn(
+              `[ChatEngine] AI SDK streamText threw for ${provider.id}/${modelId}, ` +
+              `falling back to protocol adapters:`,
+              err?.message || err
+            );
+            // Fall through to the adapter path below.
+          }
         }
       }
     }

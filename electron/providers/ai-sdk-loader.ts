@@ -168,10 +168,28 @@ export function createSdkModel(
       const compatMod = _providerFactories.get('__openai-compatible__');
       if (compatMod) {
         createFn = compatMod.createOpenAICompatible || compatMod.default;
+
+        // Phase 2.5: createOpenAICompatible REQUIRES a valid baseURL. If the
+        // provider has no `api` field and no `options.baseURL`, we can't
+        // create a working model — return null so the caller falls back to
+        // the hand-rolled protocol adapters (which have per-provider
+        // defaults and better error messages).
+        // Without this check, the model is created with baseURL=undefined
+        // and streamText throws "Invalid URL" or "terminated" instantly.
+        const baseURL = options?.baseURL;
+        if (!baseURL || baseURL.trim() === '') {
+          console.warn(
+            `[AiSdk] Cannot create OpenAI-compatible model for ${providerId}/${modelId}: ` +
+            `no baseURL configured. Falling back to protocol adapters. ` +
+            `Set the provider's baseURL in Settings to use the AI SDK path.`
+          );
+          return null;
+        }
+
         const provider = createFn({
           name: providerId,
           apiKey,
-          baseURL: options?.baseURL || undefined,
+          baseURL,
         });
         return provider(modelId);
       }

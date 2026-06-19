@@ -1894,7 +1894,21 @@ function registerIpcHandlers(): void {
               await sessionManager.addMessage(sessionId, { role: 'assistant', content: agentResult.content });
               send('chat:stream-end', { content: agentResult.content });
             } catch (err: any) {
-              send('chat:stream-error', { error: err.message });
+              // Phase 2.5: surface a useful error message. err.message can
+              // be a bare "terminated" / "fetch failed" / "Invalid URL" —
+              // add provider+model context so the user knows what to fix.
+              const providerId = session.providerId || 'unknown';
+              const modelId = session.model || 'unknown';
+              const errMsg = err?.message || String(err) || 'Unknown error';
+              const actionable =
+                errMsg === 'terminated' || errMsg.includes('terminated')
+                  ? `Connection to ${providerId}/${modelId} was terminated. Check your API key, model name, and account quota.`
+                  : errMsg === 'fetch failed' || errMsg.includes('fetch failed')
+                  ? `Network error calling ${providerId}/${modelId}. Check your internet connection and the provider's API URL.`
+                  : errMsg.includes('Invalid URL')
+                  ? `Cannot reach ${providerId}/${modelId}: no API URL configured. Open Settings → Providers to set the base URL.`
+                  : errMsg;
+              send('chat:stream-error', { error: actionable });
             }
           })();
           return { success: true, data: { streaming: true } };
@@ -1949,7 +1963,19 @@ function registerIpcHandlers(): void {
               }
             }
           } catch (err: any) {
-            send('chat:stream-error', { error: err.message });
+            // Phase 2.5: same actionable-error handling as the agent path.
+            const providerId = session.providerId || 'unknown';
+            const modelId = session.model || 'unknown';
+            const errMsg = err?.message || String(err) || 'Unknown error';
+            const actionable =
+              errMsg === 'terminated' || errMsg.includes('terminated')
+                ? `Connection to ${providerId}/${modelId} was terminated. Check your API key, model name, and account quota.`
+                : errMsg === 'fetch failed' || errMsg.includes('fetch failed')
+                ? `Network error calling ${providerId}/${modelId}. Check your internet connection and the provider's API URL.`
+                : errMsg.includes('Invalid URL')
+                ? `Cannot reach ${providerId}/${modelId}: no API URL configured. Open Settings → Providers to set the base URL.`
+                : errMsg;
+            send('chat:stream-error', { error: actionable });
           }
         })();
 
