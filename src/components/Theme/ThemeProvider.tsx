@@ -107,6 +107,36 @@ function applyCSSTokens(palette: ThemePalette, resolvedMode: 'light' | 'dark') {
     '--color-border-secondary': colors.backgroundTertiary,
     '--color-border-focus': colors.accent,
     '--color-accent-soft': colors.accentMuted,
+
+    // Phase 6: Trace colors + shadows (not palette-dependent but need to be set
+    // here because applyCSSTokens overrides ALL CSS variables at runtime)
+    '--color-trace-thinking': resolvedMode === 'dark' ? '#c490d1' : '#9d70b8',
+    '--color-trace-action': resolvedMode === 'dark' ? '#6b8caf' : '#4a7ca8',
+    '--color-trace-tool-call': colors.success,
+    '--color-trace-tool-result': colors.warning,
+    '--color-trace-error': colors.error,
+    '--color-trace-info': colors.foregroundMuted,
+
+    // Shadows — warm-tinted
+    '--shadow-soft': resolvedMode === 'dark'
+      ? '0 1px 4px rgba(0, 0, 0, 0.24)'
+      : '0 1px 4px rgba(0, 0, 0, 0.04)',
+    '--shadow-card': resolvedMode === 'dark'
+      ? '0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(255, 245, 232, 0.03)'
+      : '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+    '--shadow-elevated': resolvedMode === 'dark'
+      ? '0 8px 24px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(255, 245, 232, 0.04)'
+      : '0 4px 12px rgba(0, 0, 0, 0.1)',
+    '--shadow-popover': resolvedMode === 'dark'
+      ? '0 8px 16px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255, 245, 232, 0.04)'
+      : '0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)',
+
+    // Radius scale
+    '--radius-sm': '6px',
+    '--radius-md': '8px',
+    '--radius-lg': '10px',
+    '--radius-xl': '14px',
+    '--radius-2xl': '16px',
   };
 
   Object.entries(tokenMap).forEach(([key, value]) => {
@@ -128,9 +158,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const [paletteId, setPaletteId] = useState<string>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEYS.paletteId) || 'violet';
+      // Phase 6: Default to 'warm' palette. If the user previously selected
+      // 'violet' (the old default), migrate them to 'warm' automatically.
+      const stored = localStorage.getItem(STORAGE_KEYS.paletteId);
+      if (!stored || stored === 'violet') return 'warm';
+      return stored;
     } catch {
-      return 'violet';
+      return 'warm';
     }
   });
 
