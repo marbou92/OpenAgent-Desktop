@@ -111,9 +111,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         )}
       </div>
 
-      {/* ─── Thinking section (auto-expand while streaming) ────────── */}
+      {/* ─── Thinking section (always collapsed, click to expand) ────── */}
       {message.thinking && isAssistant && (
-        <ThinkingBlock thinking={message.thinking} autoExpand={message.isStreaming} />
+        <ThinkingBlock thinking={message.thinking} isStreaming={message.isStreaming} />
       )}
 
       {/* ─── Message content ───────────────────────────────────────── */}
@@ -270,28 +270,26 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   );
 };
 
-// ─── Thinking Block ────────────────────────────────────────────────────────────
+// ─── Thinking Block (Phase 4.9: always collapsed, click to expand) ───────────
 
-const ThinkingBlock: React.FC<{ thinking: string; autoExpand?: boolean }> = ({ thinking, autoExpand }) => {
+const ThinkingBlock: React.FC<{ thinking: string; isStreaming?: boolean }> = ({ thinking, isStreaming }) => {
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    if (autoExpand) setExpanded(true);
-  }, [autoExpand]);
+  // Truncate for the collapsed preview (first ~100 chars)
+  const preview = thinking.length > 100 ? thinking.slice(0, 100) + '…' : thinking;
 
   return (
     <div className="mb-2">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 text-[11px] transition-colors"
+        className="flex items-center gap-1.5 text-[11px] transition-colors py-0.5"
         style={{ color: 'var(--color-trace-thinking)' }}
       >
-        {autoExpand && (
-          <span className="thinking-dots" style={{ marginRight: '2px' }}>
+        {isStreaming ? (
+          <span className="thinking-dots" style={{ marginRight: '1px' }}>
             <span /><span /><span />
           </span>
-        )}
-        {!autoExpand && (
+        ) : (
           <svg
             width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
             style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}
@@ -299,7 +297,12 @@ const ThinkingBlock: React.FC<{ thinking: string; autoExpand?: boolean }> = ({ t
             <polyline points="9 18 15 12 9 6" />
           </svg>
         )}
-        <span>{autoExpand ? 'Thinking' : 'Reasoning'}</span>
+        <span>{isStreaming ? 'Thinking' : expanded ? 'Hide thinking' : 'Show thinking'}</span>
+        {!isStreaming && !expanded && (
+          <span className="text-[10px] truncate max-w-[300px]" style={{ color: 'var(--color-text-muted)' }}>
+            {preview}
+          </span>
+        )}
       </button>
       {expanded && (
         <div

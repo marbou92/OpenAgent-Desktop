@@ -301,25 +301,29 @@ const ChatInput: React.FC<ChatInputProps> = ({
             )}
           </div>
 
-          {/* Right: Send / Stop */}
+          {/* Right: Send / Stop — Phase 4.9: Claude-style black square stop button */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {isStreaming ? (
               <button onClick={onStop}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
-                style={{ background: 'var(--color-error)', color: 'white' }}
-                title="Stop" aria-label="Stop">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-                <span>Stop</span>
+                className="flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0"
+                style={{ background: 'var(--color-text-primary)', color: 'var(--color-bg-primary)' }}
+                title="Stop generating" aria-label="Stop generating"
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
               </button>
             ) : (
               <button onClick={handleSend} disabled={!canSend}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ background: canSend ? 'var(--color-accent)' : 'var(--color-bg-tertiary)', color: canSend ? 'white' : 'var(--color-text-muted)' }}
                 title="Send (Enter)" aria-label="Send"
                 onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent-hover)'; }}
                 onMouseLeave={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent)'; }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
-                <span>Send</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
               </button>
             )}
           </div>
