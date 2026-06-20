@@ -850,7 +850,7 @@ const App: React.FC = () => {
 const LoadingScreen: React.FC = () => (
   <div className="flex flex-col items-center justify-center h-full gap-4">
     <div className="relative">
-      <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-accent), #6d28d9)' }}>
+      <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-hover))' }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 2L2 7l10 5 10-5-10-5z" />
           <path d="M2 17l10 5 10-5" />

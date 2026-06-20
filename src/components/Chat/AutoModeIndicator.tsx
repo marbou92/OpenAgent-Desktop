@@ -20,7 +20,7 @@ interface AutoModeIndicatorProps {
 const MODE_CONFIG: Record<AgentMode, { label: string; color: string; icon: string }> = {
   build: { label: 'Build', color: '#22c55e', icon: '⚡' },
   plan: { label: 'Plan', color: '#3b82f6', icon: '📋' },
-  chat: { label: 'Chat', color: '#8b5cf6', icon: '💬' },
+  chat: { label: 'Chat', color: 'var(--color-accent)', icon: '💬' },
   smart: { label: 'Smart', color: '#f59e0b', icon: '🛡️' },
 };
 

@@ -197,8 +197,8 @@ const TypingDisplay: React.FC<{
       <div
         className="px-3 py-1.5 rounded-lg text-sm font-mono"
         style={{
-          background: 'rgba(139,92,246,0.2)',
-          border: '1px solid rgba(139,92,246,0.3)',
+          background: 'rgba(214,122,82,0.2)',
+          border: '1px solid rgba(214,122,82,0.3)',
           color: '#a78bfa',
           backdropFilter: 'blur(4px)',
           maxWidth: 300,
@@ -479,7 +479,7 @@ const ComputerUseOverlay: React.FC<ComputerUseOverlayProps> = ({
   const getActionColor = (type: ComputerUseAction['type']): string => {
     switch (type) {
       case 'click': return '#ef4444';
-      case 'type': return '#8b5cf6';
+      case 'type': return 'var(--color-accent)';
       case 'scroll': return '#3b82f6';
       case 'screenshot': return '#f59e0b';
       case 'drag': return '#22c55e';

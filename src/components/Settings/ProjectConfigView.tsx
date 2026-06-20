@@ -91,7 +91,7 @@ const PROJECT_TYPE_INFO: Record<ProjectType, { label: string; icon: string; colo
   go: { label: 'Go', icon: '🔵', color: '#06b6d4' },
   java: { label: 'Java', icon: '☕', color: '#ef4444' },
   ruby: { label: 'Ruby', icon: '💎', color: '#dc2626' },
-  dotnet: { label: '.NET', icon: '🟣', color: '#8b5cf6' },
+  dotnet: { label: '.NET', icon: '🟣', color: 'var(--color-accent)' },
   swift: { label: 'Swift', icon: '🍊', color: '#f97316' },
   kotlin: { label: 'Kotlin', icon: '🟣', color: '#7c3aed' },
   php: { label: 'PHP', icon: '🐘', color: '#6366f1' },

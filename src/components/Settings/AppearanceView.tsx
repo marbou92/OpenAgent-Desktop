@@ -106,7 +106,7 @@ function SectionCard({ children }: { children: React.ReactNode }) {
 export default function AppearanceView() {
   const theme = useTheme();
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [customColorInput, setCustomColorInput] = useState(theme.customAccent || '#8b5cf6');
+  const [customColorInput, setCustomColorInput] = useState(theme.customAccent || 'var(--color-accent)');
 
   // Generate preview palette for custom accent
   const customPreviewPalette = useMemo(() => {
@@ -357,7 +357,7 @@ export default function AppearanceView() {
                     theme.setCustomAccent(val);
                   }
                 }}
-                placeholder="#8b5cf6"
+                placeholder="var(--color-accent)"
                 style={{
                   width: '100%',
                   padding: '8px 12px',
@@ -819,7 +819,7 @@ export default function AppearanceView() {
                   theme.setDensity('comfortable');
                   theme.setBorderRadius(8);
                   theme.setAnimationSpeed(1);
-                  setCustomColorInput('#8b5cf6');
+                  setCustomColorInput('var(--color-accent)');
                 }}
                 style={{
                   padding: '6px 14px',

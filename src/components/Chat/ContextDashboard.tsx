@@ -151,7 +151,7 @@ const TokenBreakdownBar: React.FC<{
   maxTokens: number;
 }> = ({ breakdown, maxTokens }) => {
   const segments = [
-    { label: 'System', value: breakdown.systemPrompt, color: '#8b5cf6' },
+    { label: 'System', value: breakdown.systemPrompt, color: 'var(--color-accent)' },
     { label: 'Tools', value: breakdown.tools, color: '#3b82f6' },
     { label: 'Conversation', value: breakdown.conversation, color: '#22c55e' },
     { label: 'Memory', value: breakdown.memory, color: '#f59e0b' },

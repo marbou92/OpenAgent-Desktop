@@ -93,7 +93,7 @@ const CATEGORY_CONFIG: Record<
   identity: {
     label: 'Identity',
     icon: '👤',
-    color: '#8b5cf6',
+    color: 'var(--color-accent)',
     placeholder: 'e.g. name: Alice, role: Developer',
   },
   preferences: {
@@ -619,8 +619,8 @@ const MemoryDashboard: React.FC<MemoryDashboardProps> = ({
                     <span
                       className="text-[9px] px-1.5 py-0.5 rounded font-medium"
                       style={{
-                        background: hit.type === 'core' ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)',
-                        color: hit.type === 'core' ? '#8b5cf6' : '#22c55e',
+                        background: hit.type === 'core' ? 'rgba(214,122,82,0.15)' : 'rgba(34,197,94,0.15)',
+                        color: hit.type === 'core' ? 'var(--color-accent)' : '#22c55e',
                       }}
                     >
                       {hit.type === 'core' ? 'Core' : 'Experience'}
