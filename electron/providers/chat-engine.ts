@@ -116,16 +116,21 @@ export function buildThinkingProviderOptions(
   }
 
   // OpenAI-compatible providers (DeepSeek, OpenCode Zen, OpenRouter, etc.)
-  // These typically accept `reasoning_effort` as a top-level field.
-  // The @ai-sdk/openai-compatible package doesn't natively support setting
-  // reasoningEffort, so we pass it via a custom key that the adapter can
-  // forward. For DeepSeek-compatible APIs, we also send it directly.
+  // The @ai-sdk/openai-compatible package doesn't natively support
+  // reasoningEffort via providerOptions — it ignores unknown keys.
+  // We pass it via the 'openai-compatible' namespace so that IF a future
+  // version of the package adds support, it will work. For now, the
+  // reasoning effort is handled by the model's default behavior.
+  //
+  // Phase 4.5: REMOVED the top-level `reasoningEffort: mapped` key — it
+  // was a bare string (not an object) at the top level of providerOptions,
+  // which caused the AI SDK's streamText() to throw a validation error.
+  // This threw the chat into the adapter fallback path, which doesn't have
+  // the reasoning-to-content fallback, causing "thinking but no answer".
   const mapped = openaiEffortMap[effort];
   if (!mapped) return undefined;
   return {
     'openai-compatible': { reasoningEffort: mapped },
-    // Also pass it as a top-level option that some providers recognize
-    reasoningEffort: mapped,
   };
 }
 
@@ -569,6 +574,9 @@ export class ChatEngine {
     // Phase 2.7: inject the systemPrompt as a system message at the start
     // of the messages array, since the adapter doesn't have a `system`
     // parameter like the AI SDK does.
+    // Phase 4.5: wrap the adapter output to add reasoning-to-content
+    // fallback (same as the AI SDK path) so reasoning models still produce
+    // an answer even on the adapter path.
     const adapter = getAdapterForProvider(provider);
     const adapterRequest = { ...request, model: modelId };
     if (request.systemPrompt && adapterRequest.messages[0]?.role !== 'system') {
@@ -578,7 +586,25 @@ export class ChatEngine {
       ];
     }
     console.info(`[ChatEngine] Using protocol adapter for ${provider.id}/${modelId}`);
-    yield* adapter.chatStream(adapterRequest, { auth, baseUrl, signal: options?.signal });
+
+    // Wrap the adapter stream to add reasoning-to-content fallback
+    let adapterYieldedContent = false;
+    let adapterReasoning = '';
+    for await (const chunk of adapter.chatStream(adapterRequest, { auth, baseUrl, signal: options?.signal })) {
+      if (chunk.type === 'content') {
+        adapterYieldedContent = true;
+      } else if (chunk.type === 'thinking') {
+        adapterReasoning += chunk.content || '';
+      } else if (chunk.type === 'done') {
+        // Phase 4.5: if the adapter produced only reasoning and no text,
+        // yield the reasoning as content before done (same as the AI SDK path).
+        if (!adapterYieldedContent && adapterReasoning.trim()) {
+          console.info(`[ChatEngine] Adapter path: no content, using ${adapterReasoning.length} chars of reasoning`);
+          yield { type: 'content', content: adapterReasoning };
+        }
+      }
+      yield chunk;
+    }
   }
 
   /**
