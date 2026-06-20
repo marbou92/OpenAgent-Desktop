@@ -394,36 +394,6 @@ const ChatView: React.FC<ChatViewProps> = ({
               <line x1="15" y1="3" x2="15" y2="21" />
             </svg>
           </button>
-
-          {/* New chat */}
-          <button
-            onClick={onNewSession}
-            className="p-1.5 rounded-lg transition-colors"
-            style={{ color: 'var(--color-text-tertiary)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--color-bg-hover)';
-              e.currentTarget.style.color = 'var(--color-accent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = 'var(--color-text-tertiary)';
-            }}
-            title="New chat"
-            aria-label="New chat"
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
         </div>
       </div>
 
@@ -461,7 +431,7 @@ const ChatView: React.FC<ChatViewProps> = ({
             noProvidersConfigured={!hasConnectedProvider}
           />
         ) : (
-          <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
+          <div className="max-w-full mx-auto px-6 py-4 space-y-1">
             {messages.map((message, index) => (
               <MessageBubble
                 key={message.id}
@@ -533,53 +503,6 @@ const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
       </div>
-
-      {/* ─── Phase 4.6: Claude-style streaming status bar ─────────────────── */}
-      {isStreaming && (
-        <div
-          className="flex items-center gap-2 px-4 py-2 border-t text-xs"
-          style={{
-            background: 'var(--color-bg-secondary)',
-            borderColor: 'var(--color-border-secondary)',
-          }}
-        >
-          {streamingThinking && !streamingContent ? (
-            // Thinking phase — animated dots + purple "Thinking" label
-            <>
-              <span className="thinking-dots">
-                <span /><span /><span />
-              </span>
-              <span className="font-medium" style={{ color: 'var(--color-trace-thinking)' }}>
-                Thinking
-              </span>
-              <span className="flex-1 truncate text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
-                {streamingThinking.slice(0, 120)}
-                {streamingThinking.length > 120 ? '…' : ''}
-              </span>
-            </>
-          ) : streamingContent ? (
-            // Generating phase — green pulse + "Generating" label + text preview
-            <>
-              <span className="generating-pulse" />
-              <span className="font-medium" style={{ color: 'var(--color-success)' }}>
-                Generating
-              </span>
-              <span className="flex-1 truncate text-[11px] font-mono" style={{ color: 'var(--color-text-muted)' }}>
-                {streamingContent.slice(-100)}
-              </span>
-            </>
-          ) : (
-            // Connecting phase — spinner + "Connecting" label
-            <>
-              <div
-                className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
-                style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
-              />
-              <span style={{ color: 'var(--color-text-tertiary)' }}>Connecting…</span>
-            </>
-          )}
-        </div>
-      )}
 
       {/* ─── Scroll-to-bottom indicator ───────────────────────────────── */}
       {!autoScroll && hasMessages && (
