@@ -229,12 +229,55 @@ const App: React.FC = () => {
   const providersRef = useRef(providers);
   providersRef.current = providers;
 
+  // Phase 5.3: Keep a ref to the refreshProviders function so the retry
+  // timer in the mount effect can call it.
+  const refreshProvidersRef = useRef<(() => Promise<void>) | null>(null);
+
   // ─── Auto-initialize on mount ──────────────────────────────────────────────
 
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
     initializeApp();
+
+    // Phase 5.3: Retry provider loading after delays. The main process may
+    // not be ready when initializeApp() runs, and the mainReady/catalogReady
+    // IPC events may be missed. This ensures providers appear without restart.
+    const retryDelays = [2000, 5000, 10000];
+    const retryTimers: ReturnType<typeof setTimeout>[] = [];
+    for (const delay of retryDelays) {
+      retryTimers.push(setTimeout(() => {
+        if (providersRef.current.length === 0) {
+          console.info(`[App] Provider retry after ${delay}ms — list is still empty`);
+          refreshProvidersRef.current?.();
+        }
+      }, delay));
+    }
+    return () => retryTimers.forEach(t => clearTimeout(t));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Phase 5.3: Poll catalog:is-ready as fallback (in case mainReady/catalogReady
+  // IPC events were missed). Check at 3s, then every 2s until ready.
+  useEffect(() => {
+    if (!(api as any)?.catalogIsReady) return;
+    let stopped = false;
+    const check = async () => {
+      if (stopped) return;
+      try {
+        const result = await (api as any).catalogIsReady();
+        if (result?.ready) {
+          console.info('[App] Catalog is ready (polling fallback)');
+          refreshProvidersRef.current?.();
+        } else {
+          setTimeout(check, 2000);
+        }
+      } catch {
+        setTimeout(check, 2000);
+      }
+    };
+    const timer = setTimeout(check, 3000);
+    return () => { stopped = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -242,6 +285,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const refreshProviders = async () => {
+      // Phase 5.3: Store in ref so the retry timer can call it
+      refreshProvidersRef.current = refreshProviders;
       // Load from the new opencode provider system.
       if (api?.providers?.listAuth) {
         try {
@@ -582,6 +627,14 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleNewSession, modals, tracePanelOpen, setCurrentView, toggleSidebar, removeModal, toggleTracePanel]);
 
+  // Phase 5.3: When switching to chat view, refresh providers if list is empty
+  // or stale (e.g. user just added a provider in Settings)
+  useEffect(() => {
+    if (currentView === 'chat') {
+      refreshProvidersRef.current?.();
+    }
+  }, [currentView]);
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   const renderMainContent = () => {
@@ -664,28 +717,8 @@ const App: React.FC = () => {
                 settings={settings}
                 onUpdateSettings={updateSettings}
                 onProvidersChange={async () => {
-                  if (api?.providers?.listAuth) {
-                    try {
-                      const [authEntries, providerDefs] = await Promise.all([
-                        api.providers.listAuth(),
-                        api.providers.listProviders?.().catch(() => []),
-                      ]);
-                      const nameMap = new Map<string, string>();
-                      for (const def of (providerDefs || [])) {
-                        nameMap.set(def.id, def.name || def.id);
-                      }
-                      const providerInfos = (authEntries || []).map((entry: any) => ({
-                        id: entry.providerId,
-                        name: nameMap.get(entry.providerId) || entry.providerId,
-                        type: 'custom',
-                        models: [],
-                        isDefault: false,
-                        configured: true,
-                        authMethod: entry.auth?.type,
-                      }));
-                      setProviders(providerInfos);
-                    } catch { /* ignore */ }
-                  }
+                  // Phase 5.3: Use the shared refreshProviders function
+                  refreshProvidersRef.current?.();
                 }}
                 addToast={addToast}
               />
