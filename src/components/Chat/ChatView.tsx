@@ -359,8 +359,8 @@ const ChatView: React.FC<ChatViewProps> = ({
 
           {/* Right panel toggle (Phase 3.1 — opens the tabbed Trace/Context/Notes panel) */}
           <button
-            onClick={onToggleTracePanel}
-            className="p-1.5 rounded-lg transition-colors"
+            onClick={() => { console.log('[ChatView] Panel toggle clicked, onToggleTracePanel:', !!onToggleTracePanel); onToggleTracePanel?.(); }}
+            className="p-1.5 rounded-lg transition-colors titlebar-no-drag"
             style={{
               color: tracePanelOpen ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
               background: tracePanelOpen ? 'var(--color-accent-soft)' : 'transparent',
@@ -431,7 +431,7 @@ const ChatView: React.FC<ChatViewProps> = ({
             noProvidersConfigured={!hasConnectedProvider}
           />
         ) : (
-          <div className="max-w-full mx-auto px-6 py-4 space-y-1">
+          <div className="max-w-full mx-auto px-6 py-4">
             {messages.map((message, index) => (
               <MessageBubble
                 key={message.id}

@@ -1,18 +1,15 @@
 /**
- * OpenAgent-Desktop - Chat Input (Phase 4.8 Claude-style Redesign)
+ * OpenAgent-Desktop - Chat Input (Phase 5.1 Redesign)
  *
- * Claude.ai-inspired composer:
+ * Claude.ai-inspired composer with send button INSIDE the card:
  *
  *   ╭──────────────────────────────────────────────────────────╮
  *   │  Type a message...  (/ for commands)                     │
  *   │                                                          │
- *   ├──────────────────────────────────────────────────────────┤
- *   │ [📎] [Build ▾] [Model ▾] [🧠 Medium ▾]          [➤ Send] │
+ *   │ [📎] [Build ▾] [Model ▾] [🧠 ▾]                  [●]    │
  *   ╰──────────────────────────────────────────────────────────╯
- *
- * Single centered rounded card. Textarea on top, controls row at the
- * bottom INSIDE the card. All buttons retained but restyled to match
- * Claude.ai's clean ghost-button aesthetic.
+ *                                                  ↑ circular send
+ * When streaming, send becomes a black square stop button.
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -34,7 +31,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/refactor', label: '/refactor', description: 'Refactor code recipe' },
   { command: '/doc', label: '/doc', description: 'Generate docs recipe' },
   { command: '/audit', label: '/audit', description: 'Security audit recipe' },
-  { command: '/structure', label: '/structure', description: 'Generate structured JSON output (Phase 4)' },
+  { command: '/structure', label: '/structure', description: 'Generate structured JSON output' },
 ];
 
 interface ChatInputProps {
@@ -65,30 +62,12 @@ interface ChatInputProps {
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
-  onSend,
-  onStop,
-  isStreaming,
-  attachedFiles,
-  onRemoveFile,
-  onClearFiles,
-  disabled = false,
-  streamingThinking,
-  onNewSession,
-  providers = [],
-  selectedProviderId = '',
-  selectedModel = '',
-  onProviderChange,
-  onModelChange,
-  activeMode,
-  onModeChange,
-  customAgents,
-  pendingPrompt,
-  onPendingPromptConsumed,
-  onImagesAttached,
-  onStructureCommand,
-  thinkingEffort = 'medium',
-  onThinkingEffortChange,
-  modelSupportsReasoning = false,
+  onSend, onStop, isStreaming, attachedFiles, onRemoveFile, onClearFiles,
+  disabled = false, streamingThinking, onNewSession, providers = [],
+  selectedProviderId = '', selectedModel = '', onProviderChange, onModelChange,
+  activeMode, onModeChange, customAgents, pendingPrompt, onPendingPromptConsumed,
+  onImagesAttached, onStructureCommand, thinkingEffort = 'medium',
+  onThinkingEffortChange, modelSupportsReasoning = false,
 }) => {
   const [input, setInput] = useState('');
   const [showSlashCommands, setShowSlashCommands] = useState(false);
@@ -98,100 +77,63 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    const t = textareaRef.current; if (!t) return;
+    t.style.height = 'auto'; t.style.height = `${Math.min(t.scrollHeight, 200)}px`;
   }, [input]);
 
-  useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
+  useEffect(() => { textareaRef.current?.focus(); }, []);
 
   useEffect(() => {
     if (pendingPrompt && pendingPrompt.length > 0) {
-      setInput(pendingPrompt);
-      onPendingPromptConsumed?.();
-      setTimeout(() => {
-        textareaRef.current?.focus();
-        const len = textareaRef.current?.value.length || 0;
-        textareaRef.current?.setSelectionRange(len, len);
-      }, 30);
+      setInput(pendingPrompt); onPendingPromptConsumed?.();
+      setTimeout(() => { textareaRef.current?.focus(); const len = textareaRef.current?.value.length || 0; textareaRef.current?.setSelectionRange(len, len); }, 30);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPrompt]);
 
-  const filteredCommands = SLASH_COMMANDS.filter(
-    (cmd) =>
-      cmd.command.toLowerCase().includes(slashFilter.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(slashFilter.toLowerCase()),
-  );
+  const filteredCommands = SLASH_COMMANDS.filter((cmd) =>
+    cmd.command.toLowerCase().includes(slashFilter.toLowerCase()) || cmd.description.toLowerCase().includes(slashFilter.toLowerCase()));
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
     if (!trimmed && attachedFiles.length === 0) return;
     if (isStreaming) return;
-
     if (trimmed === '/structure' || trimmed.startsWith('/structure ')) {
-      onStructureCommand?.();
-      setInput('');
-      setShowSlashCommands(false);
+      onStructureCommand?.(); setInput(''); setShowSlashCommands(false);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
       return;
     }
-
     onSend(trimmed, attachedFiles.length > 0 ? attachedFiles : undefined);
-    setInput('');
-    setShowSlashCommands(false);
+    setInput(''); setShowSlashCommands(false);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   }, [input, attachedFiles, isStreaming, onSend, onStructureCommand]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (showSlashCommands) {
-        if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedSlashIndex((p) => p < filteredCommands.length - 1 ? p + 1 : 0); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedSlashIndex((p) => p > 0 ? p - 1 : filteredCommands.length - 1); return; }
-        if (e.key === 'Tab' || e.key === 'Enter') {
-          e.preventDefault();
-          const selected = filteredCommands[selectedSlashIndex];
-          if (selected) { setInput(selected.command + ' '); setShowSlashCommands(false); }
-          return;
-        }
-        if (e.key === 'Escape') { setShowSlashCommands(false); return; }
-      }
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (isStreaming) onStop(); else handleSend(); return; }
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSend(); return; }
-    },
-    [showSlashCommands, filteredCommands, selectedSlashIndex, isStreaming, handleSend, onStop],
-  );
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (showSlashCommands) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedSlashIndex((p) => p < filteredCommands.length - 1 ? p + 1 : 0); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedSlashIndex((p) => p > 0 ? p - 1 : filteredCommands.length - 1); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); const s = filteredCommands[selectedSlashIndex]; if (s) { setInput(s.command + ' '); setShowSlashCommands(false); } return; }
+      if (e.key === 'Escape') { setShowSlashCommands(false); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (isStreaming) onStop(); else handleSend(); return; }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSend(); return; }
+  }, [showSlashCommands, filteredCommands, selectedSlashIndex, isStreaming, handleSend, onStop]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setInput(value);
-    if (value.startsWith('/')) { setSlashFilter(value.slice(1).split(' ')[0]); setShowSlashCommands(true); setSelectedSlashIndex(0); }
-    else setShowSlashCommands(false);
+    const v = e.target.value; setInput(v);
+    if (v.startsWith('/')) { setSlashFilter(v.slice(1).split(' ')[0]); setShowSlashCommands(true); setSelectedSlashIndex(0); } else setShowSlashCommands(false);
   }, []);
 
-  const handleSlashCommandSelect = useCallback((cmd: SlashCommand) => {
-    setInput(cmd.command + ' ');
-    setShowSlashCommands(false);
-    textareaRef.current?.focus();
-  }, []);
+  const handleSlashCommandSelect = useCallback((cmd: SlashCommand) => { setInput(cmd.command + ' '); setShowSlashCommands(false); textareaRef.current?.focus(); }, []);
 
   const handleFilePick = useCallback(() => { fileInputRef.current?.click(); }, []);
 
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-    const promises = imageFiles.map(file => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    }));
-    Promise.all(promises).then(dataUrls => onImagesAttached?.(dataUrls)).catch(err => console.error('Image read error:', err));
+    const files = e.target.files; if (!files || files.length === 0) return;
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/')); if (imageFiles.length === 0) return;
+    Promise.all(imageFiles.map(file => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.onerror = reject; reader.readAsDataURL(file);
+    }))).then(dataUrls => onImagesAttached?.(dataUrls)).catch(err => console.error('Image read error:', err));
     e.target.value = '';
   }, [onImagesAttached]);
 
@@ -199,19 +141,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className="relative flex-shrink-0 px-4 pb-3 pt-1">
-      {/* Hidden file input */}
       <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFileInputChange} />
 
-      {/* Slash command palette */}
+      {/* Slash commands */}
       {showSlashCommands && filteredCommands.length > 0 && (
-        <div
-          className="absolute bottom-full left-4 right-4 mb-2 rounded-xl overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
-          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-primary)', boxShadow: 'var(--shadow-popover)' }}
-        >
+        <div className="absolute bottom-full left-4 right-4 mb-2 rounded-xl overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
+          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-primary)', boxShadow: 'var(--shadow-popover)' }}>
           <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--color-text-muted)', borderColor: 'var(--color-border-secondary)' }}>Commands</div>
           {filteredCommands.map((cmd, index) => (
-            <button key={cmd.command} onClick={() => handleSlashCommandSelect(cmd)}
-              className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors"
+            <button key={cmd.command} onClick={() => handleSlashCommandSelect(cmd)} className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors"
               style={{ background: index === selectedSlashIndex ? 'var(--color-accent-soft)' : 'transparent' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; setSelectedSlashIndex(index); }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
@@ -224,9 +162,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* Thinking indicator */}
       {streamingThinking && (
-        <div className="mb-1.5 px-3 py-1 rounded-md text-[11px] flex items-center gap-2 animate-fade-in" style={{ background: 'rgba(168,85,247,0.06)', color: 'var(--color-trace-thinking)' }}>
-          <span className="thinking-dots"><span /><span /><span /></span>
-          <span>Thinking</span>
+        <div className="mb-1.5 px-3 py-1 rounded-md text-[11px] flex items-center gap-2 animate-fade-in" style={{ background: 'rgba(196,144,209,0.06)', color: 'var(--color-trace-thinking)' }}>
+          <span className="thinking-dots"><span /><span /><span /></span><span>Thinking</span>
         </div>
       )}
 
@@ -251,57 +188,33 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
 
-      {/* ─── Claude.ai-style composer card ───────────────────────── */}
-      <div className="composer-card rounded-2xl border transition-all mx-auto" style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)', boxShadow: 'var(--shadow-card)', maxWidth: '100%' }}>
+      {/* ─── Composer card ──────────────────────────────────────────── */}
+      <div className="composer-card rounded-2xl border transition-all mx-auto" style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)', boxShadow: 'var(--shadow-card)' }}>
 
         {/* Textarea */}
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
+        <textarea ref={textareaRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
           placeholder={disabled ? 'Create a session to start chatting…' : 'Message OpenAgent…  ( / for commands, Shift+Enter for newline )'}
-          disabled={disabled}
-          rows={1}
+          disabled={disabled} rows={1}
           className="w-full resize-none text-sm bg-transparent px-4 pt-3 pb-1 outline-none"
-          style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5', outline: 'none' }}
-        />
+          style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5', outline: 'none' }} />
 
-        {/* Controls row — INSIDE the card, at the bottom */}
+        {/* Controls row */}
         <div className="flex items-center justify-between gap-2 px-3 pb-2.5 pt-1">
-          {/* Left: attach + agent + model + thinking effort */}
+          {/* Left: attach + agent + model + thinking */}
           <div className="flex items-center gap-1 min-w-0 flex-1">
-            {/* Attach button */}
-            <button
-              onClick={handleFilePick}
-              disabled={disabled || isStreaming}
+            <button onClick={handleFilePick} disabled={disabled || isStreaming}
               className="p-1.5 rounded-lg transition-colors flex-shrink-0 disabled:opacity-40"
               style={{ color: 'var(--color-text-tertiary)' }}
               onMouseEnter={(e) => !disabled && (e.currentTarget.style.background = 'var(--color-bg-hover)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              title="Attach file"
-              aria-label="Attach file"
-            >
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} title="Attach file" aria-label="Attach file">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
             </button>
-
-            {/* Agent selector */}
-            {onModeChange && activeMode !== undefined && (
-              <AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />
-            )}
-
-            {/* Model selector */}
-            {onProviderChange && onModelChange && (
-              <ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />
-            )}
-
-            {/* Thinking effort selector */}
-            {onThinkingEffortChange && (
-              <ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />
-            )}
+            {onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
+            {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
+            {onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
           </div>
 
-          {/* Right: Send / Stop — Phase 4.9: Claude-style black square stop button */}
+          {/* Right: Send / Stop — circular, INSIDE the card */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {isStreaming ? (
               <button onClick={onStop}
@@ -310,9 +223,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 title="Stop generating" aria-label="Stop generating"
                 onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
               </button>
             ) : (
               <button onClick={handleSend} disabled={!canSend}
@@ -321,9 +232,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 title="Send (Enter)" aria-label="Send"
                 onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent-hover)'; }}
                 onMouseLeave={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent)'; }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 19V5M5 12l7-7 7 7" />
-                </svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
               </button>
             )}
           </div>
