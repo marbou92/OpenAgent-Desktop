@@ -56,8 +56,8 @@ const ChatEmptyState: React.FC<ChatEmptyStateProps> = ({
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center"
           style={{
-            background: 'linear-gradient(135deg, var(--color-accent), #6d28d9)',
-            boxShadow: '0 8px 24px rgba(139,92,246,0.25), var(--shadow-elevated)',
+            background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-hover))',
+            boxShadow: '0 8px 24px rgba(214,122,82,0.2), var(--shadow-elevated)',
           }}
         >
           <svg

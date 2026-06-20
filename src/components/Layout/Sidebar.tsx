@@ -304,7 +304,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
           <div
             className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, var(--color-accent), #6d28d9)' }}
+            style={{ background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-hover))' }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2L2 7l10 5 10-5-10-5z" />
