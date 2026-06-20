@@ -317,22 +317,44 @@ const ChatView: React.FC<ChatViewProps> = ({
 
         {/* Header actions */}
         <div className="flex items-center gap-1">
-          {/* Connection status pill */}
+          {/* Phase 4.6: Status pill — shows streaming state when active, Ready when idle */}
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium"
             style={{
-              background: hasConnectedProvider
+              background: isStreaming
+                ? (streamingThinking && !streamingContent
+                  ? 'rgba(168,85,247,0.1)'
+                  : 'rgba(34,197,94,0.1)')
+                : hasConnectedProvider
                 ? 'rgba(34,197,94,0.1)'
                 : 'rgba(239,68,68,0.1)',
-              color: hasConnectedProvider ? 'var(--color-success)' : 'var(--color-error)',
+              color: isStreaming
+                ? (streamingThinking && !streamingContent
+                  ? 'var(--color-trace-thinking)'
+                  : 'var(--color-success)')
+                : hasConnectedProvider ? 'var(--color-success)' : 'var(--color-error)',
             }}
-            title={hasConnectedProvider ? 'At least one provider is configured' : 'No providers configured — open Settings'}
+            title={isStreaming
+              ? (streamingThinking && !streamingContent ? 'AI is thinking…' : 'AI is generating…')
+              : hasConnectedProvider ? 'At least one provider is configured' : 'No providers configured'}
           >
-            <span
-              className="w-1.5 h-1.5 rounded-full"
-              style={{ background: hasConnectedProvider ? 'var(--color-success)' : 'var(--color-error)' }}
-            />
-            <span>{hasConnectedProvider ? 'Ready' : 'Setup needed'}</span>
+            {isStreaming ? (
+              streamingThinking && !streamingContent ? (
+                <span className="thinking-dots"><span /><span /><span /></span>
+              ) : (
+                <span className="generating-pulse" />
+              )
+            ) : (
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: hasConnectedProvider ? 'var(--color-success)' : 'var(--color-error)' }}
+              />
+            )}
+            <span>
+              {isStreaming
+                ? (streamingThinking && !streamingContent ? 'Thinking' : 'Generating')
+                : hasConnectedProvider ? 'Ready' : 'Setup needed'}
+            </span>
           </div>
 
           {/* Right panel toggle (Phase 3.1 — opens the tabbed Trace/Context/Notes panel) */}
@@ -512,49 +534,48 @@ const ChatView: React.FC<ChatViewProps> = ({
         )}
       </div>
 
-      {/* ─── Streaming status bar (thinking / writing) ────────────────── */}
+      {/* ─── Phase 4.6: Claude-style streaming status bar ─────────────────── */}
       {isStreaming && (
         <div
-          className="flex items-center gap-2 px-4 py-1.5 border-t text-xs"
+          className="flex items-center gap-2 px-4 py-2 border-t text-xs"
           style={{
             background: 'var(--color-bg-secondary)',
             borderColor: 'var(--color-border-secondary)',
-            color: 'var(--color-text-tertiary)',
           }}
         >
-          {streamingThinking ? (
+          {streamingThinking && !streamingContent ? (
+            // Thinking phase — animated dots + purple "Thinking" label
             <>
-              <div
-                className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
-                style={{
-                  borderColor: 'var(--color-trace-thinking)',
-                  borderTopColor: 'transparent',
-                }}
-              />
-              <span style={{ color: 'var(--color-trace-thinking)' }}>Thinking...</span>
-              <span className="flex-1 truncate" style={{ color: 'var(--color-text-muted)' }}>
-                {streamingThinking.slice(0, 140)}
-                {streamingThinking.length > 140 ? '…' : ''}
+              <span className="thinking-dots">
+                <span /><span /><span />
+              </span>
+              <span className="font-medium" style={{ color: 'var(--color-trace-thinking)' }}>
+                Thinking
+              </span>
+              <span className="flex-1 truncate text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                {streamingThinking.slice(0, 120)}
+                {streamingThinking.length > 120 ? '…' : ''}
               </span>
             </>
           ) : streamingContent ? (
+            // Generating phase — green pulse + "Generating" label + text preview
             <>
-              <div
-                className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
-                style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
-              />
-              <span>Generating...</span>
-              <span className="flex-1 truncate" style={{ color: 'var(--color-text-muted)' }}>
-                {streamingContent.slice(-140)}
+              <span className="generating-pulse" />
+              <span className="font-medium" style={{ color: 'var(--color-success)' }}>
+                Generating
+              </span>
+              <span className="flex-1 truncate text-[11px] font-mono" style={{ color: 'var(--color-text-muted)' }}>
+                {streamingContent.slice(-100)}
               </span>
             </>
           ) : (
+            // Connecting phase — spinner + "Connecting" label
             <>
               <div
                 className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
                 style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
               />
-              <span>Connecting...</span>
+              <span style={{ color: 'var(--color-text-tertiary)' }}>Connecting…</span>
             </>
           )}
         </div>

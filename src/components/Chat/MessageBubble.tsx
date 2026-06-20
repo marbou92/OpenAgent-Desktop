@@ -90,7 +90,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   return (
     <div className="group animate-fade-in">
-      {/* ─── Header row: role · timestamp · streaming indicator ─────── */}
+      {/* ─── Header row: role · timestamp ──────────────────────────────── */}
       <div className="flex items-center gap-2 mb-1.5">
         <span
           className="text-[11px] font-semibold uppercase tracking-wider"
@@ -101,18 +101,31 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
           {formatTime(message.timestamp)}
         </span>
-        {message.isStreaming && (
-          <div className="typing-indicator" style={{ padding: '0', gap: '3px' }}>
-            <div className="dot" style={{ width: '4px', height: '4px' }} />
-            <div className="dot" style={{ width: '4px', height: '4px' }} />
-            <div className="dot" style={{ width: '4px', height: '4px' }} />
-          </div>
+        {/* Phase 4.6: Show a clear "Thinking" or "Generating" label while streaming */}
+        {message.isStreaming && isAssistant && (
+          <span className="text-[10px] font-medium flex items-center gap-1" style={{ color: 'var(--color-trace-thinking)' }}>
+            {!message.content ? (
+              <>
+                {/* Animated dots for thinking phase */}
+                <span className="thinking-dots">
+                  <span /><span /><span />
+                </span>
+                Thinking
+              </>
+            ) : (
+              <>
+                {/* Small spinner for generating phase */}
+                <span className="generating-pulse" />
+                Generating
+              </>
+            )}
+          </span>
         )}
       </div>
 
-      {/* ─── Thinking block (collapsible) ───────────────────────────── */}
+      {/* ─── Thinking block (collapsible, auto-expand while streaming) ── */}
       {message.thinking && isAssistant && (
-        <ThinkingBlock thinking={message.thinking} />
+        <ThinkingBlock thinking={message.thinking} autoExpand={message.isStreaming} />
       )}
 
       {/* ─── Message Body ───────────────────────────────────────────── */}
@@ -174,11 +187,15 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )
       ) : message.isStreaming ? (
-        // Streaming with no content yet — show typing dots
-        <div className="typing-indicator" style={{ padding: '4px 0' }}>
-          <div className="dot" />
-          <div className="dot" />
-          <div className="dot" />
+        // Phase 4.6: Streaming with no content yet — show a Claude-style
+        // thinking indicator with animated dots and a label
+        <div className="flex items-center gap-2 py-1">
+          <span className="thinking-dots">
+            <span /><span /><span />
+          </span>
+          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+            {message.thinking ? 'Thinking…' : 'Connecting…'}
+          </span>
         </div>
       ) : null}
 
@@ -314,33 +331,45 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
 // ─── Thinking Block ────────────────────────────────────────────────────────────
 
-const ThinkingBlock: React.FC<{ thinking: string }> = ({ thinking }) => {
+const ThinkingBlock: React.FC<{ thinking: string; autoExpand?: boolean }> = ({ thinking, autoExpand }) => {
   const [expanded, setExpanded] = useState(false);
+
+  // Phase 4.6: auto-expand while streaming (autoExpand=true), collapse when done
+  useEffect(() => {
+    if (autoExpand) setExpanded(true);
+  }, [autoExpand]);
 
   return (
     <div className="mb-2">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-[11px] transition-colors"
+        className="flex items-center gap-1.5 text-[11px] transition-colors"
         style={{ color: 'var(--color-trace-thinking)' }}
       >
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{
-            transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-            transition: 'transform 0.15s ease',
-          }}
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-        <span>Reasoning</span>
+        {autoExpand && (
+          <span className="thinking-dots" style={{ marginRight: '2px' }}>
+            <span /><span /><span />
+          </span>
+        )}
+        {!autoExpand && (
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{
+              transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+              transition: 'transform 0.15s ease',
+            }}
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        )}
+        <span>{autoExpand ? 'Thinking' : 'Reasoning'}</span>
       </button>
       {expanded && (
         <div
