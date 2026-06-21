@@ -57,6 +57,7 @@
     "electron-updater": "^6.1.7",
     "eventsource-parser": "^1.1.2",
     "form-data": "^4.0.0",
+    "highlight.js": "^11.11.1",
     "js-yaml": "^4.1.0",
     "lucide-react": "^0.344.0",
     "node-fetch": "^3.3.2",
