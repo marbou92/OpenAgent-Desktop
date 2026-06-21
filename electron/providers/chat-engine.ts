@@ -68,28 +68,38 @@ export function buildThinkingProviderOptions(
 ): Record<string, unknown> | undefined {
   if (!effort || effort === 'off') return undefined;
 
-  // Map UI levels to OpenAI's 3-level system
+  // Map UI levels to OpenAI's 3-level system.
+  // Phase 8.4: 'extended' maps to 'high' for OpenAI (they don't have a
+  // higher tier), but the caller also bumps maxTokens + maxSteps when
+  // effort === 'extended' (see getExtendedThinkingBoost()).
   const openaiEffortMap: Record<string, string> = {
     low: 'low',
     medium: 'medium',
     high: 'high',
-    max: 'high', // OpenAI only has 3 levels; 'max' maps to 'high'
+    max: 'high',      // OpenAI only has 3 levels; 'max' maps to 'high'
+    extended: 'high', // Phase 8.4: 'extended' also maps to 'high' for OpenAI
   };
 
-  // Map UI levels to Anthropic budget tokens
+  // Map UI levels to Anthropic budget tokens.
+  // Phase 8.4: 'extended' uses 128K — double the 'max' budget. This is
+  // the sweet spot for hard multi-step problems where the model needs
+  // to reason through several iterations before committing to an answer.
   const anthropicBudgetMap: Record<string, number> = {
     low: 5000,
     medium: 16000,
     high: 32000,
     max: 64000,
+    extended: 128000,
   };
 
-  // Map UI levels to Google thinking budget
+  // Map UI levels to Google thinking budget.
+  // Phase 8.4: 'extended' uses 65536 — double the 'max' budget.
   const googleBudgetMap: Record<string, number> = {
     low: 2048,
     medium: 8192,
     high: 16384,
     max: 32768,
+    extended: 65536,
   };
 
   const provider = providerId.toLowerCase();
@@ -131,6 +141,29 @@ export function buildThinkingProviderOptions(
   if (!mapped) return undefined;
   return {
     'openai-compatible': { reasoningEffort: mapped },
+  };
+}
+
+/**
+ * Phase 8.4: Extended Thinking Boost
+ *
+ * When the user picks "Extended" thinking effort, we don't just bump the
+ * reasoning budget — we ALSO boost maxTokens (so the model has room to
+ * produce a long answer after thinking) and maxSteps (so the agent loop
+ * can iterate more times on hard problems).
+ *
+ * Returns null for non-extended efforts so callers can skip applying
+ * the boost.
+ */
+export function getExtendedThinkingBoost(effort: string | undefined): { maxTokensBoost: number; maxStepsBoost: number } | null {
+  if (effort !== 'extended') return null;
+  return {
+    // +8K tokens of output room — enough for a substantial code change
+    // plus an explanation, even after a long thinking trace.
+    maxTokensBoost: 8192,
+    // +50 steps — doubles the default 50-step budget for hard multi-step
+    // tasks (read 10 files, edit 5, run tests, fix failures, repeat).
+    maxStepsBoost: 50,
   };
 }
 
@@ -238,10 +271,31 @@ export interface ChatEngineOptions {
   config?: OpencodeConfig;
 }
 
+export interface AgentSkillDefinition {
+  /** Stable skill ID, e.g. "create-component". */
+  id: string;
+  /** Human-readable name, e.g. "Create Component". */
+  name: string;
+  /** What the skill does — shown to the model as the tool description. */
+  description: string;
+  /** JSON Schema for the skill's input parameters. */
+  parameters?: Record<string, unknown>;
+  /** Whether the skill is currently enabled. Disabled skills are skipped. */
+  enabled?: boolean;
+  /** Category for grouping in the UI (coding, writing, data, etc.). */
+  category?: string;
+}
+
 export interface AgentToolDeps {
   sandboxManager: any;
   workingDirectory: string;
   extensionRegistry?: any;
+  /** Phase 8.4: loaded skills (from ~/.claude/skills/ + builtin registry). */
+  skills?: AgentSkillDefinition[];
+  /** Phase 8.4: callback to actually execute a skill by ID. */
+  executeSkill?: (id: string, args: Record<string, unknown>, context: { sessionId: string; workingDir: string }) => Promise<{ success: boolean; output: string; error?: string }>;
+  /** Phase 8.4: current session ID — passed to skill executions. */
+  sessionId?: string;
 }
 
 export interface PermissionChecker {
@@ -862,6 +916,53 @@ export class ChatEngine {
         }
       } catch {
         // Extension registry not ready — skip.
+      }
+    }
+
+    // Phase 8.4: Add skill tools.
+    //
+    // Each loaded skill becomes a tool the agent can invoke. The tool name
+    // is `skill_<id>` (prefixed to avoid clashing with builtin tools like
+    // `edit`). The description is the skill's description + a hint that
+    // the agent should pass the skill's required parameters as args.
+    //
+    // We skip disabled skills and skills whose ID would collide with an
+    // existing tool. The actual execution is delegated to the
+    // `executeSkill` callback on toolDeps (wired up in main.ts to call
+    // skillRegistry.execute()).
+    if (toolDeps.skills && toolDeps.executeSkill && toolDeps.sessionId) {
+      for (const skill of toolDeps.skills) {
+        if (skill.enabled === false) continue;
+        const toolName = `skill_${skill.id}`;
+        if (tools[toolName]) continue; // Don't overwrite
+
+        // Build a description that tells the model when to use this skill.
+        const desc = `[Skill] ${skill.description}\n\nInvoke this skill by passing its required parameters as arguments. The skill runs in the main process and returns its output as text.`;
+
+        tools[toolName] = {
+          description: desc,
+          parameters: skill.parameters || { type: 'object', properties: {}, description: 'Skill parameters (see skill description)' },
+          execute: async (args: Record<string, unknown>) => {
+            // Skills always require user approval (they can run arbitrary
+            // code via index.js, so we never auto-approve).
+            const approved = await permissionChecker.requestPermission(toolName, args);
+            if (!approved) {
+              return { error: `User denied skill execution: ${skill.name}` };
+            }
+            try {
+              const result = await toolDeps.executeSkill!(skill.id, args, {
+                sessionId: toolDeps.sessionId!,
+                workingDir: toolDeps.workingDirectory,
+              });
+              if (!result.success) {
+                return { error: result.error || `Skill '${skill.name}' failed` };
+              }
+              return result.output;
+            } catch (err: any) {
+              return { error: `Skill '${skill.name}' threw: ${err?.message || String(err)}` };
+            }
+          },
+        };
       }
     }
 

@@ -29,6 +29,7 @@ import { autoUpdater } from "electron-updater";
 import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
+import * as os from "os";
 
 // ─── Subsystem Imports ────────────────────────────────────────────────────────
 import { SandboxManager } from "./sandbox/manager";
@@ -45,13 +46,16 @@ import { validateAppConfig } from "./utils/config-validator";
 import { OpenCodeBridge, getOpenCodeBridge, setOpenCodeBridge } from './opencode/bridge';
 import { ProjectManager } from './projects/manager';
 import { SkillRegistry } from './skills/registry';
+import { SkillLoader } from './skills/skill-loader';
+import { SkillExecutor } from './skills/skill-executor';
+import type { SkillDefinition as DiskSkillDefinition } from './skills/types';
 import { ProviderHealthMonitor } from './providers/health-monitor';
 // ─── Aether v2: New Subsystem Imports ──────────────────────────────────────
 import { CrashLogger, CrashDetector } from './crash';
 // ─── Provider v3: New Provider System Imports ──────────────────────────────
 import { AuthStore } from './providers/auth-store-v2';
 import { ProviderClient, setSidecarEndpoint } from './providers/provider-client';
-import { ChatEngine } from './providers/chat-engine';
+import { ChatEngine, getExtendedThinkingBoost } from './providers/chat-engine';
 import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
@@ -176,6 +180,11 @@ let hookManager: HookManager;
 let acpClient: ACPClient;
 let projectManager: ProjectManager;
 let skillRegistry: SkillRegistry;
+// Phase 8.4: skills loaded from ~/.claude/skills/ (manifest.json + index.js).
+// Reloaded on startup + when the watcher fires. Each skill becomes a
+// `skill_<id>` tool the agent can invoke.
+let loadedDiskSkills: DiskSkillDefinition[] = [];
+let skillExecutor: SkillExecutor;
 let healthMonitor: ProviderHealthMonitor;
 let openCodeBridge: OpenCodeBridge;
 
@@ -934,6 +943,111 @@ async function maybeAutoCompact(sessionId: string, send: (channel: string, data:
   }
 }
 
+// ─── Phase 8.4: Skills Loading ────────────────────────────────────────────────
+//
+// Loads skill definitions from ~/.claude/skills/<skill-name>/manifest.json.
+// Each skill becomes a `skill_<id>` tool the agent can invoke. We reload
+// on startup + when the watcher fires so users can iterate on skills
+// without restarting the app.
+
+async function reloadDiskSkills(skillsPath: string): Promise<void> {
+  try {
+    const loader = new SkillLoader(skillsPath);
+    const skills = await loader.loadAll();
+    loadedDiskSkills = skills;
+    logger.info('Skills', `Loaded ${skills.length} skill(s) from ${skillsPath}`);
+    if (skills.length > 0) {
+      logger.info('Skills', `  ${skills.map(s => s.id).join(', ')}`);
+    }
+  } catch (err) {
+    logger.warn('Skills', `Failed to load skills from ${skillsPath}`, err);
+    loadedDiskSkills = [];
+  }
+}
+
+/**
+ * Build the AgentSkillDefinition[] array that gets passed to chat-engine's
+ * buildTools(). Combines:
+ *   1. Disk skills from ~/.claude/skills/ (loadedDiskSkills)
+ *   2. Builtin skills from the SkillRegistry (skillRegistry.list())
+ *
+ * Each skill is converted to the AgentSkillDefinition shape that
+ * chat-engine expects (id, name, description, parameters, enabled, category).
+ */
+function getAgenticSkills(): Array<{ id: string; name: string; description: string; parameters?: Record<string, unknown>; enabled?: boolean; category?: string }> {
+  const out: Array<{ id: string; name: string; description: string; parameters?: Record<string, unknown>; enabled?: boolean; category?: string }> = [];
+
+  // 1. Disk skills (from ~/.claude/skills/)
+  for (const skill of loadedDiskSkills) {
+    out.push({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description || `Skill: ${skill.name}`,
+      parameters: skill.parameters as any,
+      enabled: true,
+      category: skill.category,
+    });
+  }
+
+  // 2. Builtin skills from the registry (skip ones that collide with disk skills)
+  if (skillRegistry) {
+    const diskIds = new Set(loadedDiskSkills.map(s => s.id));
+    for (const skill of skillRegistry.list()) {
+      if (diskIds.has(skill.id)) continue; // Disk version wins
+      if (!skill.enabled) continue;
+      out.push({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        parameters: skill.parameters as any,
+        enabled: skill.enabled,
+        category: skill.category,
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Phase 8.4: Execute a skill by ID. Called by chat-engine's skill tool
+ * execute handler. Delegates to SkillExecutor for disk skills and
+ * SkillRegistry for builtin skills.
+ */
+async function executeAgenticSkill(
+  skillId: string,
+  args: Record<string, unknown>,
+  context: { sessionId: string; workingDir: string }
+): Promise<{ success: boolean; output: string; error?: string }> {
+  // Try disk skills first (they take precedence over builtin stubs).
+  const diskSkill = loadedDiskSkills.find(s => s.id === skillId);
+  if (diskSkill && skillExecutor) {
+    const result = await skillExecutor.execute(diskSkill, {
+      sessionId: context.sessionId,
+      messageId: `skill-${Date.now()}`,
+      workingDir: context.workingDir,
+      args,
+    });
+    return { success: result.success, output: result.output, error: result.error };
+  }
+
+  // Fall back to the registry (builtin skills). The registry's execute()
+  // returns { status, results, handler } — we map that to our shape.
+  if (skillRegistry) {
+    try {
+      const result = await skillRegistry.execute(skillId, args, { sessionId: context.sessionId, workingDir: context.workingDir });
+      return {
+        success: result.status === 'completed',
+        output: JSON.stringify(result.results || []),
+      };
+    } catch (err: any) {
+      return { success: false, output: '', error: err?.message || String(err) };
+    }
+  }
+
+  return { success: false, output: '', error: `Skill not found: ${skillId}` };
+}
+
 // ─── Subsystem Initialization ─────────────────────────────────────────────────
 
 async function initializeSubsystems(): Promise<void> {
@@ -1146,6 +1260,26 @@ async function initializeSubsystems(): Promise<void> {
   // Initialize skill registry
   skillRegistry = new SkillRegistry();
   await skillRegistry.initialize(path.join(userDataPath, "skills"));
+
+  // Phase 8.4: Also load skills from ~/.claude/skills/ (the path the
+  // Settings UI exposes). Each skill has a manifest.json + optional index.js.
+  // We reload on startup + when the watcher fires so users can iterate on
+  // skills without restarting the app.
+  skillExecutor = new SkillExecutor();
+  const userSkillsPath = path.join(os.homedir(), '.claude', 'skills');
+  await reloadDiskSkills(userSkillsPath);
+  // Watch for changes (best-effort — if the dir doesn't exist, the watcher
+  // just no-ops). The fs.watch handle is cleaned up automatically on process
+  // exit, so we don't need to wire it into cleanupBeforeQuit.
+  try {
+    const skillsLoader = new SkillLoader(userSkillsPath);
+    skillsLoader.watchForChanges(() => {
+      logger.info('Skills', 'Skills directory changed — reloading');
+      reloadDiskSkills(userSkillsPath).catch(() => {});
+    });
+  } catch {
+    // Watcher setup failed — non-fatal, skills just won't hot-reload.
+  }
 
   // Initialize OpenCode bridge
   // BUGFIX: Previously this constructed a SEPARATE OpenCodeBridge pointing at
@@ -1909,6 +2043,11 @@ function registerIpcHandlers(): void {
       sandboxManager,
       workingDirectory: session.workingDirectory || process.cwd(),
       extensionRegistry,
+      // Phase 8.4: pass loaded skills + executor so buildTools() can
+      // expose each skill as a `skill_<id>` tool the agent can invoke.
+      skills: getAgenticSkills(),
+      executeSkill: executeAgenticSkill,
+      sessionId,
     };
 
     // Permission checker — uses the agent's permission rules.
@@ -1963,18 +2102,31 @@ function registerIpcHandlers(): void {
     let stepCount = 0;
     let status = 'completed';
 
+    // Phase 8.4: apply extended thinking boost. When the user picks
+    // "Extended" effort, we bump maxSteps (more iterations for hard
+    // multi-step tasks) and pass a higher maxTokens to the chat engine
+    // (more room for the answer after a long thinking trace).
+    const extendedBoost = getExtendedThinkingBoost(thinkingEffort);
+    const effectiveMaxSteps = (agent.maxSteps || DEFAULT_AGENTIC_MAX_STEPS) + (extendedBoost?.maxStepsBoost || 0);
+    // Only pass maxTokens when extended thinking is active (so the model's
+    // default applies otherwise). The boost gives the model +8K tokens of
+    // output room — enough for a substantial code change + explanation.
+    const effectiveMaxTokens = extendedBoost ? extendedBoost.maxTokensBoost : undefined;
+
     for await (const chunk of chatEngine.chatStream(
       {
         model: `${providerId}/${modelId}`,
         messages,
         systemPrompt,
         temperature: agent.temperature,
+        maxTokens: effectiveMaxTokens,
       },
       {
         signal: opts.signal,
         tools,
         // Phase 8.2: use the agentic default if the agent doesn't override.
-        maxSteps: agent.maxSteps || DEFAULT_AGENTIC_MAX_STEPS,
+        // Phase 8.4: extended thinking boosts this by +50 steps.
+        maxSteps: effectiveMaxSteps,
         thinkingEffort, // Phase 4.2: pass thinking effort
         onToolCall: (tc: any) => {
           send('chat:stream-tool-call', { toolCall: tc });
@@ -2037,7 +2189,9 @@ function registerIpcHandlers(): void {
     // Phase 8.2: detect the maxSteps-exhausted case specifically so we can
     // give a more useful message ("hit the step limit") instead of the
     // generic "empty response" error.
-    const maxStepsLimit = agent.maxSteps || DEFAULT_AGENTIC_MAX_STEPS;
+    // Phase 8.4: use effectiveMaxSteps (which includes the extended thinking
+    // boost) so the warning message reports the right limit.
+    const maxStepsLimit = effectiveMaxSteps;
     if (!fullContent && status !== 'error') {
       let errMsg: string;
       let resultStatus: 'error' | 'max_steps_reached';
@@ -2793,6 +2947,21 @@ function registerIpcHandlers(): void {
   ipcMain.handle("skill:execute", wrapIPC(async (_event, skillId: string, variables: Record<string, unknown>, context?: Record<string, unknown>) => {
     const execution = await skillRegistry.execute(skillId, variables, context);
     return { success: true, data: execution };
+  }));
+
+  // Phase 8.4: list ALL skills available to the agent — combines disk
+  // skills (from ~/.claude/skills/) + builtin registry skills. Used by
+  // the Skills view in the renderer to show what the agent can invoke.
+  ipcMain.handle("skill:list-agentic", wrapIPC(async () => {
+    return { success: true, data: getAgenticSkills() };
+  }));
+
+  // Phase 8.4: reload skills from disk on demand (e.g. after the user
+  // drops a new skill into ~/.claude/skills/).
+  ipcMain.handle("skill:reload", wrapIPC(async () => {
+    const userSkillsPath = path.join(os.homedir(), '.claude', 'skills');
+    await reloadDiskSkills(userSkillsPath);
+    return { success: true, data: { count: loadedDiskSkills.length } };
   }));
 
   // ── Provider Health IPC ──────────────────────────────────────────────────

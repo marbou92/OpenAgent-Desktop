@@ -479,6 +479,10 @@ const electronAPI = {
     get: (skillId: string): Promise<any> => invoke("skill:get", skillId),
     execute: (skillId: string, variables: Record<string, unknown>, context?: Record<string, unknown>): Promise<any> =>
       invoke("skill:execute", skillId, variables, context),
+    /** Phase 8.4: list all skills available to the agent (disk + builtin). */
+    listAgentic: (): Promise<any[]> => invoke<any>("skill:list-agentic").then((r: any) => r?.data ?? []),
+    /** Phase 8.4: reload skills from ~/.claude/skills/ on demand. */
+    reload: (): Promise<{ count: number }> => invoke<any>("skill:reload").then((r: any) => r?.data ?? { count: 0 }),
   },
 
   // ── Permissions (AgentRunner) ──────────────────────────────────────────────

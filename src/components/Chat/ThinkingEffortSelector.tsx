@@ -1,5 +1,5 @@
 /**
- * OpenAgent-Desktop - Thinking Effort Selector (Phase 4.2)
+ * OpenAgent-Desktop - Thinking Effort Selector (Phase 4.2 + Phase 8.4)
  *
  * A ghost-styled dropdown for controlling reasoning/thinking effort on
  * models that support it. Sits next to the [Build ▾] and [Model ▾]
@@ -11,6 +11,9 @@
  *                    ● Medium   — balanced (default)
  *                    ○ High     — deep reasoning
  *                    ○ Max      — maximum effort
+ *                    ○ Extended — Phase 8.4: max reasoning + boosted
+ *                                 maxTokens + boosted maxSteps for hard
+ *                                 multi-step problems
  *
  * The selector ONLY renders when the current model supports reasoning
  * (checked via the `modelSupportsReasoning` prop). Non-reasoning models
@@ -19,21 +22,22 @@
  * The effort level is passed to the AI SDK via `providerOptions`:
  *   - OpenAI native:    { openai: { reasoningEffort: 'low'|'medium'|'high' } }
  *   - Anthropic:        { anthropic: { thinking: { budgetTokens: N } } }
+ *                        (extended = 128K — double the max budget)
  *   - Google:           { google: { thinkingConfig: { thinkingBudget: N } } }
+ *                        (extended = 65536 — double the max budget)
  *   - OpenAI-compatible: { openai-compatible: { reasoningEffort: 'low'|'medium'|'high' } }
  *                        (sent as `reasoning_effort` in the request body)
  *
  * "Off" means no providerOptions are passed (the model uses its default,
  * which for reasoning models is usually some level of reasoning).
- * "Max" maps to the highest available for each provider:
- *   - OpenAI:    reasoningEffort: 'high' + maxTokens boost
- *   - Anthropic: budgetTokens: 64000
- *   - Google:    thinkingBudget: 32768
+ * "Extended" (Phase 8.4) is the highest tier — it doubles the reasoning
+ * budget vs "Max" AND boosts maxTokens (+8K) and maxSteps (+50) so the
+ * agent can iterate longer on hard problems.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'max';
+export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'max' | 'extended';
 
 interface ThinkingEffortSelectorProps {
   effort: ThinkingEffort;
@@ -49,6 +53,7 @@ const LEVELS: { id: ThinkingEffort; label: string; description: string }[] = [
   { id: 'medium', label: 'Medium', description: 'Balanced reasoning (default)' },
   { id: 'high', label: 'High', description: 'Deep reasoning — slower' },
   { id: 'max', label: 'Max', description: 'Maximum effort — slowest, best quality' },
+  { id: 'extended', label: 'Extended', description: 'Phase 8.4: max reasoning + boosted steps/tokens for hard problems' },
 ];
 
 const EFFORT_COLORS: Record<ThinkingEffort, string> = {
@@ -57,6 +62,7 @@ const EFFORT_COLORS: Record<ThinkingEffort, string> = {
   medium: 'var(--color-accent)',
   high: 'var(--color-warning)',
   max: 'var(--color-error)',
+  extended: '#a855f7', // Purple — visually distinct from "max" (red)
 };
 
 const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
