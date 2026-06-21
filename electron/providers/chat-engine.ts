@@ -27,6 +27,7 @@ import { OpencodeConfig } from './opencode-config';
 import { getOpencodeRegistry } from './opencode-registry';
 import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
 import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
+import { parseXmlToolCalls } from './xml-tool-parser';
 
 // AI SDK loading state.
 let _aiSdkLoaded = false;
@@ -434,6 +435,13 @@ export class ChatEngine {
       onToolCall?: (toolCall: any) => void;
       onToolResult?: (toolResult: any) => void;
       thinkingEffort?: string; // Phase 4.2: 'off'|'low'|'medium'|'high'|'max'
+      /**
+       * Phase 9.1: Execute a parsed XML tool call. When the model emits
+       * tool calls as XML text (instead of via native function calling),
+       * we parse them and call this callback to execute the tool. The
+       * callback should return the tool's result string.
+       */
+      executeXmlToolCall?: (name: string, args: Record<string, unknown>) => Promise<string>;
     }
   ): AsyncGenerator<StreamChunk> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
@@ -498,6 +506,11 @@ export class ChatEngine {
             let yieldedContent = false;
             let fallbackToAdapter = false;
             let accumulatedReasoning = '';
+            // Phase 9.1: accumulate text content so we can scan for XML-style
+            // tool calls at the end. Some models emit tool calls as XML text
+            // instead of using native function calling — we parse + execute
+            // them after the stream finishes.
+            let accumulatedText = '';
             let partCount = 0;
             streamLoop:
             for await (const part of result.fullStream) {
@@ -509,6 +522,7 @@ export class ChatEngine {
                 case 'text-delta':
                   if (part.textDelta) {
                     yieldedContent = true;
+                    accumulatedText += part.textDelta;
                     yield { type: 'content', content: part.textDelta };
                   }
                   break;
@@ -583,13 +597,63 @@ export class ChatEngine {
                 case 'finish':
                   // Phase 4.1: if we got NO text-delta parts but DID get
                   // reasoning content, yield the reasoning as the answer.
-                  // This happens with reasoning models (DeepSeek, o1, etc.)
-                  // that put everything in reasoning_content and leave the
-                  // regular content field empty.
                   if (!yieldedContent && accumulatedReasoning.trim()) {
                     console.info(`[ChatEngine] No text-delta parts received, using ${accumulatedReasoning.length} chars of reasoning as content`);
                     yield { type: 'content', content: accumulatedReasoning };
+                    accumulatedText = accumulatedReasoning;
                   }
+
+                  // Phase 9.1: Check for XML-style tool calls in the text.
+                  // Some models (especially free/OpenAI-compatible ones) emit
+                  // tool calls as XML text instead of using native function
+                  // calling. We parse them here and execute the tools.
+                  if (accumulatedText && options?.executeXmlToolCall) {
+                    const xmlCalls = parseXmlToolCalls(accumulatedText);
+                    if (xmlCalls.length > 0) {
+                      console.info(`[ChatEngine] Found ${xmlCalls.length} XML tool call(s) in text — executing`);
+                      for (const xmlCall of xmlCalls) {
+                        // Notify the caller that a tool call was detected
+                        // (so main.ts can intercept TodoWrite, forward to
+                        // the trace, etc.).
+                        const toolCallId = `xml-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                        options.onToolCall?.({
+                          id: toolCallId,
+                          name: xmlCall.name,
+                          arguments: xmlCall.args,
+                        });
+                        // Yield a tool_call_end so the renderer's
+                        // ToolUseCard renders the call.
+                        yield {
+                          type: 'tool_call_end',
+                          toolCall: {
+                            id: toolCallId,
+                            name: xmlCall.name,
+                            arguments: xmlCall.args,
+                          },
+                        };
+                        try {
+                          const result = await options.executeXmlToolCall(xmlCall.name, xmlCall.args);
+                          options.onToolResult?.({
+                            toolCallId,
+                            toolName: xmlCall.name,
+                            args: xmlCall.args,
+                            result,
+                          });
+                          yield {
+                            type: 'tool_result',
+                            toolResult: { id: toolCallId, content: result },
+                          };
+                        } catch (err: any) {
+                          const errMsg = err?.message || String(err);
+                          yield {
+                            type: 'tool_result',
+                            toolResult: { id: toolCallId, content: `Error: ${errMsg}` },
+                          };
+                        }
+                      }
+                    }
+                  }
+
                   if (result.usage) {
                     yield {
                       type: 'usage',
