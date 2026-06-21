@@ -304,7 +304,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
           <div
             className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-hover))' }}
+            style={{ background: 'linear-gradient(135deg, var(--color-accent), #6d28d9)' }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2L2 7l10 5 10-5-10-5z" />
@@ -472,7 +472,10 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
             {sessionsExpanded && (
               <div className="space-y-0.5 mt-0.5">
-                {recentSessions.map((session) => (
+                {recentSessions.map((session) => {
+                  const isEmpty = !session.messageCount || session.messageCount === 0;
+                  const isActive = currentSessionId === session.id;
+                  return (
                   <button
                     key={session.id}
                     onClick={() => {
@@ -481,28 +484,34 @@ const Sidebar: React.FC<SidebarProps> = ({
                     }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors text-left"
                     style={{
-                      background: currentSessionId === session.id ? 'var(--color-accent-soft)' : 'transparent',
-                      color: currentSessionId === session.id ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+                      background: isActive ? 'var(--color-accent-soft)' : 'transparent',
+                      color: isActive ? 'var(--color-accent)' : isEmpty ? 'var(--color-text-muted)' : 'var(--color-text-tertiary)',
+                      opacity: isEmpty && !isActive ? 0.6 : 1,
                     }}
                     onMouseEnter={(e) => {
-                      if (currentSessionId !== session.id) {
+                      if (!isActive) {
                         e.currentTarget.style.background = 'var(--color-bg-hover)';
                         e.currentTarget.style.color = 'var(--color-text-secondary)';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (currentSessionId !== session.id) {
+                      if (!isActive) {
                         e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--color-text-tertiary)';
+                        e.currentTarget.style.color = isEmpty ? 'var(--color-text-muted)' : 'var(--color-text-tertiary)';
                       }
                     }}
                   >
                     <span className="truncate flex-1">{session.name}</span>
-                    <span className="flex-shrink-0 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-                      {session.messageCount}
-                    </span>
+                    {isEmpty ? (
+                      <span className="flex-shrink-0 text-[9px] italic" style={{ color: 'var(--color-text-muted)' }}>empty</span>
+                    ) : (
+                      <span className="flex-shrink-0 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                        {session.messageCount}
+                      </span>
+                    )}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
