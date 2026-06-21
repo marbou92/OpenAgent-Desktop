@@ -688,6 +688,18 @@ export class ChatEngine {
   ): Record<string, any> {
     const tools: Record<string, any> = {};
 
+    // Phase 9: Wrap plain JSON Schema objects with the AI SDK's jsonSchema()
+    // helper. In AI SDK v4, ToolParameters must be `z.ZodTypeAny | Schema<any>`
+    // — a plain JSON Schema object is NOT valid. When you pass a plain object,
+    // the SDK can't validate tool arguments and silently fails to call the
+    // execute handler. This was the root cause of AskUserQuestion + TodoWrite
+    // not working: the model would emit a tool call, but execute() never ran.
+    const jsonSchemaFn = getJsonSchema();
+    const wrapParams = (schema: Record<string, unknown>): any => {
+      if (!jsonSchemaFn) return schema; // SDK not loaded — fall back to raw
+      return jsonSchemaFn(schema);
+    };
+
     // Built-in tools with AI SDK tool() format.
     // Using plain JSON schemas (not zod) for compatibility.
     //
@@ -848,7 +860,10 @@ export class ChatEngine {
     for (const tool of builtinTools) {
       tools[tool.name] = {
         description: tool.description,
-        parameters: tool.parameters,
+        // Phase 9: wrap with jsonSchema() so the AI SDK can validate args
+        // and actually call execute(). Without this, the tool call is
+        // emitted but execute() never runs.
+        parameters: wrapParams(tool.parameters),
         execute: async (args: Record<string, unknown>) => {
           // Phase 7.1 + Phase 8.5: AskUserQuestion uses a dedicated
           // ask-user flow (NOT the permission flow) to get the user's
@@ -862,8 +877,11 @@ export class ChatEngine {
           // Now we use requestUserAnswer() which returns the selected
           // option string, or null if the user dismissed the dialog.
           if (tool.name === 'AskUserQuestion') {
+            console.info('[ChatEngine] AskUserQuestion execute() called — args:', JSON.stringify(args).substring(0, 200));
             if (permissionChecker.requestUserAnswer) {
+              console.info('[ChatEngine] AskUserQuestion: calling requestUserAnswer...');
               const answer = await permissionChecker.requestUserAnswer(tool.name, args);
+              console.info('[ChatEngine] AskUserQuestion: got answer:', answer);
               if (answer === null) {
                 return 'User dismissed the question without answering.';
               }
@@ -890,9 +908,9 @@ export class ChatEngine {
           // The full todo-tracking UI lands in Phase 8.3; for now we just
           // store + acknowledge.
           if (tool.name === 'TodoWrite') {
+            console.info('[ChatEngine] TodoWrite execute() called — todos:', JSON.stringify(args.todos).substring(0, 200));
             const todos = Array.isArray(args.todos) ? args.todos : [];
             // Stash on the toolDeps so the renderer-side bridge can read it.
-            // (Phase 8.3 will add a proper TodoStore with IPC + UI.)
             (toolDeps as any)._todos = todos;
             const completed = todos.filter((t: any) => t?.status === 'completed').length;
             const inProgress = todos.filter((t: any) => t?.status === 'in_progress').length;
@@ -930,7 +948,8 @@ export class ChatEngine {
           if (tools[extTool.name]) continue; // Built-in takes precedence.
           tools[extTool.name] = {
             description: extTool.description,
-            parameters: extTool.parameters || { type: 'object', properties: {} },
+            // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
+            parameters: wrapParams(extTool.parameters || { type: 'object', properties: {} }),
             execute: async (args: Record<string, unknown>) => {
               const permission = permissionChecker.checkPermission(extTool.name, args);
               if (permission === 'deny') return { error: `Permission denied: ${extTool.name}` };
@@ -973,7 +992,8 @@ export class ChatEngine {
 
         tools[toolName] = {
           description: desc,
-          parameters: skill.parameters || { type: 'object', properties: {}, description: 'Skill parameters (see skill description)' },
+          // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
+          parameters: wrapParams(skill.parameters || { type: 'object', properties: {}, description: 'Skill parameters (see skill description)' }),
           execute: async (args: Record<string, unknown>) => {
             // Skills always require user approval (they can run arbitrary
             // code via index.js, so we never auto-approve).
