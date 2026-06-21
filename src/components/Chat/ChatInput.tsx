@@ -1,15 +1,12 @@
 /**
- * OpenAgent-Desktop - Chat Input (Phase 5.1 Redesign)
+ * OpenAgent-Desktop - Chat Input (Phase 6.1 — OpenCowork-style)
  *
- * Claude.ai-inspired composer with send button INSIDE the card:
- *
- *   ╭──────────────────────────────────────────────────────────╮
- *   │  Type a message...  (/ for commands)                     │
- *   │                                                          │
- *   │ [📎] [Build ▾] [Model ▾] [🧠 ▾]                  [●]    │
- *   ╰──────────────────────────────────────────────────────────╯
- *                                                  ↑ circular send
- * When streaming, send becomes a black square stop button.
+ * OpenCowork-style composer:
+ *   - Single rounded card at bottom
+ *   - Textarea on top
+ *   - Controls row below: [📎] [Build ▾] [Model ▾] [🧠 ▾] on left, small arrow send icon on right
+ *   - Send = small arrow icon (NOT a big circular button)
+ *   - Stop = small dark square icon (NOT a big circular button)
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -22,16 +19,16 @@ import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/recipe', label: '/recipe', description: 'Run a recipe' },
-  { command: '/goal', label: '/goal', description: 'Set a goal for the agent' },
+  { command: '/goal', label: '/goal', description: 'Set a goal' },
   { command: '/clear', label: '/clear', description: 'Clear conversation' },
   { command: '/mode', label: '/mode', description: 'Change permission mode' },
-  { command: '/review', label: '/review', description: 'Code review recipe' },
-  { command: '/explain', label: '/explain', description: 'Explain code recipe' },
-  { command: '/test', label: '/test', description: 'Write tests recipe' },
-  { command: '/refactor', label: '/refactor', description: 'Refactor code recipe' },
-  { command: '/doc', label: '/doc', description: 'Generate docs recipe' },
-  { command: '/audit', label: '/audit', description: 'Security audit recipe' },
-  { command: '/structure', label: '/structure', description: 'Generate structured JSON output' },
+  { command: '/review', label: '/review', description: 'Code review' },
+  { command: '/explain', label: '/explain', description: 'Explain code' },
+  { command: '/test', label: '/test', description: 'Write tests' },
+  { command: '/refactor', label: '/refactor', description: 'Refactor code' },
+  { command: '/doc', label: '/doc', description: 'Generate docs' },
+  { command: '/audit', label: '/audit', description: 'Security audit' },
+  { command: '/structure', label: '/structure', description: 'Structured JSON output' },
 ];
 
 interface ChatInputProps {
@@ -63,7 +60,7 @@ interface ChatInputProps {
 
 const ChatInput: React.FC<ChatInputProps> = ({
   onSend, onStop, isStreaming, attachedFiles, onRemoveFile, onClearFiles,
-  disabled = false, streamingThinking, onNewSession, providers = [],
+  disabled = false, streamingThinking, providers = [],
   selectedProviderId = '', selectedModel = '', onProviderChange, onModelChange,
   activeMode, onModeChange, customAgents, pendingPrompt, onPendingPromptConsumed,
   onImagesAttached, onStructureCommand, thinkingEffort = 'medium',
@@ -116,15 +113,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
       if (e.key === 'Escape') { setShowSlashCommands(false); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (isStreaming) onStop(); else handleSend(); return; }
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSend(); return; }
   }, [showSlashCommands, filteredCommands, selectedSlashIndex, isStreaming, handleSend, onStop]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value; setInput(v);
     if (v.startsWith('/')) { setSlashFilter(v.slice(1).split(' ')[0]); setShowSlashCommands(true); setSelectedSlashIndex(0); } else setShowSlashCommands(false);
   }, []);
-
-  const handleSlashCommandSelect = useCallback((cmd: SlashCommand) => { setInput(cmd.command + ' '); setShowSlashCommands(false); textareaRef.current?.focus(); }, []);
 
   const handleFilePick = useCallback(() => { fileInputRef.current?.click(); }, []);
 
@@ -140,102 +134,86 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const canSend = (input.trim().length > 0 || attachedFiles.length > 0) && !isStreaming;
 
   return (
-    <div className="relative flex-shrink-0 px-4 pb-3 pt-1">
+    <div className="relative flex-shrink-0 px-4 pb-2 pt-1">
       <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFileInputChange} />
 
       {/* Slash commands */}
       {showSlashCommands && filteredCommands.length > 0 && (
-        <div className="absolute bottom-full left-4 right-4 mb-2 rounded-xl overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
+        <div className="absolute bottom-full left-4 right-4 mb-2 rounded-lg overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
           style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-primary)', boxShadow: 'var(--shadow-popover)' }}>
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--color-text-muted)', borderColor: 'var(--color-border-secondary)' }}>Commands</div>
           {filteredCommands.map((cmd, index) => (
-            <button key={cmd.command} onClick={() => handleSlashCommandSelect(cmd)} className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors"
+            <button key={cmd.command} onClick={() => { setInput(cmd.command + ' '); setShowSlashCommands(false); textareaRef.current?.focus(); }}
+              className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors"
               style={{ background: index === selectedSlashIndex ? 'var(--color-accent-soft)' : 'transparent' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; setSelectedSlashIndex(index); }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
-              <span className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ color: 'var(--color-accent)', background: 'var(--color-accent-soft)' }}>{cmd.command}</span>
+              <span className="font-mono text-xs" style={{ color: 'var(--color-accent)' }}>{cmd.command}</span>
               <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{cmd.description}</span>
             </button>
           ))}
         </div>
       )}
 
-      {/* Thinking indicator */}
-      {streamingThinking && (
-        <div className="mb-1.5 px-3 py-1 rounded-md text-[11px] flex items-center gap-2 animate-fade-in" style={{ background: 'rgba(196,144,209,0.06)', color: 'var(--color-trace-thinking)' }}>
-          <span className="thinking-dots"><span /><span /><span /></span><span>Thinking</span>
-        </div>
-      )}
-
       {/* Attachment chips */}
       {attachedFiles.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1.5 animate-fade-in">
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
           {attachedFiles.map((file, index) => (
-            <div key={`${file.name}-${index}`} className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs border" style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-secondary)' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
-              <span className="truncate max-w-[140px]">{file.name}</span>
+            <div key={`${file.name}-${index}`} className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
+              <span className="truncate max-w-[120px]">{file.name}</span>
               <span style={{ color: 'var(--color-text-muted)' }}>{formatFileSize(file.size)}</span>
-              <button onClick={() => onRemoveFile(index)} className="ml-0.5 p-0.5 rounded transition-colors" style={{ color: 'var(--color-text-muted)' }}
+              <button onClick={() => onRemoveFile(index)} className="ml-0.5" style={{ color: 'var(--color-text-muted)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-error)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
           ))}
-          {attachedFiles.length > 1 && (
-            <button onClick={onClearFiles} className="px-2 py-1 rounded-md text-xs transition-colors" style={{ color: 'var(--color-text-tertiary)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-error)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}>Clear all</button>
-          )}
+          {attachedFiles.length > 1 && <button onClick={onClearFiles} className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Clear all</button>}
         </div>
       )}
 
-      {/* ─── Composer card ──────────────────────────────────────────── */}
-      <div className="composer-card rounded-2xl border transition-all mx-auto" style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)', boxShadow: 'var(--shadow-card)' }}>
+      {/* Composer card — OpenCowork style */}
+      <div className="composer-card rounded-xl border transition-all mx-auto" style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)' }}>
 
-        {/* Textarea */}
-        <textarea ref={textareaRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
-          placeholder={disabled ? 'Create a session to start chatting…' : 'Message OpenAgent…  ( / for commands, Shift+Enter for newline )'}
-          disabled={disabled} rows={1}
-          className="w-full resize-none text-sm bg-transparent px-4 pt-3 pb-1 outline-none"
-          style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5', outline: 'none' }} />
+        {/* Textarea + send button on same row */}
+        <div className="flex items-end gap-2 px-3 pt-2.5">
+          <textarea ref={textareaRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
+            placeholder={disabled ? 'Create a session…' : 'Message OpenAgent…  ( / for commands, Shift+Enter for newline )'}
+            disabled={disabled} rows={1}
+            className="flex-1 resize-none text-sm bg-transparent outline-none"
+            style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5' }} />
 
-        {/* Controls row */}
-        <div className="flex items-center justify-between gap-2 px-3 pb-2.5 pt-1">
-          {/* Left: attach + agent + model + thinking */}
-          <div className="flex items-center gap-1 min-w-0 flex-1">
-            <button onClick={handleFilePick} disabled={disabled || isStreaming}
-              className="p-1.5 rounded-lg transition-colors flex-shrink-0 disabled:opacity-40"
-              style={{ color: 'var(--color-text-tertiary)' }}
-              onMouseEnter={(e) => !disabled && (e.currentTarget.style.background = 'var(--color-bg-hover)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} title="Attach file" aria-label="Attach file">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+          {/* Send / Stop — small icon, NOT big circular */}
+          {isStreaming ? (
+            <button onClick={onStop}
+              className="flex items-center justify-center p-1.5 rounded-md transition-all flex-shrink-0"
+              style={{ background: 'var(--color-text-primary)', color: 'var(--color-bg-primary)' }}
+              title="Stop" aria-label="Stop">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
             </button>
-            {onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
-            {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
-            {onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
-          </div>
+          ) : (
+            <button onClick={handleSend} disabled={!canSend}
+              className="flex items-center justify-center p-1.5 rounded-md transition-all flex-shrink-0 disabled:opacity-30"
+              style={{ background: canSend ? 'var(--color-accent)' : 'transparent', color: canSend ? 'white' : 'var(--color-text-muted)' }}
+              title="Send (Enter)" aria-label="Send"
+              onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent-hover)'; }}
+              onMouseLeave={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent)'; }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+            </button>
+          )}
+        </div>
 
-          {/* Right: Send / Stop — circular, INSIDE the card */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {isStreaming ? (
-              <button onClick={onStop}
-                className="flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0"
-                style={{ background: 'var(--color-text-primary)', color: 'var(--color-bg-primary)' }}
-                title="Stop generating" aria-label="Stop generating"
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-              </button>
-            ) : (
-              <button onClick={handleSend} disabled={!canSend}
-                className="flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: canSend ? 'var(--color-accent)' : 'var(--color-bg-tertiary)', color: canSend ? 'white' : 'var(--color-text-muted)' }}
-                title="Send (Enter)" aria-label="Send"
-                onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent-hover)'; }}
-                onMouseLeave={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent)'; }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
-              </button>
-            )}
-          </div>
+        {/* Controls row — below textarea, inside card */}
+        <div className="flex items-center gap-1 px-3 pb-2 pt-1">
+          <button onClick={handleFilePick} disabled={disabled || isStreaming}
+            className="p-1 rounded transition-colors flex-shrink-0 disabled:opacity-40"
+            style={{ color: 'var(--color-text-tertiary)' }}
+            onMouseEnter={(e) => !disabled && (e.currentTarget.style.background = 'var(--color-bg-hover)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} title="Attach">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+          </button>
+          {onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
+          {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
+          {onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
         </div>
       </div>
     </div>
