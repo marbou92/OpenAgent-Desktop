@@ -301,6 +301,16 @@ export interface AgentToolDeps {
 export interface PermissionChecker {
   checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny';
   requestPermission(toolName: string, args: Record<string, unknown>): Promise<boolean>;
+  /**
+   * Phase 8.5: Ask the user a question with multiple-choice options.
+   * Returns the user's selected answer (the option label), or null if
+   * the user dismissed the dialog without answering.
+   *
+   * Used by the AskUserQuestion tool. Distinct from requestPermission
+   * because the response is a free-form string (the selected option),
+   * not a boolean allow/deny.
+   */
+  requestUserAnswer?(toolName: string, args: Record<string, unknown>): Promise<string | null>;
 }
 
 export class ChatEngine {
@@ -840,15 +850,37 @@ export class ChatEngine {
         description: tool.description,
         parameters: tool.parameters,
         execute: async (args: Record<string, unknown>) => {
-          // Phase 7.1: AskUserQuestion uses the permission request flow to
-          // get the user's answer. The UI shows a question card, the user
-          // selects an option, and the response is sent back as the tool result.
+          // Phase 7.1 + Phase 8.5: AskUserQuestion uses a dedicated
+          // ask-user flow (NOT the permission flow) to get the user's
+          // selected answer. The UI shows a question card with the
+          // multiple-choice options, the user picks one, and the
+          // selected option label is returned as the tool result.
+          //
+          // Phase 8.5 fix: previously this called requestPermission()
+          // which only returns boolean — so the agent never saw the
+          // user's actual answer, just "User acknowledged the question."
+          // Now we use requestUserAnswer() which returns the selected
+          // option string, or null if the user dismissed the dialog.
           if (tool.name === 'AskUserQuestion') {
+            if (permissionChecker.requestUserAnswer) {
+              const answer = await permissionChecker.requestUserAnswer(tool.name, args);
+              if (answer === null) {
+                return 'User dismissed the question without answering.';
+              }
+              // Return the answer in a structured format so the agent
+              // can parse it: "Question: <q>\nAnswer: <selected option>"
+              const questions = Array.isArray(args.questions) ? args.questions : [];
+              const firstQ = questions[0] as any;
+              const questionText = firstQ?.question || '(unknown question)';
+              return `Question: ${questionText}\nUser's answer: ${answer}`;
+            }
+            // Fallback for old permission checkers that don't implement
+            // requestUserAnswer — degrade to boolean approval.
             const approved = await permissionChecker.requestPermission(tool.name, args);
             if (!approved) {
               return 'User declined to answer.';
             }
-            return 'User acknowledged the question.';
+            return 'User acknowledged the question. (Note: actual answer not captured — upgrade to requestUserAnswer for full support.)';
           }
 
           // Phase 8.2: TodoWrite is handled entirely in-process — it never

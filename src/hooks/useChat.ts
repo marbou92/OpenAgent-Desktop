@@ -27,6 +27,8 @@ interface UseChatOptions {
   onPermissionRequest?: (request: PermissionRequest) => void;
   /** Phase 8.3: fired when auto-compaction runs after a chat turn. */
   onContextCompacted?: (data: { savedTokens: number; strategy?: string }) => void;
+  /** Phase 8.5: fired when the agent calls AskUserQuestion. */
+  onAskUser?: (request: { id: string; toolName: string; questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }) => void;
   // BUGFIX: previously useChat ignored external messages, so loading a saved
   // session showed an empty chat. Now we accept an externalMessages array and
   // sync it into local state whenever it changes (typically when App.tsx loads
@@ -57,6 +59,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onTraceEntry,
     onPermissionRequest,
     onContextCompacted,
+    onAskUser,
     externalMessages,
   } = options;
 
@@ -144,6 +147,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const onTraceEntryRef = useRef(onTraceEntry);
   const onPermissionRequestRef = useRef(onPermissionRequest);
   const onContextCompactedRef = useRef(onContextCompacted);
+  const onAskUserRef = useRef(onAskUser);
   useEffect(() => {
     onTraceEntryRef.current = onTraceEntry;
   }, [onTraceEntry]);
@@ -153,6 +157,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   useEffect(() => {
     onContextCompactedRef.current = onContextCompacted;
   }, [onContextCompacted]);
+  useEffect(() => {
+    onAskUserRef.current = onAskUser;
+  }, [onAskUser]);
   // Cleanup listeners on unmount or session change
   useEffect(() => {
     return () => {
@@ -361,6 +368,25 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       });
     }) ?? (() => {});
 
+    // Phase 8.5: AskUserQuestion — agent asks the user a question with
+    // multiple-choice options. Forward to the parent so it can render
+    // the AskUserQuestionDialog (separate from PermissionDialog).
+    //
+    // The IPC event shape is { sessionId, id, toolName, args: { questions: [...] } }
+    // because main.ts's `send` helper spreads the data object. We extract
+    // `questions` from `args` so the parent receives a clean shape.
+    const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }; questions?: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }) => {
+      if (data.sessionId !== sessionId) return;
+      // Support both shapes: questions at top level (if main ever sends it directly)
+      // or nested under args (current main.ts send helper spreads it).
+      const questions = data.questions || data.args?.questions || [];
+      onAskUserRef.current?.({
+        id: data.id,
+        toolName: data.toolName,
+        questions,
+      });
+    }) ?? (() => {});
+
     // Phase 8.3: auto-compaction ran after a chat turn. Notify the parent
     // so it can toast + reload the (now-compacted) message list.
     const unsubCompacted = api.on?.contextCompacted?.((data: { sessionId?: string; savedTokens: number; strategy?: string }) => {
@@ -379,6 +405,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       unsubCancelled,
       unsubTrace,
       unsubPermission,
+      unsubAskUser,
       unsubCompacted,
     ];
 

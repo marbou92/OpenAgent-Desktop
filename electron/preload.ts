@@ -489,6 +489,8 @@ const electronAPI = {
 
   permissions: {
     respond: (requestId: string, response: string): Promise<void> => invoke("permission:respond", requestId, response),
+    /** Phase 8.5: respond to an AskUserQuestion request with the selected option. */
+    respondToQuestion: (requestId: string, answer: string | null): Promise<void> => invoke("askUser:respond", requestId, answer),
   },
 
   // ── Aether v2: Crash Logger ───────────────────────────────────────────────
@@ -775,6 +777,19 @@ const electronAPI = {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => callback(data);
       ipcRenderer.on("chat:permission-request", handler);
       return () => ipcRenderer.removeListener("chat:permission-request", handler);
+    },
+
+    // Phase 8.5: AskUserQuestion request — agent asks the user a question
+    // with multiple-choice options. Rendered as a dedicated dialog (NOT the
+    // generic PermissionDialog). The renderer calls permissions.respondToQuestion()
+    // with the selected option label to resolve the pending tool call.
+    //
+    // The IPC event shape is { sessionId, id, toolName, args: { questions: [...] } }
+    // because main.ts's `send` helper spreads the data object.
+    askUser: (callback: (data: { sessionId: string; id: string; toolName: string; args: { questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> } }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on("chat:ask-user", handler);
+      return () => ipcRenderer.removeListener("chat:ask-user", handler);
     },
 
     // File events

@@ -1989,6 +1989,11 @@ function registerIpcHandlers(): void {
 
   const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
 
+  // Phase 8.5: Pending AskUserQuestion requests. Keyed by requestId, the
+  // callback resolves with the user's selected answer (option label) or
+  // null if the user dismissed the dialog.
+  const pendingAskUserRequests = new Map<string, (answer: string | null) => void>();
+
   ipcMain.handle("permission:respond", wrapIPC(async (_e, requestId: string, response: string) => {
     const resolve = pendingPermissionRequests.get(requestId);
     if (!resolve) {
@@ -2000,6 +2005,19 @@ function registerIpcHandlers(): void {
       response === 'allow_once' || response === 'always_allow' ? 'allow' :
       response === 'deny_once' || response === 'always_deny' ? 'deny' : 'ask';
     resolve(level);
+    return { success: true };
+  }));
+
+  // Phase 8.5: AskUserQuestion response handler. The renderer sends the
+  // user's selected option label (or null if dismissed) back to resolve
+  // the pending promise in the AskUserQuestion tool's execute handler.
+  ipcMain.handle("askUser:respond", wrapIPC(async (_e, requestId: string, answer: string | null) => {
+    const resolve = pendingAskUserRequests.get(requestId);
+    if (!resolve) {
+      return { success: false, error: 'No pending ask-user request for this id' };
+    }
+    pendingAskUserRequests.delete(requestId);
+    resolve(answer);
     return { success: true };
   }));
 
@@ -2066,6 +2084,17 @@ function registerIpcHandlers(): void {
           const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           pendingPermissionRequests.set(requestId, (level: ToolPermissionLevel) => resolve(level === 'allow'));
           send('chat:permission-request', { id: requestId, toolName, args });
+        });
+      },
+      // Phase 8.5: AskUserQuestion flow. Sends a chat:ask-user IPC event
+      // with the question + options; the renderer shows a dedicated dialog
+      // (NOT the generic PermissionDialog). The user's selected option
+      // label is returned, or null if dismissed.
+      requestUserAnswer(toolName: string, args: Record<string, unknown>): Promise<string | null> {
+        return new Promise((resolve) => {
+          const requestId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          pendingAskUserRequests.set(requestId, (answer: string | null) => resolve(answer));
+          send('chat:ask-user', { id: requestId, toolName, args });
         });
       },
     };
