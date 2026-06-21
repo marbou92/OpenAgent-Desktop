@@ -133,6 +133,33 @@ export const ProvidersView: React.FC<ProvidersViewProps> = ({ addToast }) => {
     }
   };
 
+  // Phase 8.7: Gemini (Free OAuth) — starts a Google OAuth flow.
+  // Opens the system browser; the user signs in with their Google account;
+  // tokens are stored automatically. No user code needed (unlike Copilot).
+  const handleOAuthStart = async () => {
+    if (!selectedProviderId) return;
+    addToast({
+      type: 'info',
+      title: 'Opening browser...',
+      message: 'Sign in with your Google account to authorize Gemini access.',
+    });
+    try {
+      const result = await api.providers.startGeminiOAuth();
+      if (result?.success === false) {
+        addToast({ type: 'error', title: 'Google OAuth failed', message: result?.error || 'Unknown error' });
+        return;
+      }
+      addToast({
+        type: 'success',
+        title: 'Gemini connected',
+        message: result?.data?.accountId ? `Signed in as ${result.data.accountId}` : 'Google OAuth completed successfully.',
+      });
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Google OAuth failed', message: err.message });
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!selectedProviderId) return;
     try {
@@ -260,6 +287,7 @@ export const ProvidersView: React.FC<ProvidersViewProps> = ({ addToast }) => {
               isHealthChecking={isHealthChecking}
               onApiKeySubmit={handleApiKeySubmit}
               onCopilotStart={handleCopilotStart}
+              onOAuthStart={handleOAuthStart}
               onDisconnect={handleDisconnect}
               onSetBaseUrl={handleSetBaseUrl}
               onRefreshModels={handleRefreshModels}

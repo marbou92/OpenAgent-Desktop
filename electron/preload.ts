@@ -548,6 +548,9 @@ const electronAPI = {
     startCopilot: (): Promise<any> => invoke("provider:start-copilot"),
     cancelCopilot: (): Promise<void> => invoke("provider:cancel-copilot"),
 
+    // Phase 8.7: Gemini (Free OAuth) — Google OAuth 2.0 with PKCE
+    startGeminiOAuth: (): Promise<any> => invoke("provider:start-gemini-oauth"),
+
     // Health
     runHealthCheck: (providerId: string): Promise<any> => invoke("provider:run-health-check", providerId),
 

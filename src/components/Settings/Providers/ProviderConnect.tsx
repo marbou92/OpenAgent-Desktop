@@ -1,11 +1,12 @@
 /**
  * OpenAgent-Desktop - Provider Connect (opencode-style)
  *
- * Button + flow UI for API key and GitHub Copilot device-flow auth.
+ * Button + flow UI for API key, GitHub Copilot device-flow auth, and
+ * Google OAuth (Gemini Free OAuth).
  */
 
 import React, { useState } from 'react';
-import { KeyRound, LogIn, Loader2, Github } from 'lucide-react';
+import { KeyRound, LogIn, Loader2, Github, Chrome } from 'lucide-react';
 import { ProviderDefinition, AuthProvider } from './types';
 
 export interface ProviderConnectProps {
@@ -15,6 +16,8 @@ export interface ProviderConnectProps {
   onCopilotStart: () => void;
   onDisconnect: () => void;
   isConnecting: boolean;
+  /** Phase 8.7: Called when the user clicks "Sign in with Google" for OAuth providers. */
+  onOAuthStart?: () => void;
 }
 
 export const ProviderConnect: React.FC<ProviderConnectProps> = ({
@@ -24,6 +27,7 @@ export const ProviderConnect: React.FC<ProviderConnectProps> = ({
   onCopilotStart,
   onDisconnect,
   isConnecting,
+  onOAuthStart,
 }) => {
   const [apiKey, setApiKey] = useState('');
 
@@ -130,6 +134,31 @@ export const ProviderConnect: React.FC<ProviderConnectProps> = ({
           <button
             onClick={onCopilotStart}
             className="text-xs px-3 py-1.5 rounded flex items-center gap-1"
+            style={{ background: 'var(--color-accent)', color: 'white' }}
+          >
+            <LogIn size={14} /> Connect
+          </button>
+        </div>
+      )}
+
+      {/* Phase 8.7: Google OAuth (Gemini Free OAuth) */}
+      {methods.includes('oauth') && (
+        <div
+          className="p-3 rounded-lg flex items-center justify-between"
+          style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-primary)' }}
+        >
+          <div>
+            <div className="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--color-text-primary)' }}>
+              <Chrome size={14} /> Sign in with Google
+            </div>
+            <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              Opens your browser for Google OAuth. Free access to Gemini models via the Code Assist API — no API key needed.
+            </div>
+          </div>
+          <button
+            onClick={() => onOAuthStart?.()}
+            disabled={!onOAuthStart}
+            className="text-xs px-3 py-1.5 rounded flex items-center gap-1 disabled:opacity-50"
             style={{ background: 'var(--color-accent)', color: 'white' }}
           >
             <LogIn size={14} /> Connect

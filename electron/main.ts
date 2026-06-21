@@ -63,6 +63,7 @@ import { getModelsDevClient } from './providers/models-dev-client';
 import { getPiDevClient } from './providers/pi-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
 import { GithubCopilotAuth } from './providers/github-copilot-auth';
+import { startGeminiOAuthFlow } from './providers/gemini-oauth-handler';
 import { buildAgenticSystemPrompt, buildChatSystemPrompt, DEFAULT_AGENTIC_MAX_STEPS } from './providers/agentic-system-prompt';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
 import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
@@ -1644,6 +1645,29 @@ function registerIpcHandlers(): void {
     if (!copilotAuth) return { success: true };
     copilotAuth.cancel();
     return { success: true };
+  }));
+
+  // Phase 8.7: Gemini (Free OAuth) — starts a Google OAuth 2.0 flow with PKCE.
+  // Opens the system browser for the user to sign in with their Google account.
+  // The callback is received on a local HTTP server; tokens are exchanged and
+  // stored in AuthStore v2 as { type: 'oauth', access, refresh, expires }.
+  ipcMain.handle("provider:start-gemini-oauth", wrapIPC(async () => {
+    try {
+      const result = await startGeminiOAuthFlow();
+      // Store the OAuth tokens in AuthStore v2.
+      authStore.set('gemini-oauth', {
+        type: 'oauth',
+        access: result.access,
+        refresh: result.refresh,
+        expires: result.expiresAt,
+        accountId: result.accountId,
+      });
+      logger.info('GeminiOAuth', `OAuth completed — access token expires at ${new Date(result.expiresAt).toISOString()}`);
+      return { success: true, data: { accountId: result.accountId } };
+    } catch (err: any) {
+      logger.warn('GeminiOAuth', 'OAuth flow failed', err);
+      return { success: false, error: err?.message || 'Gemini OAuth flow failed' };
+    }
   }));
 
   // Health check

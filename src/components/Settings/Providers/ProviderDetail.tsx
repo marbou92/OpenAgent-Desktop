@@ -40,6 +40,8 @@ export interface ProviderDetailProps {
   onRefreshModels: () => void;
   onRunHealthCheck: () => void;
   onRemove: () => void;
+  /** Phase 8.7: Called when the user starts a Google OAuth flow (Gemini Free OAuth). */
+  onOAuthStart?: () => void;
 }
 
 export const ProviderDetail: React.FC<ProviderDetailProps> = ({
@@ -58,6 +60,7 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
   onRefreshModels,
   onRunHealthCheck,
   onRemove,
+  onOAuthStart,
 }) => {
   const [baseUrl, setBaseUrl] = useState(definition.options?.baseURL || '');
 
@@ -118,6 +121,7 @@ export const ProviderDetail: React.FC<ProviderDetailProps> = ({
           onCopilotStart={onCopilotStart}
           onDisconnect={onDisconnect}
           isConnecting={false}
+          onOAuthStart={onOAuthStart}
         />
       </section>
 
