@@ -178,10 +178,28 @@ ${opts.agentPrompt.trim()}`
   if (opts.availableTools && opts.availableTools.length > 0) {
     sections.push(
 `# Available tools
-${opts.availableTools.join(', ')}
+You have access to these tools: ${opts.availableTools.join(', ')}
 
-Call tools by name. Tool arguments are passed as a JSON object. The framework
-handles execution and returns the result inline so you can continue the turn.`
+## CRITICAL: How to call tools
+Use the AI SDK's native function calling mechanism. Do NOT emit tool calls as
+XML text, <tool_calls> tags, <invoke> tags, or <ask_user_question> tags. The
+framework handles tool execution automatically when you use native function
+calling. If you emit XML text instead, the tools will NOT execute and the user
+will see raw XML in the chat.
+
+## Tool names (use EXACTLY these names — no aliases)
+- bash — execute a shell command (param: command)
+- read — read a file (param: path)
+- write — write a file (params: path, content)
+- edit — edit a file (params: path, old_string, new_string)
+- glob — find files by pattern (param: pattern)
+- grep — search file contents (param: pattern)
+- list_files — list directory contents (param: path)
+- TodoWrite — update the todo list (param: todos — array of {id, content, status, priority})
+- AskUserQuestion — ask the user a question (param: questions — array of {question, header?, options: [{label, description?}]})
+
+Do NOT invent tool names like "create_todo", "ask_user_question", "run_command",
+"read_file", etc. Use the EXACT names above.`
     );
   }
 
