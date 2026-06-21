@@ -117,8 +117,6 @@ export function parseXmlToolCalls(text: string): ParsedToolCall[] {
   const calls: ParsedToolCall[] = [];
 
   // ─── Format 0: Code-block function calls ──────────────────────────────
-  // ```javascript\nToolName({ json: args })\n```
-  // This is what many models emit when they can't do native function calling.
   calls.push(...parseCodeBlockToolCalls(text));
 
   // ─── Format 2: <ask_user_question>...</ask_user_question> ────────────
@@ -133,13 +131,19 @@ export function parseXmlToolCalls(text: string): ParsedToolCall[] {
   // ─── Format 4: <function_call>{json}</function_call> ──────────────────
   calls.push(...parseFunctionCallTag(text));
 
+  // ─── Format 6: <function_declaration>{json}</function_declaration> ───
+  // Some models (DeepSeek) emit this format — the declaration may include
+  // the call arguments. Parse it as a fallback.
+  if (calls.length === 0) {
+    calls.push(...parseFunctionDeclarationTag(text));
+  }
+
   // ─── Format 5: Bare <invoke name="X"> without <tool_calls> wrapper ────
   if (calls.length === 0) {
     calls.push(...parseBareInvoke(text));
   }
 
-  // ─── Format 6: Bare function call (no code block) ─────────────────────
-  // ToolName({ json: args })  — as a last resort
+  // ─── Format 7: Bare function call (no code block) ─────────────────────
   if (calls.length === 0) {
     calls.push(...parseBareFunctionCall(text));
   }
@@ -420,6 +424,40 @@ function parseFunctionCallTag(text: string): ParsedToolCall[] {
   return calls;
 }
 
+// ─── Format 6: <function_declaration>{json}</function_declaration> ───────────
+// DeepSeek-style: the model declares the function as text. Sometimes the
+// declaration includes an `arguments` field (the actual call args), sometimes
+// it's just the schema. We extract whatever we can.
+
+function parseFunctionDeclarationTag(text: string): ParsedToolCall[] {
+  const calls: ParsedToolCall[] = [];
+  const regex = /<function_declaration>\s*(\{[\s\S]*?\})\s*<\/function_declaration>/gi;
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      // The declaration should have a `name` field.
+      if (!parsed.name) continue;
+      // Check if it also has `arguments` (some models embed the call args
+      // in the declaration). If so, treat it as a call.
+      if (parsed.arguments || parsed.args) {
+        calls.push({
+          name: parsed.name,
+          args: parsed.arguments || parsed.args,
+          rawText: match[0],
+        });
+      } else {
+        // No arguments — this is just a declaration. Skip it (we can't
+        // execute a tool without arguments). The stripXmlToolCalls function
+        // will remove it from the visible text.
+        console.info(`[XmlToolParser] <function_declaration> for ${parsed.name} has no arguments — skipping (declaration only)`);
+      }
+    } catch { /* skip invalid JSON */ }
+  }
+  return calls;
+}
+
 // ─── Format 5: Bare <invoke> without wrapper ──────────────────────────────────
 
 function parseBareInvoke(text: string): ParsedToolCall[] {
@@ -552,6 +590,7 @@ export function stripXmlToolCalls(text: string): string {
   cleaned = cleaned.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, '');
   cleaned = cleaned.replace(/<ask_user_question>[\s\S]*?<\/ask_user_question>/gi, '');
   cleaned = cleaned.replace(/<function_call>[\s\S]*?<\/function_call>/gi, '');
+  cleaned = cleaned.replace(/<function_declaration>[\s\S]*?<\/function_declaration>/gi, '');
   cleaned = cleaned.replace(/<tool_use\s+name=["'][^"']+["'][\s\S]*?<\/tool_use>/gi, '');
   cleaned = cleaned.replace(/<invoke\s+name=["'][^"']+["'][\s\S]*?<\/invoke>/gi, '');
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();

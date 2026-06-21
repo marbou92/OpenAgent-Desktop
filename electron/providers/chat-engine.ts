@@ -603,6 +603,13 @@ export class ChatEngine {
                     accumulatedText = accumulatedReasoning;
                   }
 
+                  // Phase 9.5: Debug log the accumulated text so we can see
+                  // what format the model actually emitted. This helps diagnose
+                  // why tool calls aren't executing.
+                  if (accumulatedText) {
+                    console.info(`[ChatEngine] Stream finished. accumulatedText length=${accumulatedText.length}, first 500 chars:`, accumulatedText.substring(0, 500));
+                  }
+
                   // Phase 9.1: Check for XML-style tool calls in the text.
                   // Some models (especially free/OpenAI-compatible ones) emit
                   // tool calls as XML text instead of using native function
@@ -610,7 +617,7 @@ export class ChatEngine {
                   if (accumulatedText && options?.executeXmlToolCall) {
                     const xmlCalls = parseXmlToolCalls(accumulatedText);
                     if (xmlCalls.length > 0) {
-                      console.info(`[ChatEngine] Found ${xmlCalls.length} XML tool call(s) in text — executing`);
+                      console.info(`[ChatEngine] Found ${xmlCalls.length} XML/text tool call(s) in text — executing`);
                       for (const xmlCall of xmlCalls) {
                         // Notify the caller that a tool call was detected
                         // (so main.ts can intercept TodoWrite, forward to
@@ -663,7 +670,16 @@ export class ChatEngine {
                       },
                     };
                   }
-                  console.info(`[ChatEngine] Stream finished after ${partCount} parts (yieldedContent: ${yieldedContent})`);
+                  console.info(`[ChatEngine] Stream finished after ${partCount} parts (yieldedContent: ${yieldedContent}, tools: ${!!options?.tools}, executeXmlToolCall: ${!!options?.executeXmlToolCall})`);
+                  // Phase 9.5: If we had tools but no native tool-call parts
+                  // AND no XML/text tool calls were found, log a warning so
+                  // the user knows the model didn't call any tools.
+                  if (options?.tools && !yieldedContent && accumulatedText && options?.executeXmlToolCall) {
+                    const xmlCalls = parseXmlToolCalls(accumulatedText);
+                    if (xmlCalls.length === 0) {
+                      console.warn(`[ChatEngine] Model emitted text but no tool calls were detected (neither native nor XML/text). The model may not support function calling. Text preview: "${accumulatedText.substring(0, 200)}"`);
+                    }
+                  }
                   yield { type: 'done' };
                   return;
 
