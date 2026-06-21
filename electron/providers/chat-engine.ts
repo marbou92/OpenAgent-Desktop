@@ -765,22 +765,30 @@ export class ChatEngine {
     };
 
     // Built-in tools with AI SDK tool() format.
-    // Using plain JSON schemas (not zod) for compatibility.
-    //
-    // Phase 8.2: Tool descriptions are written Claude-Code-style — they tell
-    // the model WHEN to use each tool, not just WHAT it does. This matters
-    // because the system prompt tells the model to "use tools proactively",
-    // and the descriptions are the model's only guide for picking the right
-    // one. Each description also includes a "Returns" line so the model
-    // knows what to expect in the result.
+    // Phase 9.4: Descriptions rewritten using opencode's proven tool
+    // descriptions (github.com/anomalyco/opencode). These are battle-tested
+    // across many models and give clearer guidance on WHEN to use each tool.
     const builtinTools = [
       {
         name: 'bash',
-        description: 'Execute a shell command in the working directory. Returns stdout, stderr, exit code, and timing. Use this for: running tests, git commands, building code, listing directories (ls), and any one-off shell task. For repeated file inspection prefer `read` or `grep`. Avoid `rm -rf` and `sudo` — they trigger a permission prompt.',
+        description: `Executes a shell command in the working directory.
+
+Usage:
+- This tool is for terminal operations like git, npm, docker, building, running tests, etc.
+- DO NOT use this tool for file operations (reading, writing, editing, searching files) — use the specialized tools (read, write, edit, glob, grep) instead.
+- Returns stdout, stderr, exit code, and timing.
+- Commands run with the working directory as cwd.
+- Avoid \`rm -rf\` and \`sudo\` — they trigger a permission prompt.
+
+# Git and GitHub
+- Only commit, amend, push, or create PRs when explicitly requested.
+- Before committing, inspect \`git status\`, \`git diff\`, and \`git log --oneline -10\`.
+- Write a concise commit message that matches the repo style.
+- Do not force-push or create empty commits unless explicitly requested.`,
         parameters: {
           type: 'object',
           properties: {
-            command: { type: 'string', description: 'The shell command to execute. Use pipes/redirection as needed.' },
+            command: { type: 'string', description: 'The shell command to execute.' },
             cwd: { type: 'string', description: 'Working directory (defaults to the agent cwd)' },
             timeout: { type: 'number', description: 'Timeout in ms (default 30000, max 300000)' },
           },
@@ -789,11 +797,23 @@ export class ChatEngine {
       },
       {
         name: 'read',
-        description: 'Read the contents of a file. Always call this before `edit` so you have the exact text to match. Returns the file content with line numbers prepended (cat -n style). Supports optional offset/limit for large files — but reading the whole file is preferred when feasible so you have full context.',
+        description: `Read a file or directory from the local filesystem. If the path does not exist, an error is returned.
+
+Usage:
+- The path parameter should be an absolute path or relative to the working directory.
+- By default, this tool returns up to 2000 lines from the start of the file.
+- The offset parameter is the line number to start from (1-indexed).
+- To read later sections, call this tool again with a larger offset.
+- Use the grep tool to find specific content in large files or files with long lines.
+- If you are unsure of the correct file path, use the glob tool to look up filenames by glob pattern.
+- Contents are returned with each line prefixed with its line number: \`<line>: <content>\`.
+- For directories, entries are returned one per line with a trailing \`/\` for subdirectories.
+- Any line longer than 2000 characters is truncated.
+- You MUST call this tool before editing a file — the edit tool requires an exact text match.`,
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'File path (relative to cwd or absolute)' },
+            path: { type: 'string', description: 'File or directory path (relative to cwd or absolute)' },
             offset: { type: 'number', description: 'Starting line number (1-indexed, default 1)' },
             limit: { type: 'number', description: 'Max lines to read (default 2000)' },
           },
@@ -802,7 +822,15 @@ export class ChatEngine {
       },
       {
         name: 'write',
-        description: 'Write content to a file, overwriting it if it exists. Creates parent directories if needed. Use this for new files or full rewrites. For targeted changes to an existing file, prefer `edit` (it preserves the rest of the file and is less error-prone).',
+        description: `Writes a file to the local filesystem.
+
+Usage:
+- This tool overwrites the existing file if there is one at the provided path.
+- If editing an existing file, you MUST use the Read tool first to read its contents.
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+- NEVER proactively create documentation files (*.md) or README files.
+- Creates parent directories if needed.
+- For targeted changes to an existing file, prefer the edit tool.`,
         parameters: {
           type: 'object',
           properties: {
@@ -814,7 +842,15 @@ export class ChatEngine {
       },
       {
         name: 'edit',
-        description: 'Edit a file by replacing a unique old_string with new_string. The old_string MUST match the file exactly (including whitespace and indentation) — if it does not match, the tool returns an error and the file is unchanged. Tip: call `read` first to get the exact text. To delete code, set new_string to an empty string.',
+        description: `Performs exact string replacements in files.
+
+Usage:
+- You must use the Read tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
+- The oldString MUST match the file exactly (including whitespace and indentation).
+- The edit will FAIL if oldString is not found in the file.
+- The edit will FAIL if oldString is found multiple times — provide more surrounding context to make the match unique.
+- To delete code, set newString to an empty string.
+- ALWAYS prefer editing existing files. NEVER write new files unless explicitly required.`,
         parameters: {
           type: 'object',
           properties: {
@@ -827,7 +863,13 @@ export class ChatEngine {
       },
       {
         name: 'glob',
-        description: 'Find files matching a glob pattern. Use this to discover files by name/extension (e.g. "**/*.ts" finds all TypeScript files). Returns a list of paths relative to the search directory. For searching file CONTENTS, use `grep` instead.',
+        description: `Fast file pattern matching tool that works with any codebase size.
+
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths
+- Use this tool when you need to find files by name patterns
+- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
+- For searching file CONTENTS, use grep instead.`,
         parameters: {
           type: 'object',
           properties: {
@@ -839,7 +881,14 @@ export class ChatEngine {
       },
       {
         name: 'grep',
-        description: 'Search file contents with a regex (ripgrep-style). Use this to find where a function/symbol/constant is defined or referenced. Returns matching lines with file paths and line numbers. For finding files by NAME, use `glob` instead. Supports include patterns to limit which file types are searched.',
+        description: `Fast content search tool that works with any codebase size.
+
+- Searches file contents using regular expressions
+- Supports full regex syntax (eg. "log.*Error", "function\\s+\\w+", etc.)
+- Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}")
+- Returns file paths and line numbers with matching lines
+- Use this tool when you need to find files containing specific patterns
+- For finding files by NAME, use glob instead.`,
         parameters: {
           type: 'object',
           properties: {
@@ -852,7 +901,12 @@ export class ChatEngine {
       },
       {
         name: 'list_files',
-        description: 'List the contents of a directory. Use this to orient yourself when you don\'t know the project structure. Returns names + types (file/dir). For recursive discovery, use `glob` with a pattern like "**/*".',
+        description: `List the contents of a directory.
+
+- Returns names + types (file/dir) for each entry.
+- Subdirectories have a trailing \`/\`.
+- Use this to orient yourself when you don't know the project structure.
+- For recursive discovery, use glob with a pattern like "**/*".`,
         parameters: {
           type: 'object',
           properties: {
@@ -863,7 +917,36 @@ export class ChatEngine {
       },
       {
         name: 'TodoWrite',
-        description: 'Create or update the agent\'s todo list for the current task. Call this at the start of multi-step work (3+ steps) to lay out a plan, then update each todo\'s status as you progress through it. The user can see the todos in real time. Statuses: pending (not started), in_progress (currently working), completed (done), cancelled (decided not to do). At most ONE todo should be in_progress at a time.',
+        description: `Create and maintain a structured task list for the current coding session. Tracks progress, organizes multi-step work, and surfaces status to the user.
+
+## When to use
+Use proactively when:
+- The task requires 3+ distinct steps or actions
+- The work is non-trivial and benefits from planning
+- The user provides multiple tasks (numbered or comma-separated) or explicitly asks for a todo list
+- New instructions arrive — capture them as todos
+- You start a task — mark it \`in_progress\` (only one at a time) before working
+- You finish a task — mark it \`completed\` and add any follow-ups discovered during the work
+
+## When NOT to use
+Skip when:
+- The work is a single, straightforward task (or <3 trivial steps)
+- The request is purely informational or conversational
+- Tracking adds no organizational value
+
+## States
+- \`pending\` — not started
+- \`in_progress\` — actively working (exactly ONE at a time)
+- \`completed\` — finished successfully
+- \`cancelled\` — no longer needed
+
+## Rules
+- Update status in real time; don't batch completions
+- Mark \`completed\` only after the required work is actually done
+- Keep exactly one \`in_progress\` while work remains
+- Items should be specific and actionable; break large work into smaller steps
+
+When in doubt, use it.`,
         parameters: {
           type: 'object',
           properties: {
@@ -874,9 +957,9 @@ export class ChatEngine {
                 type: 'object',
                 properties: {
                   id: { type: 'string', description: 'Stable ID for this todo (e.g. "1", "2a"). Reuse the same ID when updating.' },
-                  content: { type: 'string', description: 'What needs to be done (short imperative, e.g. "Add input validation to login form")' },
-                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: 'Current status' },
-                  priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Priority (default medium)' },
+                  content: { type: 'string', description: 'Brief description of the task' },
+                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: 'Current status of the task' },
+                  priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Priority level of the task' },
                 },
                 required: ['id', 'content', 'status'],
               },
@@ -887,13 +970,22 @@ export class ChatEngine {
       },
       {
         name: 'AskUserQuestion',
-        description: 'Ask the user a question with multiple-choice options. Use this when you need clarification or a decision from the user before proceeding.',
+        description: `Use this tool when you need to ask the user questions during execution. This allows you to:
+1. Gather user preferences or requirements
+2. Clarify ambiguous instructions
+3. Get decisions on implementation choices as you work
+4. Offer choices to the user about what direction to take.
+
+Usage notes:
+- Answers are returned as the selected option labels.
+- If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label.
+- Ask one question at a time for clarity — the user sees a dialog with the options as buttons.`,
         parameters: {
           type: 'object',
           properties: {
             questions: {
               type: 'array',
-              description: 'Array of questions to ask the user',
+              description: 'Questions to ask the user',
               items: {
                 type: 'object',
                 properties: {
@@ -912,7 +1004,7 @@ export class ChatEngine {
                     },
                   },
                 },
-                required: ['question'],
+                required: ['question', 'options'],
               },
             },
           },

@@ -19,6 +19,8 @@ import { renderMarkdown, sanitizeHtml, attachCopyCodeHandlers } from '../../util
 import { formatFileSize } from '../../utils/format';
 import ThinkingBlock from './message/ThinkingBlock';
 import ToolUseCard from './message/ToolUseCard';
+import TodoWriteCard from './message/TodoWriteCard';
+import AskUserQuestionCard from './message/AskUserQuestionCard';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -124,12 +126,35 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
             </div>
           )}
 
-          {/* Tool calls — merged ToolUseCard (OpenCowork style) */}
+          {/* Tool calls — inline cards for TodoWrite + AskUserQuestion,
+              regular ToolUseCard for everything else */}
           {message.toolCalls && message.toolCalls.length > 0 && (
             <div className="space-y-1.5">
-              {message.toolCalls.map((tc) => (
-                <ToolUseCard key={tc.id} toolCall={tc} />
-              ))}
+              {message.toolCalls.map((tc) => {
+                // Phase 9.4: Render TodoWrite as an inline checklist card.
+                if (tc.name === 'TodoWrite' && tc.arguments?.todos) {
+                  return (
+                    <TodoWriteCard
+                      key={tc.id}
+                      todos={tc.arguments.todos as any[]}
+                      isStreaming={!!message.isStreaming}
+                    />
+                  );
+                }
+                // Phase 9.4: Render AskUserQuestion as an inline question card.
+                if (tc.name === 'AskUserQuestion' && tc.arguments?.questions) {
+                  return (
+                    <AskUserQuestionCard
+                      key={tc.id}
+                      questions={tc.arguments.questions as any[]}
+                      toolCallId={tc.id}
+                      answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
+                    />
+                  );
+                }
+                // Default: regular ToolUseCard for bash/read/edit/etc.
+                return <ToolUseCard key={tc.id} toolCall={tc} />;
+              })}
             </div>
           )}
 
@@ -190,5 +215,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
     </div>
   );
 };
+
+/**
+ * Phase 9.4: Extract the user's selected answer from the AskUserQuestion
+ * tool result string. The result format is:
+ *   "Question: <q>\nUser's answer: <selected option>"
+ * Returns null if the result doesn't match (e.g. "User dismissed...").
+ */
+function extractAnswerFromResult(result: string): string | null {
+  if (!result) return null;
+  const match = result.match(/User's answer:\s*(.+)/);
+  return match ? match[1].trim() : null;
+}
 
 export default MessageBubble;
