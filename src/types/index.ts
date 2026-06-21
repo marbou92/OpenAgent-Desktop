@@ -352,6 +352,8 @@ export interface ChatMessage {
   isStreaming?: boolean;
   thinking?: string;
   error?: string;
+  /** Phase 8.2: non-fatal warning (e.g. max-steps reached with partial content). */
+  warning?: string;
   files?: AttachedFile[];
   /** Phase 4: base64 data URLs for images attached to this message */
   images?: string[];
@@ -959,6 +961,10 @@ declare global {
         ) => () => void;
         chatStreamError: (
           callback: (data: { sessionId: string; error: string }) => void
+        ) => () => void;
+        /** Phase 8.2: non-fatal warning (e.g. max-steps reached with partial content). */
+        chatStreamWarning: (
+          callback: (data: { sessionId: string; warning: string }) => void
         ) => () => void;
         chatStreamEnd: (
           callback: (data: { sessionId: string; content: string }) => void

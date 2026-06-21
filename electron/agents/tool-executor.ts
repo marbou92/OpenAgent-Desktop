@@ -262,12 +262,39 @@ async function executeRead(args: Record<string, unknown>, deps: ToolExecutorDeps
     return { content: `read: path '${filePath}' is outside the working directory`, isError: true };
   }
   const content = fs.readFileSync(resolved, 'utf-8');
-  // Truncate very large files to avoid blowing the context window.
+  // Phase 8.2: support offset/limit + cat -n style line numbers so the
+  // model can cite line numbers in its explanations and pass exact
+  // old_string snippets to `edit`.
+  const offset = typeof args.offset === 'number' && args.offset > 0 ? Math.floor(args.offset) : 1;
+  const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 2000;
+  const allLines = content.split('\n');
+  const startIdx = Math.max(0, offset - 1);
+  const endIdx = Math.min(allLines.length, startIdx + limit);
+  const sliced = allLines.slice(startIdx, endIdx);
+  // Prepend line numbers (1-indexed from the original file, not the slice).
+  const numbered = sliced.map((line, i) => {
+    const lineNo = startIdx + i + 1;
+    // Right-pad line numbers to 6 chars so the text alignment is stable
+    // even for 4-5 digit line numbers.
+    const numStr = String(lineNo).padStart(6, ' ');
+    return `${numStr}\t${line}`;
+  });
+  const body = numbered.join('\n');
+  // Truncate very large reads to avoid blowing the context window.
   const maxChars = 50000;
-  if (content.length > maxChars) {
-    return { content: content.slice(0, maxChars) + `\n\n[... truncated ${content.length - maxChars} chars ...]` };
+  if (body.length > maxChars) {
+    return {
+      content: body.slice(0, maxChars) +
+        `\n\n[... truncated ${body.length - maxChars} chars (lines ${startIdx + 1}-${endIdx} of ${allLines.length}) ...]`,
+    };
   }
-  return { content };
+  // If we sliced, add a footer so the model knows there's more.
+  if (endIdx < allLines.length) {
+    return {
+      content: body + `\n\n[showing lines ${startIdx + 1}-${endIdx} of ${allLines.length} — call read again with offset=${endIdx + 1} to continue]`,
+    };
+  }
+  return { content: body };
 }
 
 async function executeWrite(args: Record<string, unknown>, deps: ToolExecutorDeps): Promise<ToolCallResult> {
@@ -298,7 +325,22 @@ async function executeEdit(args: Record<string, unknown>, deps: ToolExecutorDeps
   }
   const content = fs.readFileSync(resolved, 'utf-8');
   if (!content.includes(oldString)) {
-    return { content: `edit: old_string not found in ${filePath}`, isError: true };
+    return { content: `edit: old_string not found in ${filePath}. Read the file again to get the exact text.`, isError: true };
+  }
+  // Phase 8.2: count occurrences — if old_string appears more than once,
+  // refuse and ask the model to provide a longer, unique snippet. This
+  // matches Claude Code's behaviour and prevents editing the wrong spot.
+  let count = 0;
+  let idx = 0;
+  while ((idx = content.indexOf(oldString, idx)) !== -1) {
+    count++;
+    idx += oldString.length;
+  }
+  if (count > 1) {
+    return {
+      content: `edit: old_string appears ${count} times in ${filePath}. Include more surrounding context so the match is unique.`,
+      isError: true,
+    };
   }
   const updated = content.replace(oldString, newString);
   fs.writeFileSync(resolved, updated, 'utf-8');

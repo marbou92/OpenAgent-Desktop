@@ -59,6 +59,7 @@ import { getModelsDevClient } from './providers/models-dev-client';
 import { getPiDevClient } from './providers/pi-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
 import { GithubCopilotAuth } from './providers/github-copilot-auth';
+import { buildAgenticSystemPrompt, buildChatSystemPrompt, DEFAULT_AGENTIC_MAX_STEPS } from './providers/agentic-system-prompt';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
 import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
@@ -1898,10 +1899,17 @@ function registerIpcHandlers(): void {
     // Build AI SDK tool definitions with execute() handlers.
     const tools = chatEngine.buildTools(toolDeps, permissionChecker, executeToolCall);
 
-    // Build the system prompt.
-    const systemPrompt = agent.prompt
-      ? `${agent.prompt}\n\nCurrent mode: ${agent.mode.toUpperCase()}\nWorking directory: ${toolDeps.workingDirectory}`
-      : `You are an AI assistant in ${agent.mode.toUpperCase()} mode. Working directory: ${toolDeps.workingDirectory}`;
+    // Phase 8.2: Build the agentic system prompt (Claude-Code-style coding
+    // assistant). This replaces the old two-line prompt with a structured
+    // prompt that establishes tool-use-first behaviour, read-before-edit
+    // discipline, todo planning, and working-directory awareness.
+    const systemPrompt = buildAgenticSystemPrompt({
+      workingDirectory: toolDeps.workingDirectory,
+      mode: agent.mode as 'build' | 'plan' | 'chat' | 'smart',
+      agentPrompt: agent.prompt,
+      availableTools: Object.keys(tools),
+      sessionId,
+    });
 
     // Build messages array from session history.
     // Phase 4: attach images to the latest user message for multi-modal.
@@ -1930,7 +1938,8 @@ function registerIpcHandlers(): void {
       {
         signal: opts.signal,
         tools,
-        maxSteps: agent.maxSteps || 50,
+        // Phase 8.2: use the agentic default if the agent doesn't override.
+        maxSteps: agent.maxSteps || DEFAULT_AGENTIC_MAX_STEPS,
         thinkingEffort, // Phase 4.2: pass thinking effort
         onToolCall: (tc: any) => {
           send('chat:stream-tool-call', { toolCall: tc });
@@ -1976,10 +1985,32 @@ function registerIpcHandlers(): void {
     // bubble. This happens with some free models that return empty SSE
     // streams, or when the agent loop exhausts maxSteps with only tool
     // calls and no final text.
+    //
+    // Phase 8.2: detect the maxSteps-exhausted case specifically so we can
+    // give a more useful message ("hit the step limit") instead of the
+    // generic "empty response" error.
+    const maxStepsLimit = agent.maxSteps || DEFAULT_AGENTIC_MAX_STEPS;
     if (!fullContent && status !== 'error') {
-      const errMsg = `The model ${providerId}/${modelId} returned an empty response. This can happen with free models that have rate limits, or when the model only made tool calls without producing a final answer. Try sending the message again, or switch to a different model.`;
+      let errMsg: string;
+      let resultStatus: 'error' | 'max_steps_reached';
+      if (stepCount >= maxStepsLimit) {
+        errMsg = `The agent hit the max-steps limit (${maxStepsLimit}) without producing a final answer. It made ${stepCount} tool calls. Try increasing maxSteps in the agent config, or simplify the task.`;
+        resultStatus = 'max_steps_reached';
+      } else {
+        errMsg = `The model ${providerId}/${modelId} returned an empty response. This can happen with free models that have rate limits, or when the model only made tool calls without producing a final answer. Try sending the message again, or switch to a different model.`;
+        resultStatus = 'error';
+      }
       send('chat:stream-error', { error: errMsg });
-      return { content: '', steps: stepCount, status: 'error' };
+      return { content: '', steps: stepCount, status: resultStatus };
+    }
+
+    // Phase 8.2: also surface max-steps-reached even when we DID get content
+    // (the agent may have produced partial work but hit the limit mid-task).
+    if (stepCount >= maxStepsLimit && status !== 'error') {
+      status = 'max_steps_reached';
+      send('chat:stream-warning', {
+        warning: `Hit the max-steps limit (${maxStepsLimit}). The result may be incomplete — ask the agent to continue if needed.`,
+      });
     }
 
     return { content: fullContent, steps: stepCount, status };
@@ -2175,12 +2206,20 @@ function registerIpcHandlers(): void {
             const chatImages = (options?.images as string[]) || undefined;
             // Phase 4.2: pass thinking effort
             const chatThinkingEffort = (options?.thinkingEffort as string) || undefined;
+            // Phase 8.2: build a chat-mode system prompt (lightweight — no
+            // tools are available in chat mode, so we don't include the
+            // full agentic prompt).
+            const chatSystemPrompt = buildChatSystemPrompt({
+              workingDirectory: (session.metadata as any)?.workingDirectory || process.cwd(),
+              sessionId,
+            });
             for await (const chunk of chatEngine.chatStream({
               model: `${providerId}/${model}`,
               messages: [
                 ...session.messages.map((m: any) => ({ role: m.role, content: m.content, images: (m as any).images })),
                 { role: 'user' as const, content: message, images: chatImages },
               ],
+              systemPrompt: chatSystemPrompt,
               thinkingEffort: chatThinkingEffort,
             }, {
               thinkingEffort: chatThinkingEffort,

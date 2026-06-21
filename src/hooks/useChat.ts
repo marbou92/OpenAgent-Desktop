@@ -290,6 +290,25 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setActiveToolCalls([]);
     });
 
+    // Phase 8.2: non-fatal warnings (e.g. max-steps reached with partial content).
+    // We don't stop streaming — the stream-end will follow — but we surface the
+    // warning so the user knows the agent hit a limit.
+    const unsubWarning = api.on.chatStreamWarning((data: { sessionId: string; warning: string }) => {
+      if (data.sessionId !== sessionId) return;
+      // Stash on the in-flight assistant message so the UI can show it.
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            warning: data.warning,
+          };
+        }
+        return updated;
+      });
+    });
+
     const unsubCancelled = api.on.chatStreamCancelled((data: { sessionId: string }) => {
       if (data.sessionId !== sessionId) return;
 
@@ -342,6 +361,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       unsubToolResult,
       unsubEnd,
       unsubError,
+      unsubWarning,
       unsubCancelled,
       unsubTrace,
       unsubPermission,

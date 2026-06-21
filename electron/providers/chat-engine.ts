@@ -626,77 +626,123 @@ export class ChatEngine {
 
     // Built-in tools with AI SDK tool() format.
     // Using plain JSON schemas (not zod) for compatibility.
+    //
+    // Phase 8.2: Tool descriptions are written Claude-Code-style — they tell
+    // the model WHEN to use each tool, not just WHAT it does. This matters
+    // because the system prompt tells the model to "use tools proactively",
+    // and the descriptions are the model's only guide for picking the right
+    // one. Each description also includes a "Returns" line so the model
+    // knows what to expect in the result.
     const builtinTools = [
       {
         name: 'bash',
-        description: 'Execute a shell command. Returns stdout, stderr, and exit code.',
+        description: 'Execute a shell command in the working directory. Returns stdout, stderr, exit code, and timing. Use this for: running tests, git commands, building code, listing directories (ls), and any one-off shell task. For repeated file inspection prefer `read` or `grep`. Avoid `rm -rf` and `sudo` — they trigger a permission prompt.',
         parameters: {
           type: 'object',
           properties: {
-            command: { type: 'string', description: 'The shell command to execute' },
-            cwd: { type: 'string', description: 'Working directory' },
-            timeout: { type: 'number', description: 'Timeout in ms (default 30000)' },
+            command: { type: 'string', description: 'The shell command to execute. Use pipes/redirection as needed.' },
+            cwd: { type: 'string', description: 'Working directory (defaults to the agent cwd)' },
+            timeout: { type: 'number', description: 'Timeout in ms (default 30000, max 300000)' },
           },
           required: ['command'],
         },
       },
       {
         name: 'read',
-        description: 'Read the contents of a file.',
+        description: 'Read the contents of a file. Always call this before `edit` so you have the exact text to match. Returns the file content with line numbers prepended (cat -n style). Supports optional offset/limit for large files — but reading the whole file is preferred when feasible so you have full context.',
         parameters: {
           type: 'object',
-          properties: { path: { type: 'string', description: 'File path' } },
+          properties: {
+            path: { type: 'string', description: 'File path (relative to cwd or absolute)' },
+            offset: { type: 'number', description: 'Starting line number (1-indexed, default 1)' },
+            limit: { type: 'number', description: 'Max lines to read (default 2000)' },
+          },
           required: ['path'],
         },
       },
       {
         name: 'write',
-        description: 'Write content to a file.',
+        description: 'Write content to a file, overwriting it if it exists. Creates parent directories if needed. Use this for new files or full rewrites. For targeted changes to an existing file, prefer `edit` (it preserves the rest of the file and is less error-prone).',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'File path' },
-            content: { type: 'string', description: 'Content to write' },
+            path: { type: 'string', description: 'File path (relative to cwd or absolute)' },
+            content: { type: 'string', description: 'Full content to write' },
           },
           required: ['path', 'content'],
         },
       },
       {
         name: 'edit',
-        description: 'Edit a file by replacing old_string with new_string.',
+        description: 'Edit a file by replacing a unique old_string with new_string. The old_string MUST match the file exactly (including whitespace and indentation) — if it does not match, the tool returns an error and the file is unchanged. Tip: call `read` first to get the exact text. To delete code, set new_string to an empty string.',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'File path' },
-            old_string: { type: 'string', description: 'String to find' },
-            new_string: { type: 'string', description: 'Replacement string' },
+            path: { type: 'string', description: 'File path (relative to cwd or absolute)' },
+            old_string: { type: 'string', description: 'Exact text to find (must be unique in the file)' },
+            new_string: { type: 'string', description: 'Text to replace it with (use "" to delete)' },
           },
           required: ['path', 'old_string', 'new_string'],
         },
       },
       {
         name: 'glob',
-        description: 'Find files matching a glob pattern.',
+        description: 'Find files matching a glob pattern. Use this to discover files by name/extension (e.g. "**/*.ts" finds all TypeScript files). Returns a list of paths relative to the search directory. For searching file CONTENTS, use `grep` instead.',
         parameters: {
           type: 'object',
           properties: {
-            pattern: { type: 'string', description: 'Glob pattern (e.g. "**/*.ts")' },
-            path: { type: 'string', description: 'Base directory' },
+            pattern: { type: 'string', description: 'Glob pattern (e.g. "src/**/*.tsx", "**/*.json")' },
+            path: { type: 'string', description: 'Base directory (defaults to cwd)' },
           },
           required: ['pattern'],
         },
       },
       {
         name: 'grep',
-        description: 'Search file contents with a regex.',
+        description: 'Search file contents with a regex (ripgrep-style). Use this to find where a function/symbol/constant is defined or referenced. Returns matching lines with file paths and line numbers. For finding files by NAME, use `glob` instead. Supports include patterns to limit which file types are searched.',
         parameters: {
           type: 'object',
           properties: {
-            pattern: { type: 'string', description: 'Regex pattern' },
-            path: { type: 'string', description: 'Base directory' },
-            include: { type: 'string', description: 'File glob to include' },
+            pattern: { type: 'string', description: 'Regex pattern (e.g. "function foo\\(", "class \\w+Service")' },
+            path: { type: 'string', description: 'Base directory (defaults to cwd)' },
+            include: { type: 'string', description: 'File glob to include (e.g. "*.ts", "*.{tsx,jsx}")' },
           },
           required: ['pattern'],
+        },
+      },
+      {
+        name: 'list_files',
+        description: 'List the contents of a directory. Use this to orient yourself when you don\'t know the project structure. Returns names + types (file/dir). For recursive discovery, use `glob` with a pattern like "**/*".',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Directory path (defaults to cwd)' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'TodoWrite',
+        description: 'Create or update the agent\'s todo list for the current task. Call this at the start of multi-step work (3+ steps) to lay out a plan, then update each todo\'s status as you progress through it. The user can see the todos in real time. Statuses: pending (not started), in_progress (currently working), completed (done), cancelled (decided not to do). At most ONE todo should be in_progress at a time.',
+        parameters: {
+          type: 'object',
+          properties: {
+            todos: {
+              type: 'array',
+              description: 'The full todo list (replaces the previous list). Always send ALL todos, not just the changed one.',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', description: 'Stable ID for this todo (e.g. "1", "2a"). Reuse the same ID when updating.' },
+                  content: { type: 'string', description: 'What needs to be done (short imperative, e.g. "Add input validation to login form")' },
+                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: 'Current status' },
+                  priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Priority (default medium)' },
+                },
+                required: ['id', 'content', 'status'],
+              },
+            },
+          },
+          required: ['todos'],
         },
       },
       {
@@ -749,6 +795,23 @@ export class ChatEngine {
               return 'User declined to answer.';
             }
             return 'User acknowledged the question.';
+          }
+
+          // Phase 8.2: TodoWrite is handled entirely in-process — it never
+          // touches the sandbox or the tool executor. We persist the todos
+          // to a per-session in-memory store and forward them to the
+          // renderer via the onToolCall callback so the UI can render them.
+          // The full todo-tracking UI lands in Phase 8.3; for now we just
+          // store + acknowledge.
+          if (tool.name === 'TodoWrite') {
+            const todos = Array.isArray(args.todos) ? args.todos : [];
+            // Stash on the toolDeps so the renderer-side bridge can read it.
+            // (Phase 8.3 will add a proper TodoStore with IPC + UI.)
+            (toolDeps as any)._todos = todos;
+            const completed = todos.filter((t: any) => t?.status === 'completed').length;
+            const inProgress = todos.filter((t: any) => t?.status === 'in_progress').length;
+            const pending = todos.filter((t: any) => t?.status === 'pending').length;
+            return `Todo list updated (${todos.length} total: ${completed} completed, ${inProgress} in progress, ${pending} pending).`;
           }
 
           // Permission check.
