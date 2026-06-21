@@ -203,8 +203,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <textarea ref={textareaRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
           placeholder={disabled ? 'Create a session…' : 'Type a message…  ( / for commands, Shift+Enter for newline )'}
           disabled={disabled} rows={1}
-          className="flex-1 resize-none bg-transparent border-none outline-none text-sm py-2"
-          style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5' }} />
+          className="flex-1 resize-none bg-transparent border-none text-sm py-2"
+          style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5', outline: 'none' }} />
 
         {/* Right side: model badge + send/stop */}
         <div className="flex items-center gap-2 flex-shrink-0">
