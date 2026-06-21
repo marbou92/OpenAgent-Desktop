@@ -81,8 +81,23 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // calling handleLoadSession set the Zustand store but useChat still showed
   // an empty list. Now we sync externalMessages into local state when the
   // array reference changes (App sets it on session load).
+  //
+  // Phase 6.4: Fix React error #185 (infinite loop). The problem was:
+  //   useChat updates messages → onMessagesUpdate(setMessages in App)
+  //   → App passes new externalMessages → useEffect fires → setMessages again
+  //   → infinite loop.
+  // Fix: Only sync from externalMessages when we're NOT currently streaming
+  // AND the external messages are different from what we already have.
+  const lastExternalSyncRef = useRef<ChatMessage[] | null>(null);
   useEffect(() => {
+    // Don't sync from external while streaming — local state is the source of truth
+    if (isStreamingRef.current) return;
+
     if (externalMessages && externalMessages.length > 0) {
+      // Skip if we already synced this exact array (prevents loop)
+      if (lastExternalSyncRef.current === externalMessages) return;
+      lastExternalSyncRef.current = externalMessages;
+
       // Mark any streaming messages as finalized since we are loading from disk.
       const sanitized = externalMessages.map(m => ({ ...m, isStreaming: false }));
       setMessages(sanitized);
@@ -94,10 +109,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     } else if (externalMessages && externalMessages.length === 0 && sessionId === null) {
       // App cleared the session — clear local messages too.
       setMessages([]);
+      lastExternalSyncRef.current = null;
     }
-    // We intentionally depend only on externalMessages, not sessionId, so that
-    // re-mounting the same session does not wipe state. App.tsx passes a fresh
-    // array on each load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalMessages]);
 
