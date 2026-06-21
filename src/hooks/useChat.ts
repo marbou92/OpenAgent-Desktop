@@ -89,6 +89,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // Fix: Only sync from externalMessages when we're NOT currently streaming
   // AND the external messages are different from what we already have.
   const lastExternalSyncRef = useRef<ChatMessage[] | null>(null);
+  // Phase 6.5: Skip notifying parent when we just synced FROM externalMessages
+  const skipNextNotifyRef = useRef(false);
   useEffect(() => {
     // Don't sync from external while streaming — local state is the source of truth
     if (isStreamingRef.current) return;
@@ -100,6 +102,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       // Mark any streaming messages as finalized since we are loading from disk.
       const sanitized = externalMessages.map(m => ({ ...m, isStreaming: false }));
+      // Phase 6.5: Skip the next onMessagesUpdate since we're syncing FROM external
+      skipNextNotifyRef.current = true;
       setMessages(sanitized);
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
@@ -108,6 +112,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       isStreamingRef.current = false;
     } else if (externalMessages && externalMessages.length === 0 && sessionId === null) {
       // App cleared the session — clear local messages too.
+      skipNextNotifyRef.current = true;
       setMessages([]);
       lastExternalSyncRef.current = null;
     }
@@ -335,7 +340,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   }, [sessionId, permissionMode]);
 
   // Notify parent when messages change
+  // Phase 6.5: Skip notifying parent if WE just synced from externalMessages
   useEffect(() => {
+    if (skipNextNotifyRef.current) {
+      skipNextNotifyRef.current = false;
+      return;
+    }
     onMessagesUpdate?.(messages);
   }, [messages, onMessagesUpdate]);
 
