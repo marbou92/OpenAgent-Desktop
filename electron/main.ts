@@ -910,6 +910,73 @@ function getMergedProvidersForCurrentSource(): any[] {
   return out;
 }
 
+// ─── Phase 8.9: Trace Helpers ─────────────────────────────────────────────────
+//
+// Flush accumulated thinking + content buffers into the TraceCollector as
+// single 'thinking' / 'action' entries. Called when the agent makes a tool
+// call or finishes a step — so the trace has a clean "thought → action →
+// result" structure instead of 500 tiny text-delta fragments.
+//
+// Both buffers are optional — if empty, no entry is added (avoids cluttering
+// the trace with empty "Thinking:" entries).
+
+async function flushTraceBuffers(
+  sessionId: string,
+  buffers: { thinking: string; content: string }
+): Promise<void> {
+  if (!traceCollector) return;
+  try {
+    const trimmedThinking = buffers.thinking.trim();
+    const trimmedContent = buffers.content.trim();
+    if (trimmedThinking) {
+      // Truncate very long thinking traces to keep the trace readable.
+      const preview = trimmedThinking.length > 1000
+        ? trimmedThinking.substring(0, 1000) + '…'
+        : trimmedThinking;
+      await traceCollector.addEntry(sessionId, {
+        type: 'thinking',
+        content: preview,
+        metadata: { source: 'reasoning', charCount: trimmedThinking.length },
+      });
+    }
+    if (trimmedContent) {
+      const preview = trimmedContent.length > 1000
+        ? trimmedContent.substring(0, 1000) + '…'
+        : trimmedContent;
+      await traceCollector.addEntry(sessionId, {
+        type: 'action',
+        content: preview,
+        metadata: { source: 'assistant', charCount: trimmedContent.length },
+      });
+    }
+  } catch {
+    // Best-effort — don't crash the agent loop on trace errors.
+  }
+}
+
+/**
+ * Format a tool call's arguments into a short preview string for the trace.
+ * e.g. { command: "npm test", cwd: "/home/z" } → '"npm test", cwd="/home/z"'
+ */
+function formatArgsPreview(args: any): string {
+  if (!args || typeof args !== 'object') return '';
+  try {
+    // Special-case common tools for a nicer preview.
+    if (typeof args.command === 'string') return `"${args.command}"`;
+    if (typeof args.path === 'string') return `"${args.path}"`;
+    if (typeof args.pattern === 'string') return `"${args.pattern}"`;
+    // Generic: show all keys.
+    const entries = Object.entries(args);
+    if (entries.length === 0) return '';
+    return entries.slice(0, 3).map(([k, v]) => {
+      const vs = typeof v === 'string' ? `"${v.length > 50 ? v.substring(0, 50) + '…' : v}"` : JSON.stringify(v);
+      return `${k}=${vs}`;
+    }).join(', ');
+  } catch {
+    return '';
+  }
+}
+
 // ─── Phase 8.3: Auto-Compaction Helper ────────────────────────────────────────
 //
 // Called after each chat turn ends. Loads the session's messages, computes
@@ -2154,6 +2221,13 @@ function registerIpcHandlers(): void {
     let fullContent = '';
     let stepCount = 0;
     let status = 'completed';
+    // Phase 8.9: buffers for accumulating thinking + content text into
+    // trace entries. We flush them as single 'thinking' / 'action' entries
+    // when the agent makes a tool call or finishes — so the trace has a
+    // clean "thought → action → result" structure per step, not 500 tiny
+    // text-delta fragments.
+    let thinkingTraceBuffer = '';
+    let contentTraceBuffer = '';
 
     // Phase 8.4: apply extended thinking boost. When the user picks
     // "Extended" effort, we bump maxSteps (more iterations for hard
@@ -2226,18 +2300,56 @@ function registerIpcHandlers(): void {
           if (chunk.content) {
             fullContent += chunk.content;
             send('chat:stream-chunk', { chunk: chunk.content });
+            // Phase 8.9: accumulate content for the trace. We buffer it
+            // and flush as an 'action' entry when the agent makes a tool
+            // call or finishes — so the trace shows what the agent SAID
+            // before each action, not 500 tiny text chunks.
+            contentTraceBuffer += chunk.content;
           }
           break;
         case 'thinking':
-          if (chunk.content) send('chat:stream-thinking', { thinking: chunk.content });
+          if (chunk.content) {
+            send('chat:stream-thinking', { thinking: chunk.content });
+            // Phase 8.9: accumulate thinking for the trace. Flushed when
+            // the agent takes an action or finishes — so the trace shows
+            // the agent's full reasoning before each step.
+            thinkingTraceBuffer += chunk.content;
+          }
           break;
         case 'tool_call_start':
         case 'tool_call_delta':
         case 'tool_call_end':
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
+          // Phase 8.9: when a tool call completes, flush the buffered
+          // thinking + content as trace entries, then add the tool call
+          // itself. This gives the trace a natural "thought → action →
+          // result" structure per step.
+          if (chunk.type === 'tool_call_end') {
+            await flushTraceBuffers(sessionId, { thinking: thinkingTraceBuffer, content: contentTraceBuffer });
+            thinkingTraceBuffer = '';
+            contentTraceBuffer = '';
+            const tc: any = chunk.toolCall || {};
+            try {
+              await traceCollector.addEntry(sessionId, {
+                type: 'tool_call',
+                content: `${tc.name || 'unknown'}(${formatArgsPreview(tc.arguments)})`,
+                metadata: { toolName: tc.name, arguments: tc.arguments, toolCallId: tc.id },
+              });
+            } catch { /* best-effort */ }
+          }
           break;
         case 'tool_result':
           send('chat:stream-tool-result', { toolResult: chunk.toolResult });
+          // Phase 8.9: trace the tool result.
+          try {
+            const tr: any = chunk.toolResult || {};
+            const preview = typeof tr.content === 'string' ? tr.content.substring(0, 500) : JSON.stringify(tr.content).substring(0, 500);
+            await traceCollector.addEntry(sessionId, {
+              type: 'tool_result',
+              content: preview || '(empty result)',
+              metadata: { toolCallId: tr.id, isError: tr.isError },
+            });
+          } catch { /* best-effort */ }
           break;
         case 'usage':
           // Token usage — could be forwarded to the renderer for display.
@@ -2245,8 +2357,20 @@ function registerIpcHandlers(): void {
         case 'error':
           status = 'error';
           send('chat:stream-error', { error: chunk.error?.message || 'Unknown error' });
+          // Phase 8.9: trace errors so they show up in the Trace tab.
+          try {
+            await traceCollector.addEntry(sessionId, {
+              type: 'error',
+              content: chunk.error?.message || 'Unknown error',
+              metadata: { source: 'stream', providerId, modelId },
+            });
+          } catch { /* best-effort */ }
           break;
         case 'done':
+          // Phase 8.9: flush any remaining buffered thinking + content.
+          await flushTraceBuffers(sessionId, { thinking: thinkingTraceBuffer, content: contentTraceBuffer });
+          thinkingTraceBuffer = '';
+          contentTraceBuffer = '';
           break;
       }
     }
@@ -2421,6 +2545,19 @@ function registerIpcHandlers(): void {
         const session = await sessionManager.load(sessionId);
         const agentMode = agentSessionBridge.getCurrentMode(sessionId);
 
+        // Phase 8.9: Trace the user message so it shows up in the Trace tab.
+        // The old chat:send handler did this but chat:stream (which the UI
+        // actually uses) never did — so the Trace tab was always empty.
+        try {
+          await traceCollector.addEntry(sessionId, {
+            type: 'info',
+            content: `User: ${message}`,
+            metadata: { source: 'user', agentMode },
+          });
+        } catch {
+          // Non-fatal — trace is best-effort.
+        }
+
         const send = (channel: string, data: unknown) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send(channel, { sessionId, ...((typeof data === 'object' && data !== null) ? data : { data }) });
@@ -2486,6 +2623,11 @@ function registerIpcHandlers(): void {
               workingDirectory: (session.metadata as any)?.workingDirectory || process.cwd(),
               sessionId,
             });
+            // Phase 8.9: buffers for accumulating thinking + content into
+            // trace entries (chat mode — no tools, but still want to trace
+            // the reasoning + final answer).
+            let chatThinkingBuffer = '';
+            let chatContentBuffer = '';
             for await (const chunk of chatEngine.chatStream({
               model: `${providerId}/${model}`,
               messages: [
@@ -2502,10 +2644,14 @@ function registerIpcHandlers(): void {
                   if (chunk.content) {
                     fullResponse += chunk.content;
                     send('chat:stream-chunk', { chunk: chunk.content });
+                    chatContentBuffer += chunk.content;
                   }
                   break;
                 case 'thinking':
-                  if (chunk.content) send('chat:stream-thinking', { thinking: chunk.content });
+                  if (chunk.content) {
+                    send('chat:stream-thinking', { thinking: chunk.content });
+                    chatThinkingBuffer += chunk.content;
+                  }
                   break;
                 case 'tool_call_start':
                 case 'tool_call_delta':
@@ -2519,8 +2665,20 @@ function registerIpcHandlers(): void {
                   break;
                 case 'error':
                   send('chat:stream-error', { error: chunk.error?.message || 'Unknown stream error' });
+                  // Phase 8.9: trace errors in chat mode too.
+                  try {
+                    await traceCollector.addEntry(sessionId, {
+                      type: 'error',
+                      content: chunk.error?.message || 'Unknown stream error',
+                      metadata: { source: 'stream', providerId, model: session.model },
+                    });
+                  } catch { /* best-effort */ }
                   return;
                 case 'done':
+                  // Phase 8.9: flush buffered thinking + content as trace entries.
+                  await flushTraceBuffers(sessionId, { thinking: chatThinkingBuffer, content: chatContentBuffer });
+                  chatThinkingBuffer = '';
+                  chatContentBuffer = '';
                   await sessionManager.addMessage(sessionId, { role: 'user', content: message });
                   await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
                   send('chat:stream-end', { content: fullResponse });
@@ -2535,6 +2693,8 @@ function registerIpcHandlers(): void {
             // If we got content, finalize normally. If not, send a clear
             // error so the user isn't left with a blank bubble.
             if (fullResponse) {
+              // Phase 8.9: flush any remaining buffered thinking + content.
+              await flushTraceBuffers(sessionId, { thinking: chatThinkingBuffer, content: chatContentBuffer });
               await sessionManager.addMessage(sessionId, { role: 'user', content: message });
               await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
               send('chat:stream-end', { content: fullResponse });
