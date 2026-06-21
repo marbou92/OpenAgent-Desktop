@@ -515,6 +515,17 @@ const electronAPI = {
     refreshCatalog: (): Promise<any> => invoke("provider:refresh-catalog"),
     getCatalogInfo: (): Promise<any> => invoke("provider:get-catalog-info"),
 
+    // Phase 8.1 — Catalog source switching (models.dev / pi.dev / merged)
+    getCatalogSource: (): Promise<'models.dev' | 'pi.dev' | 'merged'> =>
+      invoke<any>("provider:get-catalog-source").then((r: any) => r?.data ?? r ?? 'models.dev'),
+    setCatalogSource: (source: 'models.dev' | 'pi.dev' | 'merged'): Promise<void> =>
+      invoke("provider:set-catalog-source", source),
+    getCatalogSummary: (): Promise<{
+      current: 'models.dev' | 'pi.dev' | 'merged';
+      modelsDev: { providers: number; models: number; fetchedAt: string | null };
+      piDev: { providers: number; models: number; fetchedAt: string | null };
+    }> => invoke<any>("provider:get-catalog-summary").then((r: any) => r?.data ?? r),
+
     // Auth
     setApiKey: (providerId: string, apiKey: string): Promise<void> => invoke("provider:set-api-key", providerId, apiKey),
     removeAuth: (providerId: string): Promise<void> => invoke("provider:remove-auth", providerId),
@@ -712,6 +723,15 @@ const electronAPI = {
       };
       ipcRenderer.on("main:catalog-ready", handler);
       return () => ipcRenderer.removeListener("main:catalog-ready", handler);
+    },
+
+    // Phase 8.1 — Fired when the user changes the catalog source in Settings.
+    // The renderer should re-fetch provider:list-providers to pick up the new
+    // catalog data.
+    catalogSourceChanged: (callback: (data: { source: 'models.dev' | 'pi.dev' | 'merged' }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { source: 'models.dev' | 'pi.dev' | 'merged' }) => callback(data);
+      ipcRenderer.on("provider:catalog-source-changed", handler);
+      return () => ipcRenderer.removeListener("provider:catalog-source-changed", handler);
     },
 
     // Permission request (AgentRunner asks the user to approve a tool call)

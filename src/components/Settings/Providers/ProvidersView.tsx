@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ProviderList } from './ProviderList';
 import { ProviderDetail } from './ProviderDetail';
+import CatalogSourceSelector from './CatalogSourceSelector';
 import {
   ProviderDefinition,
   AuthProvider,
@@ -219,47 +220,58 @@ export const ProvidersView: React.FC<ProvidersViewProps> = ({ addToast }) => {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Left sidebar */}
-      <div
-        className="w-72 flex-shrink-0 border-r"
-        style={{ background: 'var(--color-bg-primary)', borderColor: 'var(--color-border-primary)' }}
-      >
-        <ProviderList
-          definitions={definitions}
-          configured={configured}
-          health={health}
-          selectedProviderId={selectedProviderId}
-          onSelect={setSelectedProviderId}
-          onAddProvider={handleAddProvider}
-        />
-      </div>
+    <div className="flex flex-col h-full">
+      {/* Phase 8.1 — Catalog source selector banner */}
+      <CatalogSourceSelector
+        onChange={() => {
+          // Re-fetch the provider list when the user switches catalogs.
+          refreshAll();
+        }}
+        addToast={addToast}
+      />
 
-      {/* Right detail panel */}
-      <div className="flex-1 min-w-0">
-        {selectedDefinition ? (
-          <ProviderDetail
-            definition={selectedDefinition}
-            configured={selectedAuth}
-            models={models}
-            discovered={discovered}
-            discoveredFetchedAt={discoveredFetchedAt}
-            health={selectedHealth ?? null}
-            isRefreshing={isRefreshing}
-            isHealthChecking={isHealthChecking}
-            onApiKeySubmit={handleApiKeySubmit}
-            onCopilotStart={handleCopilotStart}
-            onDisconnect={handleDisconnect}
-            onSetBaseUrl={handleSetBaseUrl}
-            onRefreshModels={handleRefreshModels}
-            onRunHealthCheck={handleRunHealthCheck}
-            onRemove={handleRemove}
+      <div className="flex flex-1 min-h-0">
+        {/* Left sidebar */}
+        <div
+          className="w-72 flex-shrink-0 border-r"
+          style={{ background: 'var(--color-bg-primary)', borderColor: 'var(--color-border-primary)' }}
+        >
+          <ProviderList
+            definitions={definitions}
+            configured={configured}
+            health={health}
+            selectedProviderId={selectedProviderId}
+            onSelect={setSelectedProviderId}
+            onAddProvider={handleAddProvider}
           />
-        ) : (
-          <div className="flex items-center justify-center h-full" style={{ color: 'var(--color-text-muted)' }}>
-            Select a provider from the left to configure it.
-          </div>
-        )}
+        </div>
+
+        {/* Right detail panel */}
+        <div className="flex-1 min-w-0">
+          {selectedDefinition ? (
+            <ProviderDetail
+              definition={selectedDefinition}
+              configured={selectedAuth}
+              models={models}
+              discovered={discovered}
+              discoveredFetchedAt={discoveredFetchedAt}
+              health={selectedHealth ?? null}
+              isRefreshing={isRefreshing}
+              isHealthChecking={isHealthChecking}
+              onApiKeySubmit={handleApiKeySubmit}
+              onCopilotStart={handleCopilotStart}
+              onDisconnect={handleDisconnect}
+              onSetBaseUrl={handleSetBaseUrl}
+              onRefreshModels={handleRefreshModels}
+              onRunHealthCheck={handleRunHealthCheck}
+              onRemove={handleRemove}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full" style={{ color: 'var(--color-text-muted)' }}>
+              Select a provider from the left to configure it.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

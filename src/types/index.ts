@@ -598,6 +598,8 @@ export interface AppSettings {
   opencodeHostname: string;
   opencodeAutoStart: boolean;
   autoStartSandbox: boolean;
+  /** Phase 8.1 — which catalog provides the provider/model list. */
+  catalogSource: 'models.dev' | 'pi.dev' | 'merged';
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: number;
@@ -634,6 +636,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   opencodeHostname: '127.0.0.1',
   opencodeAutoStart: true,
   autoStartSandbox: false,
+  catalogSource: 'models.dev',
   // Session
   maxConcurrentSessions: 5,
   autoSave: true,

@@ -56,6 +56,7 @@ import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
 import { getModelsDevClient } from './providers/models-dev-client';
+import { getPiDevClient } from './providers/pi-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
 import { GithubCopilotAuth } from './providers/github-copilot-auth';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
@@ -182,7 +183,11 @@ let providerClient: ProviderClient;
 let chatEngine: ChatEngine;
 let opencodeConfig: OpencodeConfig;
 let modelsDevClient: ReturnType<typeof getModelsDevClient>;
+let piDevClient: ReturnType<typeof getPiDevClient>;
 let catalogReady = false; // Phase 4.4: set to true when the catalog refresh completes
+// Phase 8.1 — which catalog is the source of truth for provider:list-providers.
+// Persisted to userData/catalog-source.json so the choice survives restarts.
+let catalogSource: 'models.dev' | 'pi.dev' | 'merged' = 'models.dev';
 let copilotAuth: GithubCopilotAuth;
 
 // ─── Phase 1-8: New Subsystem Globals ────────────────────────────────────────
@@ -799,6 +804,100 @@ function setupAutoUpdater(): void {
   }
 }
 
+// ─── Phase 8.1: Catalog Source Merge ──────────────────────────────────────────
+//
+// Returns the merged provider list according to the user's catalogSource choice:
+//   - 'models.dev' → only models.dev (the original behavior, unchanged)
+//   - 'pi.dev'     → only pi.dev (replaces models.dev entirely)
+//   - 'merged'     → models.dev providers + pi.dev-only providers, with
+//                    pi.dev model entries merged into matching providers
+//
+// When the user picks 'pi.dev' alone, the existing builtin opencode providers
+// (anthropic, openai, google, etc.) get their model lists completely replaced
+// by pi.dev's view of those providers — this is the "pi.dev as primary
+// catalog" mode the user requested.
+//
+// When 'merged', pi.dev models that don't exist in models.dev are appended
+// to matching providers, and pi.dev-only providers (e.g. kimi-coding,
+// opencode-go, xiaomi-token-plan-*) are added as new entries.
+
+function getMergedProvidersForCurrentSource(): any[] {
+  if (!modelsDevClient) return [];
+  const modelsDevProviders = modelsDevClient.getMergedProviders();
+
+  if (catalogSource === 'models.dev') {
+    return modelsDevProviders;
+  }
+
+  if (catalogSource === 'pi.dev') {
+    // Replace the catalog entirely with pi.dev. We still keep the
+    // builtin opencode-registry entries (anthropic/openai/google/etc.)
+    // because they carry authMethods / npm package info that pi.dev
+    // doesn't have — but we replace their model lists with pi.dev's.
+    const piProviders = piDevClient.getProviders();
+    const piById = new Map(piProviders.map(p => [p.id, p]));
+    const out: any[] = [];
+    const seen = new Set<string>();
+
+    for (const def of modelsDevProviders) {
+      const pi = piById.get(def.id);
+      if (pi) {
+        // Replace model list with pi.dev's view, but keep the builtin's
+        // authMethods / npm / docsUrl metadata.
+        out.push({
+          ...def,
+          models: { ...pi.models },
+        });
+        seen.add(def.id);
+      } else {
+        // models.dev provider that has no pi.dev counterpart — drop it
+        // in pure pi.dev mode so the catalog is purely pi.dev.
+      }
+    }
+    // Add pi.dev-only providers (kimi-coding, opencode-go, xiaomi-*, etc.).
+    for (const pi of piProviders) {
+      if (!seen.has(pi.id)) {
+        out.push(pi);
+        seen.add(pi.id);
+      }
+    }
+    return out;
+  }
+
+  // 'merged' — combine both catalogs.
+  const piProviders = piDevClient.getProviders();
+  const piById = new Map(piProviders.map(p => [p.id, p]));
+  const out: any[] = [];
+  const seen = new Set<string>();
+
+  for (const def of modelsDevProviders) {
+    const pi = piById.get(def.id);
+    if (pi) {
+      // Merge model maps: pi.dev models that aren't already in models.dev
+      // get added with source = 'pi.dev'. Existing models.dev entries win
+      // on conflicts so the live-fetched data takes precedence.
+      const mergedModels: Record<string, any> = { ...(def.models || {}) };
+      for (const [modelId, mc] of Object.entries(pi.models || {})) {
+        if (!mergedModels[modelId]) {
+          mergedModels[modelId] = mc;
+        }
+      }
+      out.push({ ...def, models: mergedModels });
+      seen.add(def.id);
+    } else {
+      out.push(def);
+    }
+  }
+  // Add pi.dev-only providers as new entries.
+  for (const pi of piProviders) {
+    if (!seen.has(pi.id)) {
+      out.push(pi);
+      seen.add(pi.id);
+    }
+  }
+  return out;
+}
+
 // ─── Subsystem Initialization ─────────────────────────────────────────────────
 
 async function initializeSubsystems(): Promise<void> {
@@ -899,6 +998,24 @@ async function initializeSubsystems(): Promise<void> {
 
   modelsDevClient = getModelsDevClient();
   modelsDevClient.loadCache();
+
+  // Phase 8.1 — Initialize the pi.dev catalog client (static/bundled) and
+  // load the persisted catalog source choice from disk so it survives
+  // app restarts. The file is just a tiny JSON blob with { source: ... }.
+  piDevClient = getPiDevClient();
+  try {
+    const csPath = path.join(app.getPath('userData'), 'catalog-source.json');
+    if (fs.existsSync(csPath)) {
+      const raw = fs.readFileSync(csPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed?.source === 'models.dev' || parsed?.source === 'pi.dev' || parsed?.source === 'merged') {
+        catalogSource = parsed.source;
+      }
+    }
+  } catch {
+    // Ignore — fall back to the default 'models.dev'.
+  }
+  logger.info('Catalog', `Catalog source: ${catalogSource}`);
 
   // Phase 4.3: Send catalog progress events to the renderer so the splash
   // screen can show a progress bar. The refresh is still non-blocking —
@@ -1211,7 +1328,57 @@ function registerIpcHandlers(): void {
     if (!modelsDevClient) {
       return { success: true, data: getOpencodeRegistry().listAll() };
     }
-    return { success: true, data: modelsDevClient.getMergedProviders() };
+    // Phase 8.1 — honor the user's catalog source choice.
+    return { success: true, data: getMergedProvidersForCurrentSource() };
+  }));
+
+  // Phase 8.1 — Catalog source switching.
+  // The renderer reads the current source + a per-source summary so the
+  // Settings UI can show "models.dev: 145 providers / 2357 models,
+  // pi.dev: 31 providers / 969 models, current: merged".
+  ipcMain.handle("provider:get-catalog-source", wrapIPC(async () => {
+    return { success: true, data: catalogSource };
+  }));
+
+  ipcMain.handle("provider:set-catalog-source", wrapIPC(async (_event, source: 'models.dev' | 'pi.dev' | 'merged') => {
+    if (source !== 'models.dev' && source !== 'pi.dev' && source !== 'merged') {
+      return { success: false, error: `Invalid catalog source: ${source}` };
+    }
+    catalogSource = source;
+    // Persist to disk so the choice survives restarts.
+    try {
+      const csPath = path.join(app.getPath('userData'), 'catalog-source.json');
+      const tmp = csPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify({ source, savedAt: new Date().toISOString() }), 'utf-8');
+      fs.renameSync(tmp, csPath);
+    } catch (err) {
+      logger.warn('Catalog', 'Failed to persist catalog source', err);
+    }
+    logger.info('Catalog', `Catalog source switched to: ${source}`);
+    // Notify the renderer so any open provider pickers can refresh.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('provider:catalog-source-changed', { source });
+    }
+    return { success: true, data: catalogSource };
+  }));
+
+  ipcMain.handle("provider:get-catalog-summary", wrapIPC(async () => {
+    return {
+      success: true,
+      data: {
+        current: catalogSource,
+        modelsDev: {
+          providers: modelsDevClient ? modelsDevClient.getCachedProviderIds().length : 0,
+          models: modelsDevClient ? modelsDevClient.getTotalModelCount() : 0,
+          fetchedAt: modelsDevClient ? modelsDevClient.getFetchedAt() : null,
+        },
+        piDev: {
+          providers: piDevClient ? piDevClient.getCachedProviderIds().length : 0,
+          models: piDevClient ? piDevClient.getTotalModelCount() : 0,
+          fetchedAt: piDevClient ? piDevClient.getFetchedAt() : null,
+        },
+      },
+    };
   }));
 
   ipcMain.handle("provider:list-auth", wrapIPC(async () => {
@@ -1226,13 +1393,29 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("provider:refresh-catalog", wrapIPC(async () => {
     if (!modelsDevClient) return { success: false, error: 'Catalog not initialized yet' };
+    // Always refresh models.dev (pi.dev is static — no refresh needed).
     await modelsDevClient.refresh();
-    return { success: true, data: { providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
+    // Report the combined counts so the UI matches what provider:list-providers returns.
+    const providers = getMergedProvidersForCurrentSource();
+    const modelCount = providers.reduce((acc: number, p: any) => acc + Object.keys(p.models || {}).length, 0);
+    return { success: true, data: { providerCount: providers.length, modelCount } };
   }));
 
   ipcMain.handle("provider:get-catalog-info", wrapIPC(async () => {
-    if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0 } };
-    return { success: true, data: { fetchedAt: modelsDevClient.getFetchedAt(), providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
+    if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0, source: catalogSource } };
+    // Report combined counts based on the current catalog source so the
+    // header in ProvidersView matches what's actually shown.
+    const providers = getMergedProvidersForCurrentSource();
+    const modelCount = providers.reduce((acc: number, p: any) => acc + Object.keys(p.models || {}).length, 0);
+    return {
+      success: true,
+      data: {
+        fetchedAt: modelsDevClient.getFetchedAt(),
+        providerCount: providers.length,
+        modelCount,
+        source: catalogSource,
+      },
+    };
   }));
 
   // Phase 4.4: Let the renderer check if the catalog is already ready.

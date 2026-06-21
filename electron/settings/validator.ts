@@ -58,6 +58,10 @@ export const SETTINGS_SCHEMA: Record<string, SettingConstraint> = {
     type: 'boolean', required: true,
     description: 'Start OpenCode server automatically on app launch', default: true, category: 'Provider', since: '2.0.0',
   },
+  catalogSource: {
+    type: 'string', required: true, enum: ['models.dev', 'pi.dev', 'merged'],
+    description: 'Model catalog source: models.dev (live), pi.dev (static, bundled), or merged (both)', default: 'models.dev', category: 'Provider', since: '8.1.0',
+  },
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: {
