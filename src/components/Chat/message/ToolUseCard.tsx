@@ -15,14 +15,18 @@ interface ToolUseCardProps {
 const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const isAskUserQuestion = toolCall.name === 'AskUserQuestion';
+  // Check for AskUserQuestion tool — case-insensitive, handles multiple naming conventions
+  const toolNameLower = toolCall.name.toLowerCase();
+  const isAskUserQuestion = toolNameLower === 'askuserquestion' || toolNameLower === 'ask_user_question' || toolNameLower === 'ask-user-question';
   const isRunning = toolCall.status === 'pending';
   const isError = toolCall.status === 'failed';
   const isSuccess = toolCall.status === 'completed';
 
   // ─── AskUserQuestion special card ──────────────────────────────
   if (isAskUserQuestion) {
-    const questions = (toolCall.arguments as any)?.questions || [];
+    // Parse questions from arguments — handle multiple possible structures
+    const args = toolCall.arguments as any || {};
+    const questions: any[] = args.questions || args.qs || (Array.isArray(args) ? args : []) || [];
     return (
       <div className="rounded-xl overflow-hidden my-2" style={{ border: '2px solid rgba(214,122,82,0.3)', background: 'linear-gradient(to bottom right, rgba(214,122,82,0.05), transparent)' }}>
         <div className="px-4 py-3 flex items-center gap-3" style={{ background: 'rgba(214,122,82,0.1)', borderBottom: '1px solid rgba(214,122,82,0.2)' }}>

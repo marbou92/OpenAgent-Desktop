@@ -699,6 +699,40 @@ export class ChatEngine {
           required: ['pattern'],
         },
       },
+      {
+        name: 'AskUserQuestion',
+        description: 'Ask the user a question with multiple-choice options. Use this when you need clarification or a decision from the user before proceeding.',
+        parameters: {
+          type: 'object',
+          properties: {
+            questions: {
+              type: 'array',
+              description: 'Array of questions to ask the user',
+              items: {
+                type: 'object',
+                properties: {
+                  question: { type: 'string', description: 'The question text' },
+                  header: { type: 'string', description: 'Short header label for the question' },
+                  options: {
+                    type: 'array',
+                    description: 'Multiple-choice options',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        label: { type: 'string', description: 'Option label' },
+                        description: { type: 'string', description: 'Optional description of the option' },
+                      },
+                      required: ['label'],
+                    },
+                  },
+                },
+                required: ['question'],
+              },
+            },
+          },
+          required: ['questions'],
+        },
+      },
     ];
 
     for (const tool of builtinTools) {
@@ -706,6 +740,17 @@ export class ChatEngine {
         description: tool.description,
         parameters: tool.parameters,
         execute: async (args: Record<string, unknown>) => {
+          // Phase 7.1: AskUserQuestion uses the permission request flow to
+          // get the user's answer. The UI shows a question card, the user
+          // selects an option, and the response is sent back as the tool result.
+          if (tool.name === 'AskUserQuestion') {
+            const approved = await permissionChecker.requestPermission(tool.name, args);
+            if (!approved) {
+              return 'User declined to answer.';
+            }
+            return 'User acknowledged the question.';
+          }
+
           // Permission check.
           const permission = permissionChecker.checkPermission(tool.name, args);
           if (permission === 'deny') {
