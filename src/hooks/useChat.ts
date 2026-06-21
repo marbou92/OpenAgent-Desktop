@@ -193,8 +193,15 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubThinking = api.on.chatStreamThinking((data: { sessionId: string; thinking: string }) => {
       if (data.sessionId !== sessionId) return;
-      streamingThinkingRef.current = data.thinking;
-      setStreamingThinking(data.thinking);
+      // Phase 8.8 fix: APPEND each thinking chunk instead of replacing.
+      // The main process sends thinking deltas (one chunk per text-delta
+      // part from the AI SDK), so we must accumulate them — otherwise the
+      // final thinking content is just the last chunk (often a single
+      // character like "." or a newline), which is why expanding the
+      // thinking tab only showed a dot.
+      const accumulated = streamingThinkingRef.current + data.thinking;
+      streamingThinkingRef.current = accumulated;
+      setStreamingThinking(accumulated);
 
       // Update the streaming assistant message thinking
       setMessages(prev => {
@@ -203,7 +210,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
           updated[updated.length - 1] = {
             ...lastMsg,
-            thinking: data.thinking,
+            thinking: accumulated,
           };
         }
         return updated;
