@@ -191,6 +191,27 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       });
     });
 
+    // Phase 9.3: Replace ALL accumulated content with a cleaned version.
+    // This is used to strip XML/code-block tool calls from the visible
+    // response after the stream finishes. The tools have already been
+    // executed — this just cleans up what the user sees.
+    const unsubChunkReplace = api.on?.chatStreamChunkReplace?.((data: { sessionId: string; content: string }) => {
+      if (data.sessionId !== sessionId) return;
+      streamingContentRef.current = data.content;
+      setStreamingContent(data.content);
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant') {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: data.content,
+          };
+        }
+        return updated;
+      });
+    }) ?? (() => {});
+
     const unsubThinking = api.on.chatStreamThinking((data: { sessionId: string; thinking: string }) => {
       if (data.sessionId !== sessionId) return;
       // Phase 8.8 fix: APPEND each thinking chunk instead of replacing.
@@ -403,6 +424,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     unsubscribeRef.current = [
       unsubChunk,
+      unsubChunkReplace,
       unsubThinking,
       unsubToolCall,
       unsubToolResult,

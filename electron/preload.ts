@@ -666,6 +666,14 @@ const electronAPI = {
       return () => ipcRenderer.removeListener("chat:stream-chunk", handler);
     },
 
+    // Phase 9.3: Replace ALL accumulated content with a cleaned version
+    // (used to strip XML/code-block tool calls from the visible response).
+    chatStreamChunkReplace: (callback: (data: { sessionId: string; content: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; content: string }) => callback(data);
+      ipcRenderer.on("chat:stream-chunk-replace", handler);
+      return () => ipcRenderer.removeListener("chat:stream-chunk-replace", handler);
+    },
+
     chatStreamToolCall: (callback: (data: { sessionId: string; toolCall: Record<string, unknown> }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; toolCall: Record<string, unknown> }) => callback(data);
       ipcRenderer.on("chat:stream-tool-call", handler);
