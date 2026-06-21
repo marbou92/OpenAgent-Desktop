@@ -1,12 +1,20 @@
 /**
- * OpenAgent-Desktop - Chat Input (Phase 6.1 — OpenCowork-style)
+ * OpenAgent-Desktop - Chat Input (Phase 6.3 — OpenCowork hybrid composer)
  *
- * OpenCowork-style composer:
- *   - Single rounded card at bottom
- *   - Textarea on top
- *   - Controls row below: [📎] [Build ▾] [Model ▾] [🧠 ▾] on left, small arrow send icon on right
- *   - Send = small arrow icon (NOT a big circular button)
- *   - Stop = small dark square icon (NOT a big circular button)
+ * Matches OpenCowork's composer exactly:
+ *
+ *   ╭──────────────────────────────────────────────────────────────╮
+ *   │ [+]  Type a message...  (/ for commands)      [Model] [⬆]  │
+ *   ╰──────────────────────────────────────────────────────────────╯
+ *
+ * - Single rounded card (rounded-[1.75rem])
+ * - Plus button on left for file attach
+ * - Textarea in the middle
+ * - Model display + Send/Stop button on right
+ * - All on ONE ROW (not textarea on top + controls below)
+ * - Send = 9x9 rounded-2xl with arrow icon, accent background
+ * - Stop = 9x9 rounded-2xl with square icon, error background
+ * - Controls (Agent, Model, Thinking) go BELOW the card
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -132,6 +140,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   }, [onImagesAttached]);
 
   const canSend = (input.trim().length > 0 || attachedFiles.length > 0) && !isStreaming;
+  const canStop = isStreaming;
 
   return (
     <div className="relative flex-shrink-0 px-4 pb-2 pt-1">
@@ -140,7 +149,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       {/* Slash commands */}
       {showSlashCommands && filteredCommands.length > 0 && (
         <div className="absolute bottom-full left-4 right-4 mb-2 rounded-lg overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
-          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-primary)', boxShadow: 'var(--shadow-popover)' }}>
+          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-popover)' }}>
           {filteredCommands.map((cmd, index) => (
             <button key={cmd.command} onClick={() => { setInput(cmd.command + ' '); setShowSlashCommands(false); textareaRef.current?.focus(); }}
               className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors"
@@ -156,12 +165,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* Attachment chips */}
       {attachedFiles.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1.5">
+        <div className="mb-2 flex flex-wrap gap-1.5">
           {attachedFiles.map((file, index) => (
-            <div key={`${file.name}-${index}`} className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
+            <div key={`${file.name}-${index}`} className="flex items-center gap-1.5 px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
               <span className="truncate max-w-[120px]">{file.name}</span>
               <span style={{ color: 'var(--color-text-muted)' }}>{formatFileSize(file.size)}</span>
-              <button onClick={() => onRemoveFile(index)} className="ml-0.5" style={{ color: 'var(--color-text-muted)' }}
+              <button onClick={() => onRemoveFile(index)} style={{ color: 'var(--color-text-muted)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-error)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}>
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
@@ -171,50 +180,73 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
 
-      {/* Composer card — OpenCowork style */}
-      <div className="composer-card rounded-xl border transition-all mx-auto" style={{ background: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)' }}>
+      {/* ─── OpenCowork-style composer: ONE row with everything ─────── */}
+      <div className="composer-card flex items-end gap-2 p-3.5 mx-auto transition-all"
+        style={{
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border)',
+          borderRadius: '1.75rem',
+          boxShadow: 'var(--shadow-soft)',
+        }}>
 
-        {/* Textarea + send button on same row */}
-        <div className="flex items-end gap-2 px-3 pt-2.5">
-          <textarea ref={textareaRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
-            placeholder={disabled ? 'Create a session…' : 'Message OpenAgent…  ( / for commands, Shift+Enter for newline )'}
-            disabled={disabled} rows={1}
-            className="flex-1 resize-none text-sm bg-transparent outline-none"
-            style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5' }} />
+        {/* Plus button for file attach */}
+        <button onClick={handleFilePick} disabled={disabled || isStreaming}
+          className="w-9 h-9 rounded-2xl flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40"
+          style={{ color: 'var(--color-text-muted)' }}
+          onMouseEnter={(e) => !disabled && (e.currentTarget.style.background = 'var(--color-bg-hover)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          title="Attach files">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
 
-          {/* Send / Stop — small icon, NOT big circular */}
-          {isStreaming ? (
+        {/* Textarea — flex-1, takes the middle space */}
+        <textarea ref={textareaRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
+          placeholder={disabled ? 'Create a session…' : 'Type a message…  ( / for commands, Shift+Enter for newline )'}
+          disabled={disabled} rows={1}
+          className="flex-1 resize-none bg-transparent border-none outline-none text-sm py-2"
+          style={{ color: 'var(--color-text-primary)', maxHeight: '200px', minHeight: '24px', lineHeight: '1.5' }} />
+
+        {/* Right side: model badge + send/stop */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Model badge */}
+          {selectedModel && (
+            <span className="hidden sm:inline-flex px-2.5 py-1 rounded-full text-xs"
+              style={{ border: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}>
+              {selectedModel.length > 20 ? selectedModel.slice(0, 20) + '…' : selectedModel}
+            </span>
+          )}
+
+          {/* Stop button */}
+          {canStop && (
             <button onClick={onStop}
-              className="flex items-center justify-center p-1.5 rounded-md transition-all flex-shrink-0"
-              style={{ background: 'var(--color-text-primary)', color: 'var(--color-bg-primary)' }}
-              title="Stop" aria-label="Stop">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+              className="w-9 h-9 rounded-2xl flex items-center justify-center transition-colors flex-shrink-0"
+              style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--color-error)' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239,68,68,0.2)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(239,68,68,0.1)')}
+              title="Stop">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
             </button>
-          ) : (
+          )}
+
+          {/* Send button */}
+          {!isStreaming && (
             <button onClick={handleSend} disabled={!canSend}
-              className="flex items-center justify-center p-1.5 rounded-md transition-all flex-shrink-0 disabled:opacity-30"
+              className="w-9 h-9 rounded-2xl flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: canSend ? 'var(--color-accent)' : 'transparent', color: canSend ? 'white' : 'var(--color-text-muted)' }}
-              title="Send (Enter)" aria-label="Send"
               onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent-hover)'; }}
-              onMouseLeave={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent)'; }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+              onMouseLeave={(e) => { if (canSend) e.currentTarget.style.background = 'var(--color-accent)'; }}
+              title="Send (Enter)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
             </button>
           )}
         </div>
+      </div>
 
-        {/* Controls row — below textarea, inside card */}
-        <div className="flex items-center gap-1 px-3 pb-2 pt-1">
-          <button onClick={handleFilePick} disabled={disabled || isStreaming}
-            className="p-1 rounded transition-colors flex-shrink-0 disabled:opacity-40"
-            style={{ color: 'var(--color-text-tertiary)' }}
-            onMouseEnter={(e) => !disabled && (e.currentTarget.style.background = 'var(--color-bg-hover)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} title="Attach">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
-          </button>
-          {onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
-          {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
-          {onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
-        </div>
+      {/* Controls row — BELOW the card (Agent, Model, Thinking) */}
+      <div className="flex items-center gap-1 px-3 pt-1.5 mx-auto justify-center">
+        {onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
+        {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
+        {onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
       </div>
     </div>
   );
