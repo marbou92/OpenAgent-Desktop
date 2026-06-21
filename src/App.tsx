@@ -772,9 +772,9 @@ const App: React.FC = () => {
 
       {/* Main Content — Phase 3: no separate titlebar, the view's own header
           IS the titlebar drag region. Saves ~38px vertical space. */}
-      <main className="flex-1 flex flex-col min-w-0 relative">
-        {/* Content Area */}
-        <div className="flex-1 min-h-0 flex relative">
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* Content Area — flex row: chat (flex-1) + right panel (fixed width) */}
+        <div className="flex-1 min-h-0 flex">
           <div className="flex-1 min-w-0 overflow-hidden">
             {loading ? (
               <LoadingScreen />
@@ -785,16 +785,15 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {/* Right Panel — Phase 3.1: tabbed container with Trace / Context /
-              Notes. Slides in from the right as an overlay. */}
+          {/* Right Panel — Phase 6.7: PUSHES the chat instead of overlaying.
+              The chat shrinks to make room. No absolute positioning. */}
           {tracePanelOpen && (
             <div
-              className="absolute top-0 right-0 h-full z-30 animate-slide-in-right"
+              className="flex-shrink-0 h-full animate-slide-in-right"
               style={{
                 width: '340px',
                 background: 'var(--color-bg-secondary)',
                 borderLeft: '1px solid var(--color-border-primary)',
-                boxShadow: 'var(--shadow-elevated)',
               }}
             >
               <RightPanel
