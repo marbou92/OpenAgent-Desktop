@@ -470,6 +470,20 @@ export class ChatEngine {
             // Phase 4.2: build providerOptions for thinking effort.
             const providerOptions = buildThinkingProviderOptions(provider.id, options?.thinkingEffort);
 
+            // Phase 9.6: Log what we're sending to the model so we can verify
+            // tools are actually being passed. This helps diagnose why the
+            // model emits text (DSML/XML) instead of native function calls.
+            const toolCount = options?.tools ? Object.keys(options.tools).length : 0;
+            console.info(`[ChatEngine] streamText call: model=${provider.id}/${modelId}, tools=${toolCount}, maxSteps=${options?.maxSteps || 'none'}, systemPrompt=${request.systemPrompt ? 'yes' : 'no'} (${request.systemPrompt?.length || 0} chars)`);
+            if (toolCount > 0) {
+              console.info(`[ChatEngine] Tool names: ${Object.keys(options!.tools!).join(', ')}`);
+              // Log the first tool's parameters shape to verify jsonSchema wrapping
+              const firstTool = Object.values(options!.tools!)[0] as any;
+              if (firstTool?.parameters) {
+                console.info(`[ChatEngine] First tool parameters type: ${typeof firstTool.parameters}, keys: ${Object.keys(firstTool.parameters).join(', ')}`);
+              }
+            }
+
             const result = streamText({
               model,
               messages: aiMessages,
@@ -535,6 +549,9 @@ export class ChatEngine {
                   break;
 
                 case 'tool-call':
+                  // Phase 9.6: Log native tool calls so we know the model IS
+                  // using function calling (vs falling back to text/DSML).
+                  console.info(`[ChatEngine] Native tool-call received: ${part.toolName} (id=${part.toolCallId})`);
                   yieldedContent = true;
                   yield {
                     type: 'tool_call_end',
