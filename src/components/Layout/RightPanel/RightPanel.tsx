@@ -25,7 +25,6 @@ import { TraceEntry, SessionData, ProviderInfo } from '../../../types';
 import TraceTab from './TraceTab';
 import ContextTab from './ContextTab';
 import NotesTab from './NotesTab';
-import TodoPanel from './TodoPanel';
 
 interface RightPanelProps {
   entries: TraceEntry[];
@@ -37,10 +36,9 @@ interface RightPanelProps {
   onClose: () => void;
 }
 
-type Tab = 'todos' | 'trace' | 'context' | 'notes';
+type Tab = 'trace' | 'context' | 'notes';
 
 const TABS: { id: Tab; label: string; iconPath: string }[] = [
-  { id: 'todos', label: 'Todos', iconPath: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
   { id: 'trace', label: 'Trace', iconPath: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' },
   { id: 'context', label: 'Context', iconPath: 'M3 7h18v14H3z M3 7l3-4h12l3 4 M9 12h6' },
   { id: 'notes', label: 'Notes', iconPath: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
@@ -55,7 +53,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
   selectedModel,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('todos');
+  const [activeTab, setActiveTab] = useState<Tab>('trace');
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-secondary)' }}>
@@ -134,7 +132,6 @@ const RightPanel: React.FC<RightPanelProps> = ({
 
       {/* Tab content */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'todos' && <TodoPanel sessionId={sessionId} />}
         {activeTab === 'trace' && <TraceTab entries={entries} />}
         {activeTab === 'context' && (
           <ContextTab
