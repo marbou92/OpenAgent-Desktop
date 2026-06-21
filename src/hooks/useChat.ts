@@ -91,13 +91,20 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const lastExternalSyncRef = useRef<ChatMessage[] | null>(null);
   // Phase 6.5: Skip notifying parent when we just synced FROM externalMessages
   const skipNextNotifyRef = useRef(false);
+  const lastSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
     // Don't sync from external while streaming — local state is the source of truth
     if (isStreamingRef.current) return;
 
+    // Phase 6.8: If the session ID changed, ALWAYS clear and sync — this
+    // handles the "new chat" case where App sets messages to [] but useChat
+    // still has the old session's messages in local state.
+    const sessionChanged = lastSessionIdRef.current !== sessionId;
+    lastSessionIdRef.current = sessionId;
+
     if (externalMessages && externalMessages.length > 0) {
       // Skip if we already synced this exact array (prevents loop)
-      if (lastExternalSyncRef.current === externalMessages) return;
+      if (!sessionChanged && lastExternalSyncRef.current === externalMessages) return;
       lastExternalSyncRef.current = externalMessages;
 
       // Mark any streaming messages as finalized since we are loading from disk.
@@ -110,14 +117,21 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setActiveToolCalls([]);
       setIsStreaming(false);
       isStreamingRef.current = false;
-    } else if (externalMessages && externalMessages.length === 0 && sessionId === null) {
-      // App cleared the session — clear local messages too.
+    } else if (externalMessages && externalMessages.length === 0) {
+      // Phase 6.8: Clear messages whenever external is empty — not just when
+      // sessionId is null. This fixes "new chat shows old messages" because
+      // App sets messages to [] on new session, but useChat kept old ones.
+      // Only skip if we're already empty and session didn't change.
+      if (messagesRef.current.length === 0 && !sessionChanged) return;
       skipNextNotifyRef.current = true;
       setMessages([]);
       lastExternalSyncRef.current = null;
+      streamingContentRef.current = '';
+      streamingThinkingRef.current = '';
+      setActiveToolCalls([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalMessages]);
+  }, [externalMessages, sessionId]);
 
   // Stable callbacks: wrap onTraceEntry / onPermissionRequest in refs so that
   // the streaming subscription effect does not re-subscribe on every render
