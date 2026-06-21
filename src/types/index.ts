@@ -279,6 +279,20 @@ export interface HookInfo {
   updatedAt?: string;
 }
 
+// ─── Phase 8.3: Todos ─────────────────────────────────────────────────────────
+
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type TodoPriority = 'high' | 'medium' | 'low';
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface HookConditions {
   toolName?: string;
   extensionId?: string;
@@ -785,6 +799,12 @@ declare global {
           context: Record<string, unknown>
         ) => Promise<HookResult[]>;
       };
+      /** Phase 8.3: Per-session todo list (written by the agent via TodoWrite). */
+      todos: {
+        list: (sessionId: string) => Promise<TodoItem[]>;
+        summary: (sessionId: string) => Promise<{ total: number; completed: number; inProgress: number; pending: number }>;
+        clear: (sessionId: string) => Promise<void>;
+      };
       acp: {
         connect: (serverUrl: string, options?: Record<string, unknown>) => Promise<void>;
         disconnect: () => Promise<void>;
@@ -981,7 +1001,10 @@ declare global {
         configSetSwitched: (callback: (data: ProviderConfigSet) => void) => () => void;
         permissionRequest: (callback: (data: PermissionRequest & { sessionId: string }) => void) => () => void;
         mainReady: (callback: () => void) => () => void;
-        contextCompacted: (callback: (data: { savedTokens: number }) => void) => () => void;
+        /** Phase 8.3: auto-compaction ran (manual or after a chat turn). */
+        contextCompacted: (callback: (data: { sessionId?: string; savedTokens: number; strategy?: string }) => void) => () => void;
+        /** Phase 8.3: live todo updates from the agent (TodoWrite tool). */
+        todosUpdated: (callback: (data: { sessionId: string; todos: TodoItem[] }) => void) => () => void;
       };
     };
   }

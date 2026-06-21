@@ -132,6 +132,14 @@ const ChatView: React.FC<ChatViewProps> = ({
     onMessagesUpdate,
     onTraceEntry: addTraceEntry,
     onPermissionRequest: (req) => setPermissionRequest(req),
+    onContextCompacted: (data) => {
+      // Phase 8.3: show a toast when auto-compaction runs.
+      addToast({
+        type: 'info',
+        title: 'Context compacted',
+        message: `${data.savedTokens.toLocaleString()} tokens saved via ${data.strategy || 'auto'} compaction`,
+      });
+    },
     externalMessages,
   });
 
@@ -359,8 +367,8 @@ const ChatView: React.FC<ChatViewProps> = ({
 
           {/* Right panel toggle (Phase 3.1 — opens the tabbed Trace/Context/Notes panel) */}
           <button
-            onClick={() => { console.log('[ChatView] Panel toggle clicked, onToggleTracePanel:', !!onToggleTracePanel); onToggleTracePanel?.(); }}
-            className="p-1.5 rounded-lg transition-colors titlebar-no-drag"
+            onClick={onToggleTracePanel}
+            className="p-1.5 rounded-lg transition-colors"
             style={{
               color: tracePanelOpen ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
               background: tracePanelOpen ? 'var(--color-accent-soft)' : 'transparent',
@@ -431,7 +439,7 @@ const ChatView: React.FC<ChatViewProps> = ({
             noProvidersConfigured={!hasConnectedProvider}
           />
         ) : (
-          <div className="max-w-full mx-auto px-6 py-4">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
             {messages.map((message, index) => (
               <MessageBubble
                 key={message.id}
@@ -503,6 +511,53 @@ const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* ─── Phase 4.6: Claude-style streaming status bar ─────────────────── */}
+      {isStreaming && (
+        <div
+          className="flex items-center gap-2 px-4 py-2 border-t text-xs"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            borderColor: 'var(--color-border-secondary)',
+          }}
+        >
+          {streamingThinking && !streamingContent ? (
+            // Thinking phase — animated dots + purple "Thinking" label
+            <>
+              <span className="thinking-dots">
+                <span /><span /><span />
+              </span>
+              <span className="font-medium" style={{ color: 'var(--color-trace-thinking)' }}>
+                Thinking
+              </span>
+              <span className="flex-1 truncate text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                {streamingThinking.slice(0, 120)}
+                {streamingThinking.length > 120 ? '…' : ''}
+              </span>
+            </>
+          ) : streamingContent ? (
+            // Generating phase — green pulse + "Generating" label + text preview
+            <>
+              <span className="generating-pulse" />
+              <span className="font-medium" style={{ color: 'var(--color-success)' }}>
+                Generating
+              </span>
+              <span className="flex-1 truncate text-[11px] font-mono" style={{ color: 'var(--color-text-muted)' }}>
+                {streamingContent.slice(-100)}
+              </span>
+            </>
+          ) : (
+            // Connecting phase — spinner + "Connecting" label
+            <>
+              <div
+                className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
+                style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
+              />
+              <span style={{ color: 'var(--color-text-tertiary)' }}>Connecting…</span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ─── Scroll-to-bottom indicator ───────────────────────────────── */}
       {!autoScroll && hasMessages && (
