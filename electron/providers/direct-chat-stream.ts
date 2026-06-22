@@ -246,6 +246,30 @@ export async function* directChatStream(opts: DirectStreamOptions): AsyncGenerat
             },
           } as StreamChunk;
         }
+
+        // Phase 10.3: Flush tool calls when finish_reason is 'tool_calls'.
+        // Some providers send finish_reason in a chunk BEFORE [DONE].
+        // If we wait for [DONE], the renderer may have already finalized
+        // the message and won't render the tool call card.
+        if (choices[0]?.finish_reason === 'tool_calls' && toolCallAccumulators.size > 0) {
+          for (const [, tc] of toolCallAccumulators) {
+            let parsedArgs: Record<string, unknown> = {};
+            try {
+              parsedArgs = tc.arguments ? JSON.parse(tc.arguments) : {};
+            } catch {
+              console.warn(`[DirectStream] Failed to parse tool args for ${tc.name}:`, tc.arguments);
+            }
+            yield {
+              type: 'tool_call_end',
+              toolCall: {
+                id: tc.id,
+                name: tc.name,
+                arguments: parsedArgs,
+              },
+            } as StreamChunk;
+          }
+          toolCallAccumulators.clear();
+        }
       }
     }
   } finally {
