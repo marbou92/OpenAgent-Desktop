@@ -56,7 +56,6 @@ import { CrashLogger, CrashDetector } from './crash';
 import { AuthStore } from './providers/auth-store-v2';
 import { ProviderClient, setSidecarEndpoint } from './providers/provider-client';
 import { ChatEngine, getExtendedThinkingBoost } from './providers/chat-engine';
-import { stripXmlToolCalls } from './providers/xml-tool-parser';
 import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
@@ -2294,27 +2293,6 @@ function registerIpcHandlers(): void {
           send('chat:stream-tool-result', { toolResult: tr });
           stepCount++;
         },
-        // Phase 9.1: When the model emits tool calls as XML text (instead of
-        // native function calling), chat-engine parses them and calls this
-        // callback to execute the tool. We look up the tool in the `tools`
-        // map and call its execute() handler — same path as native tool calls.
-        executeXmlToolCall: async (name: string, args: Record<string, unknown>): Promise<string> => {
-          const tool = tools[name];
-          if (!tool || typeof tool.execute !== 'function') {
-            console.warn(`[ChatEngine] XML tool call: tool '${name}' not found or has no execute handler`);
-            return `Tool '${name}' not found. Available tools: ${Object.keys(tools).join(', ')}`;
-          }
-          console.info(`[ChatEngine] XML tool call: executing ${name} with args:`, JSON.stringify(args).substring(0, 200));
-          try {
-            const result = await tool.execute(args);
-            // The execute handler may return a string or an object.
-            if (typeof result === 'string') return result;
-            return JSON.stringify(result);
-          } catch (err: any) {
-            console.warn(`[ChatEngine] XML tool call: ${name} threw:`, err?.message);
-            return `Error executing ${name}: ${err?.message || String(err)}`;
-          }
-        },
       }
     )) {
       switch (chunk.type) {
@@ -2430,20 +2408,6 @@ function registerIpcHandlers(): void {
       send('chat:stream-warning', {
         warning: `Hit the max-steps limit (${maxStepsLimit}). The result may be incomplete — ask the agent to continue if needed.`,
       });
-    }
-
-    // Phase 9.3: Strip XML/code-block tool calls from the final content so the
-    // user doesn't see raw XML or ```javascript AskUserQuestion({...})``` in
-    // the chat. The tools have already been executed by the XML parser — this
-    // just cleans up the visible text.
-    if (fullContent) {
-      const stripped = stripXmlToolCalls(fullContent);
-      if (stripped !== fullContent) {
-        console.info(`[ChatEngine] Stripped tool call XML/code from ${fullContent.length} → ${stripped.length} chars`);
-        // Send the cleaned content to the renderer as a replacement.
-        send('chat:stream-chunk-replace', { content: stripped });
-        fullContent = stripped;
-      }
     }
 
     return { content: fullContent, steps: stepCount, status };

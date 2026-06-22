@@ -103,7 +103,7 @@ export async function* directChatStream(opts: DirectStreamOptions): AsyncGenerat
     'Authorization': `Bearer ${apiKey}`,
   };
 
-  console.info(`[DirectStream] POST ${url} model=${model} tools=${tools?.length || 0} systemPrompt=${systemPrompt ? 'yes' : 'no'}`);
+  console.info(`[DirectStream] POST ${url} (model=${model}, tools=${tools?.length || 0})`);
 
   // Send the request.
   const response = await fetch(url, {

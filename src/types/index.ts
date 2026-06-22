@@ -976,10 +976,6 @@ declare global {
         chatStreamChunk: (
           callback: (data: { sessionId: string; chunk: string }) => void
         ) => () => void;
-        /** Phase 9.3: Replace ALL accumulated content with a cleaned version. */
-        chatStreamChunkReplace: (
-          callback: (data: { sessionId: string; content: string }) => void
-        ) => () => void;
         chatStreamToolCall: (
           callback: (data: { sessionId: string; toolCall: Record<string, unknown> }) => void
         ) => () => void;
