@@ -151,10 +151,10 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
         style={{
           background: hovered
             ? (allDone ? 'rgba(16,185,129,0.15)' : 'var(--color-accent-soft)')
-            : 'var(--color-bg-secondary)',
-          border: `1px solid ${hovered
-            ? (allDone ? 'rgba(16,185,129,0.3)' : 'var(--color-accent)')
-            : 'var(--color-border-secondary)'}`,
+            : 'transparent',
+          border: hovered
+            ? `1px solid ${allDone ? 'rgba(16,185,129,0.3)' : 'var(--color-accent)'}`
+            : '1px solid transparent',
           cursor: 'default',
           transform: hovered ? 'scale(1.05)' : 'scale(1)',
         }}
