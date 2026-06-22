@@ -1,37 +1,22 @@
 /**
- * OpenAgent-Desktop — AskUserQuestionCard (Phase 10 — OpenCowork style)
+ * OpenAgent-Desktop — AskUserQuestionCard (Phase 10.4)
  *
- * Renders AskUserQuestion tool calls INLINE in the chat message — not as
- * a popup dialog. Matches OpenCowork's visual design:
+ * When answered, the card MINIMIZES to a compact one-line summary
+ * (question + selected answer) instead of staying fully expanded.
+ * The user can click the minimized bar to re-expand and see all options.
+ * The card stays inline where it was triggered — no popup, no jump.
  *
+ * Minimized view:
+ *   💬 SCOPE: "Which files?" → ✅ Current working directory
+ *
+ * Expanded view (click to toggle):
  *   ┌─────────────────────────────────────────────┐
- *   │  Please answer to continue                  │
- *   ├─────────────────────────────────────────────┤
+ *   │  Please answer to continue          Answered │
  *   │  SCOPE                                       │
- *   │  Which files should I organize?              │
- *   │                                              │
- *   │  ┌─ A ──────────────────────────────────┐   │
- *   │  │  Current working directory            │   │
- *   │  │  Organize files in /home/user/project │   │
- *   │  └──────────────────────────────────────┘   │
- *   │  ┌─ B ──────────────────────────────────┐   │
- *   │  │  A specific folder                    │   │
- *   │  │  I'll ask for the path                │   │
- *   │  └──────────────────────────────────────┘   │
- *   │                                              │
- *   │  METHOD                                      │
- *   │  How should I organize them?                 │
- *   │  ...                                         │
+ *   │  Which files?                                │
+ *   │  A  Current working directory     ✓          │
+ *   │  B  A specific folder                        │
  *   └─────────────────────────────────────────────┘
- *
- * Features:
- *   - ALL questions rendered inline (not just the first one)
- *   - Card-style options with letter labels (A, B, C, D...)
- *   - Multi-select support: when multiple=true, uses checkboxes +
- *     a "Submit" button instead of immediate single-select
- *   - Selected options highlighted with accent color + checkmark
- *   - Answered questions show the selected option(s) below
- *   - No popup/modal — everything inline in the chat
  */
 
 import React, { useState, useEffect } from 'react';
@@ -50,11 +35,8 @@ interface AskUserItem {
 
 interface AskUserQuestionCardProps {
   questions: AskUserItem[];
-  /** The tool call ID — used to send the answer back via IPC. */
   toolCallId?: string;
-  /** Whether the user has already answered (comma-separated labels for multi). */
   answered?: string | null;
-  /** Called when the user picks an option (single-select) or submits (multi). */
   onAnswer?: (answer: string) => void;
 }
 
@@ -66,15 +48,13 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   answered,
   onAnswer,
 }) => {
-  // Parse the answered string into a set of selected labels.
-  // For single-select: "Option A" → Set(["Option A"])
-  // For multi-select: "Option A, Option B" → Set(["Option A", "Option B"])
   const answeredSet = new Set(
     (answered || '').split(',').map(s => s.trim()).filter(Boolean)
   );
   const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
+  // Phase 10.4: Minimize when answered, allow re-expand on click.
+  const [minimized, setMinimized] = useState(false);
 
-  // Initialize from answered prop
   useEffect(() => {
     if (answered) {
       const init: Record<number, Set<string>> = {};
@@ -82,34 +62,27 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         if (q.multiple) {
           init[i] = answeredSet;
         } else {
-          // For single-select, only the first answered label applies
           init[i] = new Set([Array.from(answeredSet)[0]].filter(Boolean) as string[]);
         }
       });
       setAnswers(init);
+      setMinimized(true); // Auto-minimize when answered
     }
   }, [answered]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!questions || questions.length === 0) return null;
 
   const handleToggle = (qIndex: number, label: string, multiple: boolean) => {
-    if (answered) return; // Already answered — don't allow changes
-
+    if (answered) return;
     setAnswers(prev => {
       const current = new Set(prev[qIndex] || []);
       if (multiple) {
-        if (current.has(label)) {
-          current.delete(label);
-        } else {
-          current.add(label);
-        }
+        if (current.has(label)) current.delete(label);
+        else current.add(label);
         return { ...prev, [qIndex]: current };
       } else {
-        // Single-select: replace
-        const newSet = new Set([label]);
-        // Auto-submit for single-select
         onAnswer?.(label);
-        return { ...prev, [qIndex]: newSet };
+        return { ...prev, [qIndex]: new Set([label]) };
       }
     });
   };
@@ -117,10 +90,69 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   const handleSubmitMulti = (qIndex: number) => {
     const selected = answers[qIndex];
     if (!selected || selected.size === 0) return;
-    const answerStr = Array.from(selected).join(', ');
-    onAnswer?.(answerStr);
+    onAnswer?.(Array.from(selected).join(', '));
   };
 
+  // Check if any question has been answered (for minimizing)
+  const hasAnswer = answered || Object.values(answers).some(s => s.size > 0);
+
+  // ─── Minimized view: compact one-liner ────────────────────────────────
+  if (minimized && hasAnswer) {
+    const firstQ = questions[0];
+    const header = firstQ.header || 'Question';
+    const selectedSet = answers[0] || (answered ? answeredSet : new Set<string>());
+    const selectedLabels = Array.from(selectedSet);
+
+    return (
+      <button
+        onClick={() => setMinimized(false)}
+        className="w-full flex items-center gap-2.5 my-2 px-3 py-2 rounded-lg transition-all"
+        style={{
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border-secondary)',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-primary)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-secondary)'; }}
+      >
+        {/* Question icon */}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-success, #10b981)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+
+        {/* Header badge */}
+        <span
+          className="text-[9px] font-bold uppercase tracking-wider flex-shrink-0"
+          style={{ color: 'var(--color-text-muted)' }}
+        >
+          {header}
+        </span>
+
+        {/* Truncated question */}
+        <span className="text-xs flex-shrink-0 truncate max-w-[200px]" style={{ color: 'var(--color-text-muted)' }}>
+          {firstQ.question.length > 40 ? firstQ.question.substring(0, 40) + '…' : firstQ.question}
+        </span>
+
+        {/* Arrow */}
+        <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</span>
+
+        {/* Selected answer(s) */}
+        <span
+          className="text-xs font-medium flex-1 min-w-0 truncate"
+          style={{ color: 'var(--color-success, #10b981)' }}
+        >
+          {selectedLabels.join(', ')}
+        </span>
+
+        {/* Expand hint */}
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" style={{ transform: 'rotate(90deg)' }}>
+          <path d="M3 5L6 8L9 5" />
+        </svg>
+      </button>
+    );
+  }
+
+  // ─── Expanded view: full card ─────────────────────────────────────────
   return (
     <div
       className="rounded-xl border my-3 overflow-hidden"
@@ -139,13 +171,20 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
           Please answer to continue
         </span>
-        {answered && (
-          <span
-            className="text-[10px] px-2 py-0.5 rounded-full ml-auto"
-            style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--color-success, #10b981)' }}
+        {/* Phase 10.4: If answered, show a minimize button */}
+        {hasAnswer && (
+          <button
+            onClick={() => setMinimized(true)}
+            className="ml-auto flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-colors"
+            style={{ color: 'var(--color-text-muted)', background: 'var(--color-bg-primary)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-text-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-muted)'; }}
           >
-            Answered
-          </span>
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 7L6 4L9 7" />
+            </svg>
+            Minimize
+          </button>
         )}
       </div>
 
@@ -160,7 +199,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
 
           return (
             <div key={qIdx}>
-              {/* Section header (like "SCOPE", "METHOD") */}
+              {/* Section header */}
               <div className="flex items-center gap-2 mb-1.5">
                 <span
                   className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
@@ -180,7 +219,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                 {q.question}
               </p>
 
-              {/* Options as cards with letter labels */}
+              {/* Options */}
               <div className="space-y-1.5">
                 {options.map((opt, oIdx) => {
                   const letter = LETTERS[oIdx] || String(oIdx + 1);
@@ -194,28 +233,20 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                       disabled={isDisabled}
                       className="w-full text-left rounded-lg transition-all disabled:cursor-default"
                       style={{
-                        background: isSelected
-                          ? 'var(--color-accent-soft)'
-                          : 'var(--color-bg-primary)',
+                        background: isSelected ? 'var(--color-accent-soft)' : 'var(--color-bg-primary)',
                         border: `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border-secondary)'}`,
                         opacity: isDisabled && !isSelected ? 0.5 : 1,
                         cursor: isDisabled ? 'default' : 'pointer',
                       }}
                       onMouseEnter={(e) => {
-                        if (!isDisabled && !isSelected) {
-                          e.currentTarget.style.borderColor = 'var(--color-border-primary)';
-                        }
+                        if (!isDisabled && !isSelected) e.currentTarget.style.borderColor = 'var(--color-border-primary)';
                       }}
                       onMouseLeave={(e) => {
-                        if (!isDisabled && !isSelected) {
-                          e.currentTarget.style.borderColor = 'var(--color-border-secondary)';
-                        }
+                        if (!isDisabled && !isSelected) e.currentTarget.style.borderColor = 'var(--color-border-secondary)';
                       }}
                     >
                       <div className="flex items-start gap-3 p-3">
-                        {/* Letter label or checkbox/radio */}
                         {multiple ? (
-                          // Checkbox for multi-select
                           <span
                             className="w-4 h-4 rounded flex-shrink-0 mt-0.5 flex items-center justify-center transition-all"
                             style={{
@@ -230,7 +261,6 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                             )}
                           </span>
                         ) : (
-                          // Letter label for single-select (OpenCowork style)
                           <span
                             className="text-[10px] font-bold w-5 h-5 rounded flex-shrink-0 mt-0.5 flex items-center justify-center"
                             style={{
@@ -241,8 +271,6 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                             {letter}
                           </span>
                         )}
-
-                        {/* Option content */}
                         <div className="flex-1 min-w-0">
                           <div
                             className="text-xs font-medium"
@@ -256,8 +284,6 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                             </div>
                           )}
                         </div>
-
-                        {/* Checkmark for selected single-select */}
                         {!multiple && isSelected && (
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
                             <polyline points="20 6 9 17 4 12" />
@@ -279,17 +305,6 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                 >
                   Submit ({selectedSet.size} selected)
                 </button>
-              )}
-
-              {/* Show selected answer(s) after answering */}
-              {isAnswered && answered && (
-                <div
-                  className="mt-2 px-3 py-1.5 rounded-md text-xs"
-                  style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}
-                >
-                  <strong style={{ color: 'var(--color-text-secondary)' }}>Your answer:</strong>{' '}
-                  {Array.from(selectedSet).join(', ')}
-                </div>
               )}
             </div>
           );
