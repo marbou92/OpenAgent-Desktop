@@ -49,6 +49,15 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const inProgressItem = todos?.find(t => t.status === 'in_progress');
 
+  // Phase 11.2: Reset hidden state when new todos arrive (e.g. agent creates
+  // a new todo list after the previous one auto-dismissed).
+  useEffect(() => {
+    if (todos && todos.length > 0 && !allDone) {
+      setHidden(false);
+      setFadingOut(false);
+    }
+  }, [todos, allDone]);
+
   useEffect(() => {
     if (allDone && !isStreaming && !fadingOut && !hidden) {
       const fadeTimer = setTimeout(() => setFadingOut(true), 1500);
@@ -99,15 +108,15 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
           style={{ borderBottom: '1px solid var(--color-border-secondary)' }}
         >
           {/* Circular progress */}
-          <div className="relative w-7 h-7 flex-shrink-0">
-            <svg width="28" height="28" viewBox="0 0 28 28" className="-rotate-90">
-              <circle cx="14" cy="14" r="11" fill="none" stroke="var(--color-border-secondary)" strokeWidth="2.5" />
+          <div className="relative w-9 h-9 flex-shrink-0">
+            <svg width="36" height="36" viewBox="0 0 36 36" className="-rotate-90">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--color-border-secondary)" strokeWidth="2.5" />
               <circle
-                cx="14" cy="14" r="11" fill="none"
+                cx="18" cy="18" r="15" fill="none"
                 stroke={allDone ? 'var(--color-success, #10b981)' : 'var(--color-accent)'}
                 strokeWidth="2.5" strokeLinecap="round"
-                strokeDasharray={`${2 * Math.PI * 11}`}
-                strokeDashoffset={`${2 * Math.PI * 11 * (1 - pct / 100)}`}
+                strokeDasharray={`${2 * Math.PI * 15}`}
+                strokeDashoffset={`${2 * Math.PI * 15 * (1 - pct / 100)}`}
                 style={{ transition: 'stroke-dashoffset 0.5s ease' }}
               />
             </svg>
