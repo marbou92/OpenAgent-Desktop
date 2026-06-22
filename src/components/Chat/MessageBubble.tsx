@@ -136,11 +136,15 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
             <div className="space-y-1.5">
               {message.toolCalls.map((tc) => {
                 // Phase 9.4: Render TodoWrite as an inline checklist card.
-                if (tc.name === 'TodoWrite' && tc.arguments?.todos) {
+                if (tc.name === 'TodoWrite' && tc.arguments) {
+                  // Phase 10.1: Check for clear: true
+                  if (tc.arguments.clear === true) return null;
+                  const todos = tc.arguments.todos;
+                  if (!Array.isArray(todos) || todos.length === 0) return null;
                   return (
                     <TodoWriteCard
                       key={tc.id}
-                      todos={tc.arguments.todos as any[]}
+                      todos={todos as any[]}
                       isStreaming={!!message.isStreaming}
                     />
                   );
