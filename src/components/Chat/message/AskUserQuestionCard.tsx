@@ -69,13 +69,16 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         else current.add(label);
         updated[qIndex] = { ...updated[qIndex], selected: current };
       } else {
-        // Single-select: lock THIS question only + send answer
+        // Single-select: lock THIS question only + minimize.
+        // Phase 11: Do NOT send the answer yet — wait until ALL questions
+        // are locked. Sending early resolves the tool call prematurely,
+        // causing the agent to re-ask the remaining questions.
         updated[qIndex] = { selected: new Set([label]), locked: true, minimized: true };
-        // Collect all answers so far (including this one) and send
-        const allAnswers = updated.map((q, i) => {
-          if (i === qIndex) return label;
-          return Array.from(q.selected).join(', ');
-        }).filter(s => s.length > 0);
+      }
+      // Phase 11: Only send the answer when ALL questions are locked.
+      const allLocked = updated.every(q => q.locked);
+      if (allLocked) {
+        const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
         onAnswer?.(allAnswers.join(', '));
       }
       return updated;
@@ -89,9 +92,12 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
     setPerQ(prev => {
       const updated = [...prev];
       updated[qIndex] = { ...updated[qIndex], locked: true, minimized: true };
-      // Collect all answers and send
-      const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
-      onAnswer?.(allAnswers.join(', '));
+      // Phase 11: Only send when ALL questions are locked.
+      const allLocked = updated.every(q => q.locked);
+      if (allLocked) {
+        const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
+        onAnswer?.(allAnswers.join(', '));
+      }
       return updated;
     });
   };
