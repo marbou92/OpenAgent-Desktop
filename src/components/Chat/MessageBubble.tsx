@@ -135,20 +135,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
           {message.toolCalls && message.toolCalls.length > 0 && (
             <div className="space-y-1.5">
               {message.toolCalls.map((tc) => {
-                // Phase 9.4: Render TodoWrite as an inline checklist card.
-                if (tc.name === 'TodoWrite' && tc.arguments) {
-                  // Phase 10.1: Check for clear: true
-                  if (tc.arguments.clear === true) return null;
-                  const todos = tc.arguments.todos;
-                  if (!Array.isArray(todos) || todos.length === 0) return null;
-                  return (
-                    <TodoWriteCard
-                      key={tc.id}
-                      todos={todos as any[]}
-                      isStreaming={!!message.isStreaming}
-                    />
-                  );
-                }
+                // Phase 10.7: TodoWrite is now rendered ABOVE the composer
+                // (composer-connected, Codex Desktop style). Don't render it
+                // inline in the message anymore — the composer-connected
+                // version updates in real-time from the TodoStore.
+                if (tc.name === 'TodoWrite') return null;
                 // Phase 9.4: Render AskUserQuestion as an inline question card.
                 if (tc.name === 'AskUserQuestion' && tc.arguments?.questions) {
                   // Phase 10.2: Use _askRequestId from the tool call arguments
