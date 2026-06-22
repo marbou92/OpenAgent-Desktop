@@ -151,6 +151,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                 }
                 // Phase 9.4: Render AskUserQuestion as an inline question card.
                 if (tc.name === 'AskUserQuestion' && tc.arguments?.questions) {
+                  // Phase 10.2: Use _askRequestId from the tool call arguments
+                  // (injected by useChat when chat:ask-user fires) to respond.
+                  const requestId = tc.arguments._askRequestId as string | undefined;
                   return (
                     <AskUserQuestionCard
                       key={tc.id}
@@ -158,11 +161,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                       toolCallId={tc.id}
                       answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
                       onAnswer={(answer) => {
-                        // Phase 10: Send the answer back to main.ts via the
-                        // ask-user IPC flow. Use the requestId from the
-                        // chat:ask-user event (stored in askUserRequestId).
-                        if (askUserRequestId && onAskUserAnswer) {
-                          onAskUserAnswer(askUserRequestId, answer);
+                        if (requestId && onAskUserAnswer) {
+                          onAskUserAnswer(requestId, answer);
                         }
                       }}
                     />

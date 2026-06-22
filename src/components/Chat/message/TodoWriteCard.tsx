@@ -39,6 +39,11 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
   const total = todos.length;
   const allDone = completed === total;
 
+  // Phase 10.2: Auto-clear when all items are completed AND not streaming.
+  // The agent may still be running (streaming), so we wait until streaming
+  // stops. Once all done + not streaming, render nothing.
+  if (allDone && !isStreaming) return null;
+
   return (
     <div className="my-2">
       {/* Minimal header — just count, no chrome */}
