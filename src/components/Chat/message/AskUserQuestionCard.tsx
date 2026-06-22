@@ -1,22 +1,11 @@
 /**
- * OpenAgent-Desktop — AskUserQuestionCard (Phase 10.4)
+ * OpenAgent-Desktop — AskUserQuestionCard (Phase 10.8)
  *
- * When answered, the card MINIMIZES to a compact one-line summary
- * (question + selected answer) instead of staying fully expanded.
- * The user can click the minimized bar to re-expand and see all options.
- * The card stays inline where it was triggered — no popup, no jump.
- *
- * Minimized view:
- *   💬 SCOPE: "Which files?" → ✅ Current working directory
- *
- * Expanded view (click to toggle):
- *   ┌─────────────────────────────────────────────┐
- *   │  Please answer to continue          Answered │
- *   │  SCOPE                                       │
- *   │  Which files?                                │
- *   │  A  Current working directory     ✓          │
- *   │  B  A specific folder                        │
- *   └─────────────────────────────────────────────┘
+ * Fixes from 10.7:
+ *   - Per-question locking (answering Q1 no longer locks Q2)
+ *   - Each question has its own answered/locked state
+ *   - Single answer for ALL questions is sent as "Q1Answer, Q2Answer"
+ *   - Minimize per-question when answered
  */
 
 import React, { useState, useEffect } from 'react';
@@ -48,119 +37,67 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   answered,
   onAnswer,
 }) => {
-  const answeredSet = new Set(
-    (answered || '').split(',').map(s => s.trim()).filter(Boolean)
-  );
-  const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
-  // Phase 10.5: Once answered, lock the card — no more changes allowed.
-  const [isLocked, setIsLocked] = useState(false);
-  // Phase 10.4: Minimize when answered, allow re-expand on click.
-  const [minimized, setMinimized] = useState(false);
+  // Per-question state: which options are selected + whether each is locked.
+  const [perQ, setPerQ] = useState<Array<{ selected: Set<string>; locked: boolean; minimized: boolean }>>([]);
 
   useEffect(() => {
     if (answered) {
-      const init: Record<number, Set<string>> = {};
-      questions.forEach((q, i) => {
-        if (q.multiple) {
-          init[i] = answeredSet;
-        } else {
-          init[i] = new Set([Array.from(answeredSet)[0]].filter(Boolean) as string[]);
-        }
-      });
-      setAnswers(init);
-      setIsLocked(true);
-      setMinimized(true); // Auto-minimize when answered
+      // Initialize from answered prop (comma-separated for multi)
+      const answeredLabels = answered.split(',').map(s => s.trim()).filter(Boolean);
+      const answeredSet = new Set(answeredLabels);
+      const init = questions.map((q, i) => ({
+        selected: new Set(q.multiple ? answeredLabels : (answeredLabels[i] ? [answeredLabels[i]] : [])),
+        locked: true,
+        minimized: true,
+      }));
+      setPerQ(init);
+    } else {
+      // Initialize empty state for each question
+      setPerQ(questions.map(() => ({ selected: new Set<string>(), locked: false, minimized: false })));
     }
-  }, [answered]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [answered, questions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!questions || questions.length === 0) return null;
 
   const handleToggle = (qIndex: number, label: string, multiple: boolean) => {
-    // Phase 10.5: Once locked, no changes allowed.
-    if (isLocked || answered) return;
-    setAnswers(prev => {
-      const current = new Set(prev[qIndex] || []);
+    if (perQ[qIndex]?.locked) return;
+    setPerQ(prev => {
+      const updated = [...prev];
+      const current = new Set(updated[qIndex]?.selected || []);
       if (multiple) {
         if (current.has(label)) current.delete(label);
         else current.add(label);
-        return { ...prev, [qIndex]: current };
+        updated[qIndex] = { ...updated[qIndex], selected: current };
       } else {
-        // Single-select: lock immediately after picking.
-        setIsLocked(true);
-        onAnswer?.(label);
-        return { ...prev, [qIndex]: new Set([label]) };
+        // Single-select: lock THIS question only + send answer
+        updated[qIndex] = { selected: new Set([label]), locked: true, minimized: true };
+        // Collect all answers so far (including this one) and send
+        const allAnswers = updated.map((q, i) => {
+          if (i === qIndex) return label;
+          return Array.from(q.selected).join(', ');
+        }).filter(s => s.length > 0);
+        onAnswer?.(allAnswers.join(', '));
       }
+      return updated;
     });
   };
 
   const handleSubmitMulti = (qIndex: number) => {
-    if (isLocked || answered) return;
-    const selected = answers[qIndex];
+    if (perQ[qIndex]?.locked) return;
+    const selected = perQ[qIndex]?.selected;
     if (!selected || selected.size === 0) return;
-    setIsLocked(true); // Lock after submit
-    onAnswer?.(Array.from(selected).join(', '));
+    setPerQ(prev => {
+      const updated = [...prev];
+      updated[qIndex] = { ...updated[qIndex], locked: true, minimized: true };
+      // Collect all answers and send
+      const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
+      onAnswer?.(allAnswers.join(', '));
+      return updated;
+    });
   };
 
-  // Check if any question has been answered (for minimizing)
-  const hasAnswer = answered || isLocked;
+  const allAnswered = perQ.length > 0 && perQ.every(q => q.locked);
 
-  // ─── Minimized view: compact one-liner ────────────────────────────────
-  if (minimized && hasAnswer) {
-    const firstQ = questions[0];
-    const header = firstQ.header || 'Question';
-    const selectedSet = answers[0] || (answered ? answeredSet : new Set<string>());
-    const selectedLabels = Array.from(selectedSet);
-
-    return (
-      <button
-        onClick={() => setMinimized(false)}
-        className="w-full flex items-center gap-2.5 my-2 px-3 py-2 rounded-lg transition-all"
-        style={{
-          background: 'var(--color-bg-secondary)',
-          border: '1px solid var(--color-border-secondary)',
-          cursor: 'pointer',
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-primary)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-secondary)'; }}
-      >
-        {/* Question icon */}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-success, #10b981)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-
-        {/* Header badge */}
-        <span
-          className="text-[9px] font-bold uppercase tracking-wider flex-shrink-0"
-          style={{ color: 'var(--color-text-muted)' }}
-        >
-          {header}
-        </span>
-
-        {/* Truncated question */}
-        <span className="text-xs flex-shrink-0 truncate max-w-[200px]" style={{ color: 'var(--color-text-muted)' }}>
-          {firstQ.question.length > 40 ? firstQ.question.substring(0, 40) + '…' : firstQ.question}
-        </span>
-
-        {/* Arrow */}
-        <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</span>
-
-        {/* Selected answer(s) */}
-        <span
-          className="text-xs font-medium flex-1 min-w-0 truncate"
-          style={{ color: 'var(--color-success, #10b981)' }}
-        >
-          {selectedLabels.join(', ')}
-        </span>
-
-        {/* Expand hint */}
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" style={{ transform: 'rotate(90deg)' }}>
-          <path d="M3 5L6 8L9 5" />
-        </svg>
-      </button>
-    );
-  }
-
-  // ─── Expanded view: full card ─────────────────────────────────────────
   return (
     <div
       className="rounded-xl border my-3 overflow-hidden"
@@ -179,32 +116,66 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
           Please answer to continue
         </span>
-        {/* Phase 10.4: If answered, show a minimize button */}
-        {hasAnswer && (
-          <button
-            onClick={() => setMinimized(true)}
-            className="ml-auto flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-colors"
-            style={{ color: 'var(--color-text-muted)', background: 'var(--color-bg-primary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-text-primary)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-muted)'; }}
+        {allAnswered && (
+          <span
+            className="text-[10px] px-2 py-0.5 rounded-full ml-auto"
+            style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--color-success, #10b981)' }}
           >
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7L6 4L9 7" />
-            </svg>
-            Minimize
-          </button>
+            All answered
+          </span>
         )}
       </div>
 
       {/* Questions */}
-      <div className="p-4 space-y-5">
+      <div className="p-4 space-y-4">
         {questions.map((q, qIdx) => {
           const header = q.header || `Question ${qIdx + 1}`;
           const options = q.options || [];
           const multiple = q.multiple || false;
-          const selectedSet = answers[qIdx] || (answered ? answeredSet : new Set<string>());
-          const isAnswered = selectedSet.size > 0;
+          const qState = perQ[qIdx] || { selected: new Set<string>(), locked: false, minimized: false };
+          const isAnswered = qState.locked;
+          const selectedLabels = Array.from(qState.selected);
 
+          // ─── Minimized view for this question ─────────────────────────
+          if (qState.minimized && isAnswered) {
+            return (
+              <button
+                key={qIdx}
+                onClick={() => setPerQ(prev => {
+                  const updated = [...prev];
+                  updated[qIdx] = { ...updated[qIdx], minimized: false };
+                  return updated;
+                })}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all"
+                style={{
+                  background: 'var(--color-bg-primary)',
+                  border: '1px solid var(--color-border-secondary)',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-primary)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-secondary)'; }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-success, #10b981)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span className="text-[9px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                  {header}
+                </span>
+                <span className="text-xs flex-shrink-0 truncate max-w-[180px]" style={{ color: 'var(--color-text-muted)' }}>
+                  {q.question.length > 35 ? q.question.substring(0, 35) + '…' : q.question}
+                </span>
+                <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</span>
+                <span className="text-xs font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--color-success, #10b981)' }}>
+                  {selectedLabels.join(', ')}
+                </span>
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" style={{ transform: 'rotate(90deg)' }}>
+                  <path d="M3 5L6 8L9 5" />
+                </svg>
+              </button>
+            );
+          }
+
+          // ─── Expanded view for this question ──────────────────────────
           return (
             <div key={qIdx}>
               {/* Section header */}
@@ -220,6 +191,22 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                     (select all that apply)
                   </span>
                 )}
+                {isAnswered && (
+                  <button
+                    onClick={() => setPerQ(prev => {
+                      const updated = [...prev];
+                      updated[qIdx] = { ...updated[qIdx], minimized: true };
+                      return updated;
+                    })}
+                    className="ml-auto text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 7L6 4L9 7" />
+                    </svg>
+                    Minimize
+                  </button>
+                )}
               </div>
 
               {/* Question text */}
@@ -231,8 +218,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
               <div className="space-y-1.5">
                 {options.map((opt, oIdx) => {
                   const letter = LETTERS[oIdx] || String(oIdx + 1);
-                  const isSelected = selectedSet.has(opt.label);
-                  const isDisabled = isLocked || !!answered;
+                  const isSelected = qState.selected.has(opt.label);
+                  const isDisabled = qState.locked;
 
                   return (
                     <button
@@ -243,7 +230,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                       style={{
                         background: isSelected ? 'var(--color-accent-soft)' : 'var(--color-bg-primary)',
                         border: `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border-secondary)'}`,
-                        opacity: isDisabled && !isSelected ? 0.5 : 1,
+                        opacity: isDisabled && !isSelected ? 0.4 : 1,
                         cursor: isDisabled ? 'default' : 'pointer',
                       }}
                       onMouseEnter={(e) => {
@@ -304,14 +291,14 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
               </div>
 
               {/* Submit button for multi-select */}
-              {multiple && !isLocked && !answered && (
+              {multiple && !qState.locked && (
                 <button
                   onClick={() => handleSubmitMulti(qIdx)}
-                  disabled={selectedSet.size === 0}
+                  disabled={qState.selected.size === 0}
                   className="mt-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                   style={{ background: 'var(--color-accent)', color: 'white' }}
                 >
-                  Submit ({selectedSet.size} selected)
+                  Submit ({qState.selected.size} selected)
                 </button>
               )}
             </div>
