@@ -54,8 +54,6 @@ import ChatEmptyState from './ChatEmptyState';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
-import TodoPanel from '../Layout/RightPanel/TodoPanel';
-import TodoWriteCard from './message/TodoWriteCard';
 import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
 
@@ -109,19 +107,6 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
-  // Phase 10.2: Map of toolCallId → askUserRequestId. When the agent calls
-  // AskUserQuestion, main.ts fires chat:ask-user with a unique requestId.
-  // We store it here keyed by... actually we can't key by toolCallId because
-  // the ask-user event doesn't include it. Instead, we store the LATEST
-  // requestId and the card uses it directly. To handle multiple simultaneous
-  // questions (rare), we use a queue.
-  const [askUserRequestId, setAskUserRequestId] = useState<string | null>(null);
-  // Phase 8.6: Todo list — shown inline in the chat area (not the right
-  // sidebar). Collapsible. Only renders when there are todos.
-  const [todoCount, setTodoCount] = useState(0);
-  const [todoPanelExpanded, setTodoPanelExpanded] = useState(true);
-  // Phase 10.7: The latest todos for the composer-connected todo list.
-  const [composerTodos, setComposerTodos] = useState<any[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
   // Phase 4: image attachments (base64 data URLs) + structured output panel
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
@@ -147,15 +132,6 @@ const ChatView: React.FC<ChatViewProps> = ({
     onMessagesUpdate,
     onTraceEntry: addTraceEntry,
     onPermissionRequest: (req) => setPermissionRequest(req),
-    onAskUser: (req) => setAskUserRequestId(req.id),
-    onContextCompacted: (data) => {
-      // Phase 8.3: show a toast when auto-compaction runs.
-      addToast({
-        type: 'info',
-        title: 'Context compacted',
-        message: `${data.savedTokens.toLocaleString()} tokens saved via ${data.strategy || 'auto'} compaction`,
-      });
-    },
     externalMessages,
   });
 
@@ -222,29 +198,6 @@ const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [messages, streamingContent, autoScroll]);
 
-  // Phase 10.7: Subscribe to todos:updated events. Store the actual todos
-  // for the composer-connected todo list (Codex Desktop style — the list
-  // sits directly above the input area).
-  useEffect(() => {
-    const api = (window as any).openagent;
-    if (!api?.on?.todosUpdated) return;
-
-    // Initial load
-    if (sessionId && api?.todos?.list) {
-      api.todos.list(sessionId).then((todos: any[]) => {
-        setTodoCount(todos?.length || 0);
-        setComposerTodos(todos || []);
-      }).catch(() => {});
-    }
-
-    const unsub = api.on.todosUpdated((data: { sessionId: string; todos: any[] }) => {
-      if (data.sessionId !== sessionId) return;
-      setTodoCount(data.todos.length);
-      setComposerTodos(data.todos || []);
-    });
-    return () => unsub?.();
-  }, [sessionId]);
-
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -297,7 +250,6 @@ const ChatView: React.FC<ChatViewProps> = ({
     [permissionRequest],
   );
 
-  // Phase 8.5: AskUserQuestion response handler. Sends the user's selected
   const handleNameSubmit = useCallback(() => {
     setIsEditingName(false);
     if (sessionId && api?.sessions?.update && sessionName) {
@@ -492,67 +444,12 @@ const ChatView: React.FC<ChatViewProps> = ({
                     : undefined
                 }
                 onCopy={handleCopyMessage}
-                askUserRequestId={askUserRequestId}
-                onAskUserAnswer={(requestId, answer) => {
-                  if (api?.permissions?.respondToQuestion) {
-                    api.permissions.respondToQuestion(requestId, answer);
-                  }
-                  setAskUserRequestId(null);
-                }}
               />
             ))}
 
-            {/* Active tool calls (when streaming) */}
-            {activeToolCalls.length > 0 && (
-              <div className="space-y-2">
-                {activeToolCalls.map((tc) => (
-                  <div
-                    key={tc.id}
-                    className="rounded-lg border px-3 py-2 flex items-center gap-2.5"
-                    style={{
-                      background: 'var(--color-bg-secondary)',
-                      borderColor: 'var(--color-border-primary)',
-                    }}
-                  >
-                    {tc.status === 'pending' ? (
-                      <div
-                        className="w-3.5 h-3.5 border-2 rounded-full animate-spin-slow flex-shrink-0"
-                        style={{
-                          borderColor: 'var(--color-accent)',
-                          borderTopColor: 'transparent',
-                        }}
-                      />
-                    ) : (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="var(--color-success)"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="flex-shrink-0"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    )}
-                    <span
-                      className="text-xs font-medium font-mono"
-                      style={{ color: 'var(--color-text-primary)' }}
-                    >
-                      {tc.name}
-                    </span>
-                    <span
-                      className="text-[10px] uppercase tracking-wider"
-                      style={{ color: 'var(--color-text-muted)' }}
-                    >
-                      {tc.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Phase 11.7: REMOVED activeToolCalls section — tool calls are now
+                rendered inside the message's toolCalls via MessageBubble (Phase 10.3).
+                Having both caused duplicate cards. */}
 
             <div ref={messagesEndRef} />
           </div>
@@ -698,14 +595,6 @@ const ChatView: React.FC<ChatViewProps> = ({
           </svg>
           <span>{fileError}</span>
         </div>
-      )}
-
-      {/* ─── Phase 10.9: Todo dropdown above composer (DaisyUI style, expands upward) ── */}
-      {composerTodos.length > 0 && (
-        <TodoWriteCard
-          todos={composerTodos}
-          isStreaming={isStreaming}
-        />
       )}
 
       {/* ─── Composer (with inline agent + model selectors) ────────────── */}

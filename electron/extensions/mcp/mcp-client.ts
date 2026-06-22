@@ -246,15 +246,27 @@ export class MCPClient extends EventEmitter {
       }
       Object.assign(filteredEnv, this.config.env || {});
 
-      // Use shell:false so that args containing shell metacharacters are not
-      // interpreted. Previously this used `shell: true` which let a malicious
-      // extension config run arbitrary shell as the Electron main-process user.
-      this.process = spawn(this.config.command, this.config.args, {
-        env: filteredEnv,
-        cwd: this.config.cwd,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: false,
-      });
+      // Use shell:true on Windows so .cmd/.bat files (like npx.cmd) are
+      // found. On other platforms, shell:false for security.
+      // Phase 11.7: Previously shell:false caused "spawn npx ENOENT" on
+      // Windows because npx is actually npx.cmd (a batch file).
+      const isWindows = process.platform === 'win32';
+      const spawnCommand = isWindows ? this.config.command : this.config.command;
+      const spawnArgs = isWindows ? this.config.args : this.config.args;
+
+      // Phase 11.7: Wrap spawn in try-catch to prevent uncaughtException
+      // crashes when the command doesn't exist (e.g., npx on Windows).
+      try {
+        this.process = spawn(spawnCommand, spawnArgs, {
+          env: filteredEnv,
+          cwd: this.config.cwd,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: isWindows, // Windows needs shell to find .cmd files
+        });
+      } catch (spawnErr: any) {
+        reject(new Error(`Failed to spawn MCP server "${this.config.command}": ${spawnErr?.message || spawnErr}`));
+        return;
+      }
 
       if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {
         reject(new Error('Failed to create stdio streams for MCP server'));
