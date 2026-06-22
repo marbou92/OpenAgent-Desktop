@@ -120,50 +120,104 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
             </div>
           )}
 
-          {/* Message content — plain text, NO background, with streaming cursor */}
-          {message.content && (
-            <div>
-              <div ref={contentRef} className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: renderedContent }} />
-              {message.isStreaming && (
-                <span className="inline-block w-2 h-4 ml-1 align-middle" style={{ background: 'var(--color-accent)', animation: 'cursor-blink 0.8s ease-in-out infinite' }} />
-              )}
-            </div>
-          )}
+          {/* Phase 11.3: Render content split at tool call positions.
+              AskUserQuestion cards appear at the position where they were
+              triggered — not at the end of the message. */}
+          {(() => {
+            const askToolCalls = (message.toolCalls || []).filter(
+              tc => tc.name === 'AskUserQuestion' && tc.arguments?.questions
+            );
 
-          {/* Tool calls — inline cards for TodoWrite + AskUserQuestion,
-              regular ToolUseCard for everything else */}
-          {message.toolCalls && message.toolCalls.length > 0 && (
-            <div className="space-y-1.5">
-              {message.toolCalls.map((tc) => {
-                // Phase 10.7: TodoWrite is now rendered ABOVE the composer
-                // (composer-connected, Codex Desktop style). Don't render it
-                // inline in the message anymore — the composer-connected
-                // version updates in real-time from the TodoStore.
-                if (tc.name === 'TodoWrite') return null;
-                // Phase 9.4: Render AskUserQuestion as an inline question card.
-                if (tc.name === 'AskUserQuestion' && tc.arguments?.questions) {
-                  // Phase 10.2: Use _askRequestId from the tool call arguments
-                  // (injected by useChat when chat:ask-user fires) to respond.
-                  const requestId = tc.arguments._askRequestId as string | undefined;
-                  return (
-                    <AskUserQuestionCard
-                      key={tc.id}
-                      questions={tc.arguments.questions as any[]}
-                      toolCallId={tc.id}
-                      answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
-                      onAnswer={(answer) => {
-                        if (requestId && onAskUserAnswer) {
-                          onAskUserAnswer(requestId, answer);
-                        }
-                      }}
-                    />
-                  );
-                }
-                // Default: regular ToolUseCard for bash/read/edit/etc.
-                return <ToolUseCard key={tc.id} toolCall={tc} />;
-              })}
-            </div>
-          )}
+            // If no AskUserQuestion tool calls, render content + other tool calls normally.
+            if (askToolCalls.length === 0) {
+              return (
+                <>
+                  {/* Message content */}
+                  {message.content && (
+                    <div>
+                      <div ref={contentRef} className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: renderedContent }} />
+                      {message.isStreaming && (
+                        <span className="inline-block w-2 h-4 ml-1 align-middle" style={{ background: 'var(--color-accent)', animation: 'cursor-blink 0.8s ease-in-out infinite' }} />
+                      )}
+                    </div>
+                  )}
+                  {/* Other tool calls (non-TodoWrite, non-AskUserQuestion) */}
+                  {message.toolCalls && message.toolCalls.length > 0 && (
+                    <div className="space-y-1.5">
+                      {message.toolCalls.map((tc) => {
+                        if (tc.name === 'TodoWrite') return null;
+                        if (tc.name === 'AskUserQuestion') return null;
+                        return <ToolUseCard key={tc.id} toolCall={tc} />;
+                      })}
+                    </div>
+                  )}
+                </>
+              );
+            }
+
+            // Split content at the first AskUserQuestion's _splitOffset.
+            const splitOffset = (askToolCalls[0] as any)._splitOffset as number | undefined;
+            const rawContent = message.content || '';
+            let beforeContent = rawContent;
+            let afterContent = '';
+
+            if (splitOffset !== undefined && splitOffset > 0 && splitOffset < rawContent.length) {
+              beforeContent = rawContent.substring(0, splitOffset);
+              afterContent = rawContent.substring(splitOffset);
+            } else if (splitOffset !== undefined && splitOffset === 0) {
+              beforeContent = '';
+              afterContent = rawContent;
+            }
+
+            const beforeHtml = sanitizeHtml(renderMarkdown(beforeContent));
+            const afterHtml = sanitizeHtml(renderMarkdown(afterContent));
+            const requestId = askToolCalls[0].arguments._askRequestId as string | undefined;
+
+            return (
+              <>
+                {/* Content BEFORE the tool call */}
+                {beforeContent && (
+                  <div className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: beforeHtml }} />
+                )}
+
+                {/* AskUserQuestion card at the triggered position */}
+                {askToolCalls.map((tc) => (
+                  <AskUserQuestionCard
+                    key={tc.id}
+                    questions={tc.arguments.questions as any[]}
+                    toolCallId={tc.id}
+                    answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
+                    onAnswer={(answer) => {
+                      if (requestId && onAskUserAnswer) {
+                        onAskUserAnswer(requestId, answer);
+                      }
+                    }}
+                  />
+                ))}
+
+                {/* Content AFTER the tool call */}
+                {afterContent && (
+                  <div className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: afterHtml }} />
+                )}
+
+                {/* Streaming cursor */}
+                {message.isStreaming && (
+                  <span className="inline-block w-2 h-4 ml-1 align-middle" style={{ background: 'var(--color-accent)', animation: 'cursor-blink 0.8s ease-in-out infinite' }} />
+                )}
+
+                {/* Other tool calls (non-TodoWrite, non-AskUserQuestion) */}
+                {message.toolCalls && message.toolCalls.length > 0 && (
+                  <div className="space-y-1.5">
+                    {message.toolCalls.map((tc) => {
+                      if (tc.name === 'TodoWrite') return null;
+                      if (tc.name === 'AskUserQuestion') return null;
+                      return <ToolUseCard key={tc.id} toolCall={tc} />;
+                    })}
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* Action buttons — hover only */}
           {!message.isStreaming && message.content && (

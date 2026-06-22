@@ -221,11 +221,18 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
       const incomingToolCall = data.toolCall;
+      // Phase 11.3: Store the content offset at the time the tool call arrived.
+      // This lets MessageBubble split the content so the card renders at the
+      // position where the tool call was triggered (not at the end).
+      const splitOffset = streamingContentRef.current.length;
       const newToolCall: ToolCall = {
         id: (incomingToolCall.id as string) || crypto.randomUUID(),
         name: (incomingToolCall.name as string) || 'unknown',
         arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
         status: 'pending',
+        // Phase 11.3: custom field — character offset in the content where
+        // this tool call was triggered. Used by MessageBubble to split content.
+        ...({ _splitOffset: splitOffset } as any),
       };
 
       setActiveToolCalls(prev => [...prev, newToolCall]);
