@@ -951,9 +951,11 @@ When in doubt, use it.`,
 4. Offer choices to the user about what direction to take.
 
 Usage notes:
-- Answers are returned as the selected option labels.
+- Answers are returned as the selected option labels (comma-separated for multi-select).
 - If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label.
-- Ask one question at a time for clarity — the user sees a dialog with the options as buttons.`,
+- Set multiple: true on a question to allow the user to select more than one option.
+- Questions are rendered INLINE in the chat (not as a popup). The user sees all questions at once.
+- You can ask multiple questions in a single call — each will have its own section with a header.`,
         parameters: {
           type: 'object',
           properties: {
@@ -964,15 +966,16 @@ Usage notes:
                 type: 'object',
                 properties: {
                   question: { type: 'string', description: 'The question text' },
-                  header: { type: 'string', description: 'Short header label for the question' },
+                  header: { type: 'string', description: 'Short header label for the question (e.g. "SCOPE", "METHOD")' },
+                  multiple: { type: 'boolean', description: 'If true, the user can select multiple options. Default: false (single-select).' },
                   options: {
                     type: 'array',
                     description: 'Multiple-choice options',
                     items: {
                       type: 'object',
                       properties: {
-                        label: { type: 'string', description: 'Option label' },
-                        description: { type: 'string', description: 'Optional description of the option' },
+                        label: { type: 'string', description: 'Option label (short title)' },
+                        description: { type: 'string', description: 'Optional longer description of the option' },
                       },
                       required: ['label'],
                     },
