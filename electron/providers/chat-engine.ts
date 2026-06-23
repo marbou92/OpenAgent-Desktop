@@ -28,6 +28,7 @@ import { getOpencodeRegistry } from './opencode-registry';
 import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
 import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
 import { parseXmlToolCalls } from './xml-tool-parser';
+import { directChatStream, DirectToolDefinition } from './direct-chat-stream';
 
 // AI SDK loading state.
 let _aiSdkLoaded = false;
@@ -166,6 +167,26 @@ export function getExtendedThinkingBoost(effort: string | undefined): { maxToken
     // tasks (read 10 files, edit 5, run tests, fix failures, repeat).
     maxStepsBoost: 50,
   };
+}
+
+/**
+ * Phase 9.7: Extract the raw JSON Schema from a tool's parameters field.
+ *
+ * The AI SDK wraps schemas with jsonSchema() which produces an object like:
+ *   { _type: undefined, jsonSchema: { type: 'object', ... }, validate: fn }
+ * We need to extract the raw `jsonSchema` field to send it directly to the
+ * provider's API (which expects raw JSON Schema, not the SDK wrapper).
+ *
+ * If the parameters are already a raw JSON Schema (no wrapping), return as-is.
+ */
+function extractRawSchema(params: any): Record<string, unknown> {
+  if (!params) return { type: 'object', properties: {} };
+  // Check if it's a jsonSchema() wrapper (has a `jsonSchema` field).
+  if (params.jsonSchema && typeof params.jsonSchema === 'object') {
+    return params.jsonSchema;
+  }
+  // Already a raw JSON Schema — return as-is.
+  return params;
 }
 
 /**
@@ -445,6 +466,27 @@ export class ChatEngine {
     }
   ): AsyncGenerator<StreamChunk> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
+
+    // Phase 9.7: Try the DIRECT HTTP path FIRST when tools are provided.
+    // Bypasses the AI SDK — sends raw OpenAI Chat Completions with tools
+    // as raw JSON Schema. This is how opencode does it and works reliably
+    // with DeepSeek + other models that don't handle AI SDK wrapping.
+    if (options?.tools && baseUrl) {
+      console.info(`[ChatEngine] Direct HTTP path for ${provider.id}/${modelId} (tools: ${Object.keys(options.tools).length})`);
+      try {
+        const directTools: DirectToolDefinition[] = Object.entries(options.tools).map(([name, tool]: [string, any]) => ({
+          name,
+          description: tool.description || '',
+          parameters: extractRawSchema(tool.parameters),
+          execute: tool.execute,
+        }));
+        const providerOptions = buildThinkingProviderOptions(provider.id, options?.thinkingEffort);
+        yield* this.runDirectAgentLoop({ request, options, provider, auth, baseUrl, modelId, directTools, providerOptions });
+        return;
+      } catch (err: any) {
+        console.warn(`[ChatEngine] Direct HTTP path failed, falling back to AI SDK:`, err?.message || err);
+      }
+    }
 
     // Try AI SDK path.
     const available = await ensureAiSdk();
@@ -1208,6 +1250,192 @@ Usage notes:
     }
 
     return tools;
+  }
+
+  // ─── Phase 9.7: Direct HTTP Agent Loop ─────────────────────────────────────
+
+  /**
+   * Run the agentic tool loop using the direct HTTP stream.
+   *
+   * This bypasses the AI SDK entirely and sends raw OpenAI Chat Completions
+   * requests. Tools are sent as raw JSON Schema (not wrapped with
+   * jsonSchema()), and native tool_calls are parsed from the SSE stream.
+   *
+   * The loop:
+   *   1. Send the request with tools.
+   *   2. Stream the response (text + thinking + tool_calls).
+   *   3. When tool_calls are received, execute them via the tool's execute()
+   *      handler.
+   *   4. Send the tool results back as a new message.
+   *   5. Repeat until the model stops calling tools or maxSteps is reached.
+   */
+  async *runDirectAgentLoop(opts: {
+    request: ChatRequest;
+    options?: any;
+    provider: ProviderDefinition;
+    auth: AuthProvider;
+    baseUrl: string;
+    modelId: string;
+    directTools: DirectToolDefinition[];
+    providerOptions?: Record<string, unknown>;
+  }): AsyncGenerator<StreamChunk> {
+    const { request, options, provider, auth, baseUrl, modelId, directTools, providerOptions } = opts;
+    const maxSteps = options?.maxSteps || 50;
+    let stepCount = 0;
+    // Build the conversation messages. We'll append assistant messages
+    // (with tool_calls) + tool result messages as we go.
+    const conversationMessages: Array<{ role: string; content: string | Array<Record<string, unknown>>; tool_calls?: any[] }> = [];
+    for (const m of request.messages) {
+      conversationMessages.push({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : String(m.content || ''),
+      });
+    }
+
+    while (stepCount < maxSteps) {
+      stepCount++;
+      console.info(`[DirectAgentLoop] Step ${stepCount}/${maxSteps}`);
+
+      // Collect tool calls from this step.
+      const pendingToolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
+      let stepContent = '';
+      let stepThinking = '';
+
+      // Stream this step.
+      for await (const chunk of directChatStream({
+        auth,
+        baseUrl,
+        model: modelId,
+        messages: conversationMessages,
+        systemPrompt: request.systemPrompt,
+        tools: directTools,
+        temperature: request.temperature,
+        maxTokens: request.maxTokens,
+        signal: options?.signal,
+        providerOptions,
+      })) {
+        switch (chunk.type) {
+          case 'content':
+            if (chunk.content) stepContent += chunk.content;
+            yield chunk;
+            break;
+          case 'thinking':
+            if (chunk.content) stepThinking += chunk.content;
+            yield chunk;
+            break;
+          case 'tool_call_start':
+          case 'tool_call_delta':
+            yield chunk;
+            break;
+          case 'tool_call_end':
+            if (chunk.toolCall) {
+              pendingToolCalls.push({
+                id: chunk.toolCall.id || `call-${Date.now()}`,
+                name: chunk.toolCall.name || 'unknown',
+                arguments: chunk.toolCall.arguments || {},
+              });
+              // Notify the caller (main.ts intercepts TodoWrite etc.)
+              options?.onToolCall?.({
+                id: chunk.toolCall.id,
+                name: chunk.toolCall.name,
+                arguments: chunk.toolCall.arguments || {},
+              });
+            }
+            yield chunk;
+            break;
+          case 'tool_result':
+            yield chunk;
+            break;
+          case 'usage':
+            yield chunk;
+            break;
+          case 'error':
+            yield chunk;
+            return;
+          case 'done':
+            // Don't yield done yet — we may have tool calls to execute.
+            break;
+        }
+      }
+
+      // If no tool calls, we're done — yield done + return.
+      if (pendingToolCalls.length === 0) {
+        // Phase 4.1: reasoning-to-content fallback.
+        if (!stepContent.trim() && stepThinking.trim()) {
+          yield { type: 'content', content: stepThinking };
+        }
+        // Phase 9.1: Check for XML/text tool calls as a fallback.
+        if (stepContent && options?.executeXmlToolCall) {
+          const xmlCalls = parseXmlToolCalls(stepContent);
+          if (xmlCalls.length > 0) {
+            console.info(`[DirectAgentLoop] Found ${xmlCalls.length} XML/text tool call(s) — executing`);
+            for (const xmlCall of xmlCalls) {
+              const toolCallId = `xml-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              options?.onToolCall?.({ id: toolCallId, name: xmlCall.name, arguments: xmlCall.args });
+              yield { type: 'tool_call_end', toolCall: { id: toolCallId, name: xmlCall.name, arguments: xmlCall.args } };
+              try {
+                const result = await options.executeXmlToolCall(xmlCall.name, xmlCall.args);
+                yield { type: 'tool_result', toolResult: { id: toolCallId, content: result } };
+              } catch (err: any) {
+                yield { type: 'tool_result', toolResult: { id: toolCallId, content: `Error: ${err?.message || err}` } };
+              }
+            }
+          }
+        }
+        yield { type: 'done' };
+        return;
+      }
+
+      // Execute the tool calls + collect results.
+      const toolResults: Array<{ id: string; content: string }> = [];
+      for (const tc of pendingToolCalls) {
+        const tool = directTools.find(t => t.name === tc.name);
+        if (!tool || typeof tool.execute !== 'function') {
+          console.warn(`[DirectAgentLoop] Tool '${tc.name}' not found or has no execute handler`);
+          toolResults.push({ id: tc.id, content: `Tool '${tc.name}' not found.` });
+          continue;
+        }
+        console.info(`[DirectAgentLoop] Executing tool: ${tc.name} (id=${tc.id})`);
+        try {
+          const result = await tool.execute(tc.arguments);
+          const content = typeof result === 'string' ? result : JSON.stringify(result);
+          toolResults.push({ id: tc.id, content });
+          options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
+          yield { type: 'tool_result', toolResult: { id: tc.id, content } };
+        } catch (err: any) {
+          const errMsg = err?.message || String(err);
+          console.warn(`[DirectAgentLoop] Tool '${tc.name}' threw:`, errMsg);
+          toolResults.push({ id: tc.id, content: `Error: ${errMsg}` });
+          yield { type: 'tool_result', toolResult: { id: tc.id, content: `Error: ${errMsg}` } };
+        }
+      }
+
+      // Add the assistant message (with tool_calls) + tool results to the
+      // conversation for the next step.
+      conversationMessages.push({
+        role: 'assistant',
+        content: stepContent || '',
+        tool_calls: pendingToolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: {
+            name: tc.name,
+            arguments: JSON.stringify(tc.arguments),
+          },
+        })),
+      });
+      for (const tr of toolResults) {
+        conversationMessages.push({
+          role: 'tool',
+          content: tr.content,
+          tool_call_id: tr.id,
+        } as any);
+      }
+    }
+
+    // maxSteps reached.
+    console.warn(`[DirectAgentLoop] Reached maxSteps (${maxSteps})`);
+    yield { type: 'done' };
   }
 
   // ─── Phase 4: Advanced AI SDK Features ────────────────────────────────────
