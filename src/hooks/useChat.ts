@@ -162,10 +162,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubThinking = api.on.chatStreamThinking((data: { sessionId: string; thinking: string }) => {
       if (data.sessionId !== sessionId) return;
-      // Phase 0.2: APPEND each thinking chunk instead of replacing.
-      const accumulated = streamingThinkingRef.current + data.thinking;
-      streamingThinkingRef.current = accumulated;
-      setStreamingThinking(accumulated);
+      streamingThinkingRef.current = data.thinking;
+      setStreamingThinking(data.thinking);
 
       // Update the streaming assistant message thinking
       setMessages(prev => {
@@ -174,7 +172,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
           updated[updated.length - 1] = {
             ...lastMsg,
-            thinking: accumulated,
+            thinking: data.thinking,
           };
         }
         return updated;
@@ -184,53 +182,14 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
       const incomingToolCall = data.toolCall;
-      // Phase 0.2: Store content offset for AskUserQuestion card positioning.
-      const splitOffset = streamingContentRef.current.length;
       const newToolCall: ToolCall = {
         id: (incomingToolCall.id as string) || crypto.randomUUID(),
         name: (incomingToolCall.name as string) || 'unknown',
         arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
         status: 'pending',
-        ...({ _splitOffset: splitOffset } as any),
       };
 
       setActiveToolCalls(prev => [...prev, newToolCall]);
-      activeToolCallsRef.current = [...activeToolCallsRef.current, newToolCall];
-
-      // Phase 0.3: Add to streaming message's toolCalls — but ONLY if the
-      // tool call isn't already there. Must return the SAME array reference
-      // when no change is needed, otherwise React re-renders infinitely.
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
-          return prev; // Same reference — no re-render
-        }
-        const existing = lastMsg.toolCalls || [];
-        if (existing.some(tc => tc.id === newToolCall.id)) {
-          return prev; // Already exists — same reference — no re-render
-        }
-        // Only create a new array when we actually add a tool call.
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          ...lastMsg,
-          toolCalls: [...existing, newToolCall],
-        };
-        return updated;
-      });
-
-      // Phase 11.6: REMOVED the renderer-side permission check.
-      // Previously, useChat fired onPermissionRequest for EVERY tool call
-      // when permissionMode was 'approve' or 'smart_approve'. But this used
-      // the toolCall.id as the requestId — which didn't match the requestId
-      // in main.ts's pendingPermissionRequests map (which uses 'perm-...' IDs).
-      // The PermissionDialog would show but the respond call would fail with
-      // "No pending permission request for this id".
-      //
-      // Now, permissions are handled SOLELY by main.ts: the execute handler
-      // calls checkPermission() → if 'ask', calls requestPermission() → sends
-      // chat:permission-request with a 'perm-...' ID → the renderer's
-      // on.permissionRequest handler fires → PermissionDialog shows → user
-      // clicks a button → permission:respond with the correct 'perm-...' ID.
     });
 
     const unsubToolResult = api.on.chatStreamToolResult((data: { sessionId: string; toolResult: Record<string, unknown> }) => {
@@ -256,26 +215,16 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       // Finalize the streaming message
       setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
-          return prev; // Same reference — no re-render
-        }
-        // Phase 0.2: Preserve tool calls in the finalized message.
-        const existingToolCalls = lastMsg.toolCalls || [];
-        const allToolCalls = [...existingToolCalls];
-        for (const atc of activeToolCallsRef.current) {
-          if (!allToolCalls.some(tc => tc.id === atc.id)) {
-            allToolCalls.push(atc);
-          }
-        }
         const updated = [...prev];
-        updated[updated.length - 1] = {
-          ...lastMsg,
-          content: data.content || streamingContentRef.current,
-          isStreaming: false,
-          thinking: streamingThinkingRef.current || lastMsg.thinking,
-          toolCalls: allToolCalls,
-        };
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: data.content || streamingContentRef.current,
+            isStreaming: false,
+            thinking: streamingThinkingRef.current || lastMsg.thinking,
+          };
+        }
         return updated;
       });
 
@@ -285,7 +234,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setStreamingThinking('');
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
-      activeToolCallsRef.current = [];
       setActiveToolCalls([]);
     });
 
