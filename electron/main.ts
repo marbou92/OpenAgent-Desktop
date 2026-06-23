@@ -29,7 +29,6 @@ import { autoUpdater } from "electron-updater";
 import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
-import * as os from "os";
 
 // ─── Subsystem Imports ────────────────────────────────────────────────────────
 import { SandboxManager } from "./sandbox/manager";
@@ -46,25 +45,19 @@ import { validateAppConfig } from "./utils/config-validator";
 import { OpenCodeBridge, getOpenCodeBridge, setOpenCodeBridge } from './opencode/bridge';
 import { ProjectManager } from './projects/manager';
 import { SkillRegistry } from './skills/registry';
-import { SkillLoader } from './skills/skill-loader';
-import { SkillExecutor } from './skills/skill-executor';
-import type { SkillDefinition as DiskSkillDefinition } from './skills/types';
 import { ProviderHealthMonitor } from './providers/health-monitor';
 // ─── Aether v2: New Subsystem Imports ──────────────────────────────────────
 import { CrashLogger, CrashDetector } from './crash';
 // ─── Provider v3: New Provider System Imports ──────────────────────────────
 import { AuthStore } from './providers/auth-store-v2';
 import { ProviderClient, setSidecarEndpoint } from './providers/provider-client';
-import { ChatEngine, getExtendedThinkingBoost } from './providers/chat-engine';
+import { ChatEngine } from './providers/chat-engine';
 import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
 import { getModelsDevClient } from './providers/models-dev-client';
-import { getPiDevClient } from './providers/pi-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
 import { GithubCopilotAuth } from './providers/github-copilot-auth';
-import { startGeminiOAuthFlow } from './providers/gemini-oauth-handler';
-import { buildAgenticSystemPrompt, buildChatSystemPrompt, DEFAULT_AGENTIC_MAX_STEPS } from './providers/agentic-system-prompt';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
 import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/registry';
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
@@ -78,7 +71,6 @@ import { ConfigSetManager } from './providers/config-sets';
 import { ModelVariantManager } from './providers/model-variants';
 import { ProviderDiagnostics } from './providers/diagnostics';
 import { AutoCompactionManager } from './context/auto-compaction-manager';
-import { getTodoStore, TodoUpdateEvent } from './context/todo-store';
 import { ContextWindowManager } from './context/context-window-manager';
 import { SemanticSearchEngine } from './memory/embedding-search';
 import { CoreMemoryStore } from './memory/core-store';
@@ -143,6 +135,86 @@ interface IPCError {
   context?: Record<string, unknown>;
 }
 
+// ─── Phase 11.8: Tool Filtering by Mode ──────────────────────────────────────
+//
+// Filters the tools map based on the agent's mode + permissions. Tools that
+// are 'deny' by default are NOT passed to the model — the model can't even
+// try to call them. This enforces Plan mode (read-only) and Chat mode (no
+// tools) at the model level, not just at the execution level.
+
+function filterToolsByMode(
+  allTools: Record<string, any>,
+  mode: string,
+  permissions: Record<string, string>
+): Record<string, any> {
+  // Chat mode: no tools at all.
+  if (mode === 'chat') {
+    return {};
+  }
+
+  // For Plan mode: only allow tools that are explicitly 'allow' or 'ask'
+  // (not 'deny'). This removes write/edit/bash (except read-only bash commands
+  // which are 'allow' in DEFAULT_PLAN_PERMISSIONS).
+  // For Build mode: all tools pass through (the '*' rule is 'allow').
+  // For Smart mode: all tools pass through (the '*' rule is 'ask', so the
+  //   permission dialog handles it).
+  const filtered: Record<string, any> = {};
+
+  for (const [name, tool] of Object.entries(allTools)) {
+    // Check the permission level for this tool.
+    const level = evaluatePermissionLevel(name, permissions);
+
+    if (level === 'deny') {
+      // Skip denied tools — don't even tell the model about them.
+      continue;
+    }
+
+    // For Plan mode, additionally filter out tools that could modify state
+    // even if they're 'ask' (edit, write, bash without read-only commands).
+    // The user shouldn't see permission dialogs in Plan mode — they should
+    // just not have those tools available.
+    if (mode === 'plan') {
+      // In plan mode, only allow tools that are explicitly 'allow'.
+      // 'ask' tools are excluded — plan mode is read-only, no prompts.
+      if (level !== 'allow') {
+        continue;
+      }
+    }
+
+    filtered[name] = tool;
+  }
+
+  return filtered;
+}
+
+/**
+ * Evaluate the permission level for a tool name against the permissions map.
+ * Uses last-match-wins semantics (like the PermissionEvaluator).
+ */
+function evaluatePermissionLevel(toolName: string, permissions: Record<string, string>): string {
+  let result = 'ask'; // Default
+
+  for (const [pattern, level] of Object.entries(permissions)) {
+    if (pattern === '*') {
+      result = level;
+      continue;
+    }
+    // Check if the pattern matches the tool name.
+    // Simple matching: exact match, or prefix match (e.g., "bash" matches "bash").
+    if (pattern === toolName || toolName.startsWith(pattern.split(':')[0])) {
+      // More specific patterns override less specific ones.
+      // Only override if the pattern is more specific than just the tool name.
+      if (pattern.includes(':') || pattern === toolName) {
+        result = level;
+      } else if (!result || result === 'ask') {
+        result = level;
+      }
+    }
+  }
+
+  return result;
+}
+
 function wrapIPC<T>(handler: (...args: any[]) => Promise<T>): (...args: any[]) => Promise<T | IPCError> {
   return async (...args) => {
     try {
@@ -181,11 +253,6 @@ let hookManager: HookManager;
 let acpClient: ACPClient;
 let projectManager: ProjectManager;
 let skillRegistry: SkillRegistry;
-// Phase 8.4: skills loaded from ~/.claude/skills/ (manifest.json + index.js).
-// Reloaded on startup + when the watcher fires. Each skill becomes a
-// `skill_<id>` tool the agent can invoke.
-let loadedDiskSkills: DiskSkillDefinition[] = [];
-let skillExecutor: SkillExecutor;
 let healthMonitor: ProviderHealthMonitor;
 let openCodeBridge: OpenCodeBridge;
 
@@ -195,11 +262,7 @@ let providerClient: ProviderClient;
 let chatEngine: ChatEngine;
 let opencodeConfig: OpencodeConfig;
 let modelsDevClient: ReturnType<typeof getModelsDevClient>;
-let piDevClient: ReturnType<typeof getPiDevClient>;
 let catalogReady = false; // Phase 4.4: set to true when the catalog refresh completes
-// Phase 8.1 — which catalog is the source of truth for provider:list-providers.
-// Persisted to userData/catalog-source.json so the choice survives restarts.
-let catalogSource: 'models.dev' | 'pi.dev' | 'merged' = 'models.dev';
 let copilotAuth: GithubCopilotAuth;
 
 // ─── Phase 1-8: New Subsystem Globals ────────────────────────────────────────
@@ -816,306 +879,6 @@ function setupAutoUpdater(): void {
   }
 }
 
-// ─── Phase 8.1: Catalog Source Merge ──────────────────────────────────────────
-//
-// Returns the merged provider list according to the user's catalogSource choice:
-//   - 'models.dev' → only models.dev (the original behavior, unchanged)
-//   - 'pi.dev'     → only pi.dev (replaces models.dev entirely)
-//   - 'merged'     → models.dev providers + pi.dev-only providers, with
-//                    pi.dev model entries merged into matching providers
-//
-// When the user picks 'pi.dev' alone, the existing builtin opencode providers
-// (anthropic, openai, google, etc.) get their model lists completely replaced
-// by pi.dev's view of those providers — this is the "pi.dev as primary
-// catalog" mode the user requested.
-//
-// When 'merged', pi.dev models that don't exist in models.dev are appended
-// to matching providers, and pi.dev-only providers (e.g. kimi-coding,
-// opencode-go, xiaomi-token-plan-*) are added as new entries.
-
-function getMergedProvidersForCurrentSource(): any[] {
-  if (!modelsDevClient) return [];
-  const modelsDevProviders = modelsDevClient.getMergedProviders();
-
-  if (catalogSource === 'models.dev') {
-    return modelsDevProviders;
-  }
-
-  if (catalogSource === 'pi.dev') {
-    // Replace the catalog entirely with pi.dev. We still keep the
-    // builtin opencode-registry entries (anthropic/openai/google/etc.)
-    // because they carry authMethods / npm package info that pi.dev
-    // doesn't have — but we replace their model lists with pi.dev's.
-    const piProviders = piDevClient.getProviders();
-    const piById = new Map(piProviders.map(p => [p.id, p]));
-    const out: any[] = [];
-    const seen = new Set<string>();
-
-    for (const def of modelsDevProviders) {
-      const pi = piById.get(def.id);
-      if (pi) {
-        // Replace model list with pi.dev's view, but keep the builtin's
-        // authMethods / npm / docsUrl metadata.
-        out.push({
-          ...def,
-          models: { ...pi.models },
-        });
-        seen.add(def.id);
-      } else {
-        // models.dev provider that has no pi.dev counterpart — drop it
-        // in pure pi.dev mode so the catalog is purely pi.dev.
-      }
-    }
-    // Add pi.dev-only providers (kimi-coding, opencode-go, xiaomi-*, etc.).
-    for (const pi of piProviders) {
-      if (!seen.has(pi.id)) {
-        out.push(pi);
-        seen.add(pi.id);
-      }
-    }
-    return out;
-  }
-
-  // 'merged' — combine both catalogs.
-  const piProviders = piDevClient.getProviders();
-  const piById = new Map(piProviders.map(p => [p.id, p]));
-  const out: any[] = [];
-  const seen = new Set<string>();
-
-  for (const def of modelsDevProviders) {
-    const pi = piById.get(def.id);
-    if (pi) {
-      // Merge model maps: pi.dev models that aren't already in models.dev
-      // get added with source = 'pi.dev'. Existing models.dev entries win
-      // on conflicts so the live-fetched data takes precedence.
-      const mergedModels: Record<string, any> = { ...(def.models || {}) };
-      for (const [modelId, mc] of Object.entries(pi.models || {})) {
-        if (!mergedModels[modelId]) {
-          mergedModels[modelId] = mc;
-        }
-      }
-      out.push({ ...def, models: mergedModels });
-      seen.add(def.id);
-    } else {
-      out.push(def);
-    }
-  }
-  // Add pi.dev-only providers as new entries.
-  for (const pi of piProviders) {
-    if (!seen.has(pi.id)) {
-      out.push(pi);
-      seen.add(pi.id);
-    }
-  }
-  return out;
-}
-
-// ─── Phase 8.9: Trace Helpers ─────────────────────────────────────────────────
-//
-// Flush accumulated thinking + content buffers into the TraceCollector as
-// single 'thinking' / 'action' entries. Called when the agent makes a tool
-// call or finishes a step — so the trace has a clean "thought → action →
-// result" structure instead of 500 tiny text-delta fragments.
-//
-// Both buffers are optional — if empty, no entry is added (avoids cluttering
-// the trace with empty "Thinking:" entries).
-
-async function flushTraceBuffers(
-  sessionId: string,
-  buffers: { thinking: string; content: string }
-): Promise<void> {
-  if (!traceCollector) return;
-  try {
-    const trimmedThinking = buffers.thinking.trim();
-    const trimmedContent = buffers.content.trim();
-    if (trimmedThinking) {
-      // Truncate very long thinking traces to keep the trace readable.
-      const preview = trimmedThinking.length > 1000
-        ? trimmedThinking.substring(0, 1000) + '…'
-        : trimmedThinking;
-      await traceCollector.addEntry(sessionId, {
-        type: 'thinking',
-        content: preview,
-        metadata: { source: 'reasoning', charCount: trimmedThinking.length },
-      });
-    }
-    if (trimmedContent) {
-      const preview = trimmedContent.length > 1000
-        ? trimmedContent.substring(0, 1000) + '…'
-        : trimmedContent;
-      await traceCollector.addEntry(sessionId, {
-        type: 'action',
-        content: preview,
-        metadata: { source: 'assistant', charCount: trimmedContent.length },
-      });
-    }
-  } catch {
-    // Best-effort — don't crash the agent loop on trace errors.
-  }
-}
-
-/**
- * Format a tool call's arguments into a short preview string for the trace.
- * e.g. { command: "npm test", cwd: "/home/z" } → '"npm test", cwd="/home/z"'
- */
-function formatArgsPreview(args: any): string {
-  if (!args || typeof args !== 'object') return '';
-  try {
-    // Special-case common tools for a nicer preview.
-    if (typeof args.command === 'string') return `"${args.command}"`;
-    if (typeof args.path === 'string') return `"${args.path}"`;
-    if (typeof args.pattern === 'string') return `"${args.pattern}"`;
-    // Generic: show all keys.
-    const entries = Object.entries(args);
-    if (entries.length === 0) return '';
-    return entries.slice(0, 3).map(([k, v]) => {
-      const vs = typeof v === 'string' ? `"${v.length > 50 ? v.substring(0, 50) + '…' : v}"` : JSON.stringify(v);
-      return `${k}=${vs}`;
-    }).join(', ');
-  } catch {
-    return '';
-  }
-}
-
-// ─── Phase 8.3: Auto-Compaction Helper ────────────────────────────────────────
-//
-// Called after each chat turn ends. Loads the session's messages, computes
-// the current context usage, and asks the AutoCompactionManager to evaluate
-// triggers. If compaction runs, notifies the renderer so the UI can show
-// a "context compacted" toast + reload the message list.
-//
-// This is fire-and-forget — errors are swallowed (logged) so they never
-// crash the chat loop. The user's chat is already done by this point.
-
-async function maybeAutoCompact(sessionId: string, send: (channel: string, data: any) => void): Promise<void> {
-  if (!autoCompactionManager || !sessionManager || !contextWindowManager) return;
-  try {
-    const session = await sessionManager.load(sessionId);
-    const messages = session.messages || [];
-    if (messages.length < 10) return; // Not enough to bother.
-    // Compute context usage. We pass empty arrays for memory/tools/system
-    // because we just want a rough estimate of the conversation size.
-    const allocation = contextWindowManager.allocate(sessionId, messages, [], '', []);
-    const usage = contextWindowManager.createContextUsage(allocation);
-    const result = await autoCompactionManager.checkAndCompact(sessionId, usage, messages);
-    if (result) {
-      logger.info('AutoCompaction', `Compacted session ${sessionId}: ${result.savedTokens} tokens saved`);
-      send('context:compacted', {
-        sessionId,
-        savedTokens: result.savedTokens,
-        strategy: result.strategy,
-      });
-    }
-  } catch (err) {
-    logger.warn('AutoCompaction', 'Failed to evaluate/compact', err);
-  }
-}
-
-// ─── Phase 8.4: Skills Loading ────────────────────────────────────────────────
-//
-// Loads skill definitions from ~/.claude/skills/<skill-name>/manifest.json.
-// Each skill becomes a `skill_<id>` tool the agent can invoke. We reload
-// on startup + when the watcher fires so users can iterate on skills
-// without restarting the app.
-
-async function reloadDiskSkills(skillsPath: string): Promise<void> {
-  try {
-    const loader = new SkillLoader(skillsPath);
-    const skills = await loader.loadAll();
-    loadedDiskSkills = skills;
-    logger.info('Skills', `Loaded ${skills.length} skill(s) from ${skillsPath}`);
-    if (skills.length > 0) {
-      logger.info('Skills', `  ${skills.map(s => s.id).join(', ')}`);
-    }
-  } catch (err) {
-    logger.warn('Skills', `Failed to load skills from ${skillsPath}`, err);
-    loadedDiskSkills = [];
-  }
-}
-
-/**
- * Build the AgentSkillDefinition[] array that gets passed to chat-engine's
- * buildTools(). Combines:
- *   1. Disk skills from ~/.claude/skills/ (loadedDiskSkills)
- *   2. Builtin skills from the SkillRegistry (skillRegistry.list())
- *
- * Each skill is converted to the AgentSkillDefinition shape that
- * chat-engine expects (id, name, description, parameters, enabled, category).
- */
-function getAgenticSkills(): Array<{ id: string; name: string; description: string; parameters?: Record<string, unknown>; enabled?: boolean; category?: string }> {
-  const out: Array<{ id: string; name: string; description: string; parameters?: Record<string, unknown>; enabled?: boolean; category?: string }> = [];
-
-  // 1. Disk skills (from ~/.claude/skills/)
-  for (const skill of loadedDiskSkills) {
-    out.push({
-      id: skill.id,
-      name: skill.name,
-      description: skill.description || `Skill: ${skill.name}`,
-      parameters: skill.parameters as any,
-      enabled: true,
-      category: skill.category,
-    });
-  }
-
-  // 2. Builtin skills from the registry (skip ones that collide with disk skills)
-  if (skillRegistry) {
-    const diskIds = new Set(loadedDiskSkills.map(s => s.id));
-    for (const skill of skillRegistry.list()) {
-      if (diskIds.has(skill.id)) continue; // Disk version wins
-      if (!skill.enabled) continue;
-      out.push({
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        parameters: skill.parameters as any,
-        enabled: skill.enabled,
-        category: skill.category,
-      });
-    }
-  }
-
-  return out;
-}
-
-/**
- * Phase 8.4: Execute a skill by ID. Called by chat-engine's skill tool
- * execute handler. Delegates to SkillExecutor for disk skills and
- * SkillRegistry for builtin skills.
- */
-async function executeAgenticSkill(
-  skillId: string,
-  args: Record<string, unknown>,
-  context: { sessionId: string; workingDir: string }
-): Promise<{ success: boolean; output: string; error?: string }> {
-  // Try disk skills first (they take precedence over builtin stubs).
-  const diskSkill = loadedDiskSkills.find(s => s.id === skillId);
-  if (diskSkill && skillExecutor) {
-    const result = await skillExecutor.execute(diskSkill, {
-      sessionId: context.sessionId,
-      messageId: `skill-${Date.now()}`,
-      workingDir: context.workingDir,
-      args,
-    });
-    return { success: result.success, output: result.output, error: result.error };
-  }
-
-  // Fall back to the registry (builtin skills). The registry's execute()
-  // returns { status, results, handler } — we map that to our shape.
-  if (skillRegistry) {
-    try {
-      const result = await skillRegistry.execute(skillId, args, { sessionId: context.sessionId, workingDir: context.workingDir });
-      return {
-        success: result.status === 'completed',
-        output: JSON.stringify(result.results || []),
-      };
-    } catch (err: any) {
-      return { success: false, output: '', error: err?.message || String(err) };
-    }
-  }
-
-  return { success: false, output: '', error: `Skill not found: ${skillId}` };
-}
-
 // ─── Subsystem Initialization ─────────────────────────────────────────────────
 
 async function initializeSubsystems(): Promise<void> {
@@ -1217,24 +980,6 @@ async function initializeSubsystems(): Promise<void> {
   modelsDevClient = getModelsDevClient();
   modelsDevClient.loadCache();
 
-  // Phase 8.1 — Initialize the pi.dev catalog client (static/bundled) and
-  // load the persisted catalog source choice from disk so it survives
-  // app restarts. The file is just a tiny JSON blob with { source: ... }.
-  piDevClient = getPiDevClient();
-  try {
-    const csPath = path.join(app.getPath('userData'), 'catalog-source.json');
-    if (fs.existsSync(csPath)) {
-      const raw = fs.readFileSync(csPath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (parsed?.source === 'models.dev' || parsed?.source === 'pi.dev' || parsed?.source === 'merged') {
-        catalogSource = parsed.source;
-      }
-    }
-  } catch {
-    // Ignore — fall back to the default 'models.dev'.
-  }
-  logger.info('Catalog', `Catalog source: ${catalogSource}`);
-
   // Phase 4.3: Send catalog progress events to the renderer so the splash
   // screen can show a progress bar. The refresh is still non-blocking —
   // the app works with cached/embedded data while the refresh runs.
@@ -1328,26 +1073,6 @@ async function initializeSubsystems(): Promise<void> {
   // Initialize skill registry
   skillRegistry = new SkillRegistry();
   await skillRegistry.initialize(path.join(userDataPath, "skills"));
-
-  // Phase 8.4: Also load skills from ~/.claude/skills/ (the path the
-  // Settings UI exposes). Each skill has a manifest.json + optional index.js.
-  // We reload on startup + when the watcher fires so users can iterate on
-  // skills without restarting the app.
-  skillExecutor = new SkillExecutor();
-  const userSkillsPath = path.join(os.homedir(), '.claude', 'skills');
-  await reloadDiskSkills(userSkillsPath);
-  // Watch for changes (best-effort — if the dir doesn't exist, the watcher
-  // just no-ops). The fs.watch handle is cleaned up automatically on process
-  // exit, so we don't need to wire it into cleanupBeforeQuit.
-  try {
-    const skillsLoader = new SkillLoader(userSkillsPath);
-    skillsLoader.watchForChanges(() => {
-      logger.info('Skills', 'Skills directory changed — reloading');
-      reloadDiskSkills(userSkillsPath).catch(() => {});
-    });
-  } catch {
-    // Watcher setup failed — non-fatal, skills just won't hot-reload.
-  }
 
   // Initialize OpenCode bridge
   // BUGFIX: Previously this constructed a SEPARATE OpenCodeBridge pointing at
@@ -1566,57 +1291,7 @@ function registerIpcHandlers(): void {
     if (!modelsDevClient) {
       return { success: true, data: getOpencodeRegistry().listAll() };
     }
-    // Phase 8.1 — honor the user's catalog source choice.
-    return { success: true, data: getMergedProvidersForCurrentSource() };
-  }));
-
-  // Phase 8.1 — Catalog source switching.
-  // The renderer reads the current source + a per-source summary so the
-  // Settings UI can show "models.dev: 145 providers / 2357 models,
-  // pi.dev: 31 providers / 969 models, current: merged".
-  ipcMain.handle("provider:get-catalog-source", wrapIPC(async () => {
-    return { success: true, data: catalogSource };
-  }));
-
-  ipcMain.handle("provider:set-catalog-source", wrapIPC(async (_event, source: 'models.dev' | 'pi.dev' | 'merged') => {
-    if (source !== 'models.dev' && source !== 'pi.dev' && source !== 'merged') {
-      return { success: false, error: `Invalid catalog source: ${source}` };
-    }
-    catalogSource = source;
-    // Persist to disk so the choice survives restarts.
-    try {
-      const csPath = path.join(app.getPath('userData'), 'catalog-source.json');
-      const tmp = csPath + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify({ source, savedAt: new Date().toISOString() }), 'utf-8');
-      fs.renameSync(tmp, csPath);
-    } catch (err) {
-      logger.warn('Catalog', 'Failed to persist catalog source', err);
-    }
-    logger.info('Catalog', `Catalog source switched to: ${source}`);
-    // Notify the renderer so any open provider pickers can refresh.
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('provider:catalog-source-changed', { source });
-    }
-    return { success: true, data: catalogSource };
-  }));
-
-  ipcMain.handle("provider:get-catalog-summary", wrapIPC(async () => {
-    return {
-      success: true,
-      data: {
-        current: catalogSource,
-        modelsDev: {
-          providers: modelsDevClient ? modelsDevClient.getCachedProviderIds().length : 0,
-          models: modelsDevClient ? modelsDevClient.getTotalModelCount() : 0,
-          fetchedAt: modelsDevClient ? modelsDevClient.getFetchedAt() : null,
-        },
-        piDev: {
-          providers: piDevClient ? piDevClient.getCachedProviderIds().length : 0,
-          models: piDevClient ? piDevClient.getTotalModelCount() : 0,
-          fetchedAt: piDevClient ? piDevClient.getFetchedAt() : null,
-        },
-      },
-    };
+    return { success: true, data: modelsDevClient.getMergedProviders() };
   }));
 
   ipcMain.handle("provider:list-auth", wrapIPC(async () => {
@@ -1631,29 +1306,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("provider:refresh-catalog", wrapIPC(async () => {
     if (!modelsDevClient) return { success: false, error: 'Catalog not initialized yet' };
-    // Always refresh models.dev (pi.dev is static — no refresh needed).
     await modelsDevClient.refresh();
-    // Report the combined counts so the UI matches what provider:list-providers returns.
-    const providers = getMergedProvidersForCurrentSource();
-    const modelCount = providers.reduce((acc: number, p: any) => acc + Object.keys(p.models || {}).length, 0);
-    return { success: true, data: { providerCount: providers.length, modelCount } };
+    return { success: true, data: { providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
   }));
 
   ipcMain.handle("provider:get-catalog-info", wrapIPC(async () => {
-    if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0, source: catalogSource } };
-    // Report combined counts based on the current catalog source so the
-    // header in ProvidersView matches what's actually shown.
-    const providers = getMergedProvidersForCurrentSource();
-    const modelCount = providers.reduce((acc: number, p: any) => acc + Object.keys(p.models || {}).length, 0);
-    return {
-      success: true,
-      data: {
-        fetchedAt: modelsDevClient.getFetchedAt(),
-        providerCount: providers.length,
-        modelCount,
-        source: catalogSource,
-      },
-    };
+    if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0 } };
+    return { success: true, data: { fetchedAt: modelsDevClient.getFetchedAt(), providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
   }));
 
   // Phase 4.4: Let the renderer check if the catalog is already ready.
@@ -1712,29 +1371,6 @@ function registerIpcHandlers(): void {
     if (!copilotAuth) return { success: true };
     copilotAuth.cancel();
     return { success: true };
-  }));
-
-  // Phase 8.7: Gemini (Free OAuth) — starts a Google OAuth 2.0 flow with PKCE.
-  // Opens the system browser for the user to sign in with their Google account.
-  // The callback is received on a local HTTP server; tokens are exchanged and
-  // stored in AuthStore v2 as { type: 'oauth', access, refresh, expires }.
-  ipcMain.handle("provider:start-gemini-oauth", wrapIPC(async () => {
-    try {
-      const result = await startGeminiOAuthFlow();
-      // Store the OAuth tokens in AuthStore v2.
-      authStore.set('gemini-oauth', {
-        type: 'oauth',
-        access: result.access,
-        refresh: result.refresh,
-        expires: result.expiresAt,
-        accountId: result.accountId,
-      });
-      logger.info('GeminiOAuth', `OAuth completed — access token expires at ${new Date(result.expiresAt).toISOString()}`);
-      return { success: true, data: { accountId: result.accountId } };
-    } catch (err: any) {
-      logger.warn('GeminiOAuth', 'OAuth flow failed', err);
-      return { success: false, error: err?.message || 'Gemini OAuth flow failed' };
-    }
   }));
 
   // Health check
@@ -2080,13 +1716,11 @@ function registerIpcHandlers(): void {
 
   const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
 
-  // Phase 11.4: Store tool info alongside each pending permission request
+  // Phase 0.2: Store tool info alongside each pending permission request
   // so we can persist 'always_allow'/'always_deny' rules.
   const pendingPermissionRequestInfo = new Map<string, { agentId: string; toolName: string; args: Record<string, unknown> }>();
 
-  // Phase 8.5: Pending AskUserQuestion requests. Keyed by requestId, the
-  // callback resolves with the user's selected answer (option label) or
-  // null if the user dismissed the dialog.
+  // Phase 0.2: Pending AskUserQuestion requests.
   const pendingAskUserRequests = new Map<string, (answer: string | null) => void>();
 
   ipcMain.handle("permission:respond", wrapIPC(async (_e, requestId: string, response: string) => {
@@ -2096,27 +1730,21 @@ function registerIpcHandlers(): void {
     }
     pendingPermissionRequests.delete(requestId);
 
-    // Phase 11.4: Handle 'always_allow' and 'always_deny' by persisting
-    // the rule to the agent's permissions. This makes the choice stick
-    // for future calls to the same tool.
+    // Phase 0.2: Handle 'always_allow' and 'always_deny' by persisting rules.
     if (response === 'always_allow' || response === 'always_deny') {
       try {
-        // Get the pending request's tool info (stored alongside the resolver).
         const pendingInfo = pendingPermissionRequestInfo.get(requestId);
         if (pendingInfo) {
           const { agentId, toolName, args } = pendingInfo;
           const agent = agentRegistry.get(agentId);
           if (agent) {
-            // Build a pattern for this tool call.
             let pattern = toolName;
             if (toolName === 'bash' && args.command) {
-              // For bash, use the first word of the command as the pattern.
               const cmd = String(args.command).trim().split(/\s+/)[0];
               pattern = `bash:${cmd} *`;
             } else if ((toolName === 'edit' || toolName === 'write') && args.path) {
               pattern = `${toolName}:${args.path}`;
             }
-            // Add/update the permission rule.
             const newPerms = { ...agent.permissions };
             newPerms[pattern] = response === 'always_allow' ? 'allow' : 'deny';
             agent.permissions = newPerms;
@@ -2137,9 +1765,7 @@ function registerIpcHandlers(): void {
     return { success: true };
   }));
 
-  // Phase 8.5: AskUserQuestion response handler. The renderer sends the
-  // user's selected option label (or null if dismissed) back to resolve
-  // the pending promise in the AskUserQuestion tool's execute handler.
+  // Phase 0.2: AskUserQuestion response handler.
   ipcMain.handle("askUser:respond", wrapIPC(async (_e, requestId: string, answer: string | null) => {
     const resolve = pendingAskUserRequests.get(requestId);
     if (!resolve) {
@@ -2190,11 +1816,6 @@ function registerIpcHandlers(): void {
       sandboxManager,
       workingDirectory: session.workingDirectory || process.cwd(),
       extensionRegistry,
-      // Phase 8.4: pass loaded skills + executor so buildTools() can
-      // expose each skill as a `skill_<id>` tool the agent can invoke.
-      skills: getAgenticSkills(),
-      executeSkill: executeAgenticSkill,
-      sessionId,
     };
 
     // Permission checker — uses the agent's permission rules.
@@ -2206,9 +1827,7 @@ function registerIpcHandlers(): void {
 
     const permissionChecker = {
       checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny' {
-        // Phase 11.4: Re-evaluate with the LATEST agent permissions (not the
-        // snapshot from when runAgent started). This ensures 'always_allow'/
-        // 'always_deny' rules take effect immediately for subsequent calls.
+        // Phase 0.2: Re-evaluate with LATEST agent permissions so 'always' rules take effect immediately.
         const freshEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
         freshEvaluator.setAgentMode(agent.mode);
         if (permissionPolicyEngine) {
@@ -2220,15 +1839,10 @@ function registerIpcHandlers(): void {
         return new Promise((resolve) => {
           const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           pendingPermissionRequests.set(requestId, (level: ToolPermissionLevel) => resolve(level === 'allow'));
-          // Phase 11.4: Store tool info so we can persist 'always' rules.
           pendingPermissionRequestInfo.set(requestId, { agentId: agent.id, toolName, args });
           send('chat:permission-request', { id: requestId, toolName, args });
         });
       },
-      // Phase 8.5: AskUserQuestion flow. Sends a chat:ask-user IPC event
-      // with the question + options; the renderer shows a dedicated dialog
-      // (NOT the generic PermissionDialog). The user's selected option
-      // label is returned, or null if dismissed.
       requestUserAnswer(toolName: string, args: Record<string, unknown>): Promise<string | null> {
         return new Promise((resolve) => {
           const requestId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2239,19 +1853,27 @@ function registerIpcHandlers(): void {
     };
 
     // Build AI SDK tool definitions with execute() handlers.
-    const tools = chatEngine.buildTools(toolDeps, permissionChecker, executeToolCall);
+    const allTools = chatEngine.buildTools(toolDeps, permissionChecker, executeToolCall);
 
-    // Phase 8.2: Build the agentic system prompt (Claude-Code-style coding
-    // assistant). This replaces the old two-line prompt with a structured
-    // prompt that establishes tool-use-first behaviour, read-before-edit
-    // discipline, todo planning, and working-directory awareness.
-    const systemPrompt = buildAgenticSystemPrompt({
-      workingDirectory: toolDeps.workingDirectory,
-      mode: agent.mode as 'build' | 'plan' | 'chat' | 'smart',
-      agentPrompt: agent.prompt,
-      availableTools: Object.keys(tools),
-      sessionId,
-    });
+    // Phase 0.2: REMOVED filterToolsByMode — it had a bug that removed bash+edit
+    // in BUILD mode. Permission is handled at execution time via checkPermission().
+    const tools = allTools;
+
+    // Build the system prompt.
+    const systemPrompt = agent.prompt
+      ? `${agent.prompt}\n\nCurrent mode: ${agent.mode.toUpperCase()}\nWorking directory: ${toolDeps.workingDirectory}`
+      : `You are an AI assistant in ${agent.mode.toUpperCase()} mode. Working directory: ${toolDeps.workingDirectory}`;
+
+    // Phase 11.8: Add mode-specific restrictions to the system prompt.
+    let modeRestriction = '';
+    if (agent.mode === 'plan') {
+      modeRestriction = '\n\nYou are in PLAN mode — you are READ-ONLY. You can only read files, search, and inspect. You MUST NOT write, edit, or run commands that modify anything. If the user asks you to make changes, explain what you WOULD do and suggest they switch to BUILD mode.';
+    } else if (agent.mode === 'chat') {
+      modeRestriction = '\n\nYou are in CHAT mode — no tools are available. Answer directly from the conversation context.';
+    } else if (agent.mode === 'smart') {
+      modeRestriction = '\n\nYou are in SMART APPROVE mode — read operations run automatically, but any write/edit/mutation requires explicit user approval.';
+    }
+    const fullSystemPrompt = systemPrompt + modeRestriction;
 
     // Build messages array from session history.
     // Phase 4: attach images to the latest user message for multi-modal.
@@ -2269,73 +1891,21 @@ function registerIpcHandlers(): void {
     let fullContent = '';
     let stepCount = 0;
     let status = 'completed';
-    // Phase 8.9: buffers for accumulating thinking + content text into
-    // trace entries. We flush them as single 'thinking' / 'action' entries
-    // when the agent makes a tool call or finishes — so the trace has a
-    // clean "thought → action → result" structure per step, not 500 tiny
-    // text-delta fragments.
-    let thinkingTraceBuffer = '';
-    let contentTraceBuffer = '';
-
-    // Phase 8.4: apply extended thinking boost. When the user picks
-    // "Extended" effort, we bump maxSteps (more iterations for hard
-    // multi-step tasks) and pass a higher maxTokens to the chat engine
-    // (more room for the answer after a long thinking trace).
-    const extendedBoost = getExtendedThinkingBoost(thinkingEffort);
-    const effectiveMaxSteps = (agent.maxSteps || DEFAULT_AGENTIC_MAX_STEPS) + (extendedBoost?.maxStepsBoost || 0);
-    // Only pass maxTokens when extended thinking is active (so the model's
-    // default applies otherwise). The boost gives the model +8K tokens of
-    // output room — enough for a substantial code change + explanation.
-    const effectiveMaxTokens = extendedBoost ? extendedBoost.maxTokensBoost : undefined;
 
     for await (const chunk of chatEngine.chatStream(
       {
         model: `${providerId}/${modelId}`,
         messages,
-        systemPrompt,
+        systemPrompt: fullSystemPrompt,
         temperature: agent.temperature,
-        maxTokens: effectiveMaxTokens,
       },
       {
         signal: opts.signal,
         tools,
-        // Phase 8.2: use the agentic default if the agent doesn't override.
-        // Phase 8.4: extended thinking boosts this by +50 steps.
-        maxSteps: effectiveMaxSteps,
+        maxSteps: agent.maxSteps || 50,
         thinkingEffort, // Phase 4.2: pass thinking effort
         onToolCall: (tc: any) => {
-          // Phase 8.6: The AI SDK v4's onStepFinish passes step.toolCalls
-          // items with shape { toolCallId, toolName, args }. But the
-          // fullStream chunk path (tool-call parts) translates to
-          // { id, name, arguments }. We normalize here so the renderer
-          // always gets the { id, name, arguments } shape, and so the
-          // TodoWrite intercept works regardless of which path fired.
-          const normalizedTc = {
-            id: tc?.id || tc?.toolCallId || crypto.randomUUID(),
-            name: tc?.name || tc?.toolName || 'unknown',
-            arguments: tc?.arguments || tc?.args || {},
-          };
-          send('chat:stream-tool-call', { toolCall: normalizedTc });
-
-          // Phase 8.3: intercept TodoWrite calls and forward to the TodoStore.
-          // The tool's execute() handler already runs (and stores todos on
-          // toolDeps._todos), but we ALSO need to persist them per-session
-          // and emit an IPC event so the renderer's TodoPanel can update.
-          //
-          // Phase 8.6 fix: previously checked tc.name which was always
-          // undefined (AI SDK uses toolName). Now checks both field names
-          // for robustness.
-          const isTodoWrite = normalizedTc.name === 'TodoWrite';
-          const todosArg = normalizedTc.arguments?.todos || (tc?.args?.todos);
-          if (isTodoWrite && Array.isArray(todosArg)) {
-            try {
-              const todoStore = getTodoStore();
-              const todos = todoStore.setTodos(sessionId, todosArg as any);
-              send('todos:updated', { sessionId, todos });
-            } catch (err) {
-              logger.warn('TodoStore', 'Failed to persist todos', err);
-            }
-          }
+          send('chat:stream-tool-call', { toolCall: tc });
         },
         onToolResult: (tr: any) => {
           send('chat:stream-tool-result', { toolResult: tr });
@@ -2348,56 +1918,18 @@ function registerIpcHandlers(): void {
           if (chunk.content) {
             fullContent += chunk.content;
             send('chat:stream-chunk', { chunk: chunk.content });
-            // Phase 8.9: accumulate content for the trace. We buffer it
-            // and flush as an 'action' entry when the agent makes a tool
-            // call or finishes — so the trace shows what the agent SAID
-            // before each action, not 500 tiny text chunks.
-            contentTraceBuffer += chunk.content;
           }
           break;
         case 'thinking':
-          if (chunk.content) {
-            send('chat:stream-thinking', { thinking: chunk.content });
-            // Phase 8.9: accumulate thinking for the trace. Flushed when
-            // the agent takes an action or finishes — so the trace shows
-            // the agent's full reasoning before each step.
-            thinkingTraceBuffer += chunk.content;
-          }
+          if (chunk.content) send('chat:stream-thinking', { thinking: chunk.content });
           break;
         case 'tool_call_start':
         case 'tool_call_delta':
         case 'tool_call_end':
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
-          // Phase 8.9: when a tool call completes, flush the buffered
-          // thinking + content as trace entries, then add the tool call
-          // itself. This gives the trace a natural "thought → action →
-          // result" structure per step.
-          if (chunk.type === 'tool_call_end') {
-            await flushTraceBuffers(sessionId, { thinking: thinkingTraceBuffer, content: contentTraceBuffer });
-            thinkingTraceBuffer = '';
-            contentTraceBuffer = '';
-            const tc: any = chunk.toolCall || {};
-            try {
-              await traceCollector.addEntry(sessionId, {
-                type: 'tool_call',
-                content: `${tc.name || 'unknown'}(${formatArgsPreview(tc.arguments)})`,
-                metadata: { toolName: tc.name, arguments: tc.arguments, toolCallId: tc.id },
-              });
-            } catch { /* best-effort */ }
-          }
           break;
         case 'tool_result':
           send('chat:stream-tool-result', { toolResult: chunk.toolResult });
-          // Phase 8.9: trace the tool result.
-          try {
-            const tr: any = chunk.toolResult || {};
-            const preview = typeof tr.content === 'string' ? tr.content.substring(0, 500) : JSON.stringify(tr.content).substring(0, 500);
-            await traceCollector.addEntry(sessionId, {
-              type: 'tool_result',
-              content: preview || '(empty result)',
-              metadata: { toolCallId: tr.id, isError: tr.isError },
-            });
-          } catch { /* best-effort */ }
           break;
         case 'usage':
           // Token usage — could be forwarded to the renderer for display.
@@ -2405,20 +1937,8 @@ function registerIpcHandlers(): void {
         case 'error':
           status = 'error';
           send('chat:stream-error', { error: chunk.error?.message || 'Unknown error' });
-          // Phase 8.9: trace errors so they show up in the Trace tab.
-          try {
-            await traceCollector.addEntry(sessionId, {
-              type: 'error',
-              content: chunk.error?.message || 'Unknown error',
-              metadata: { source: 'stream', providerId, modelId },
-            });
-          } catch { /* best-effort */ }
           break;
         case 'done':
-          // Phase 8.9: flush any remaining buffered thinking + content.
-          await flushTraceBuffers(sessionId, { thinking: thinkingTraceBuffer, content: contentTraceBuffer });
-          thinkingTraceBuffer = '';
-          contentTraceBuffer = '';
           break;
       }
     }
@@ -2428,34 +1948,10 @@ function registerIpcHandlers(): void {
     // bubble. This happens with some free models that return empty SSE
     // streams, or when the agent loop exhausts maxSteps with only tool
     // calls and no final text.
-    //
-    // Phase 8.2: detect the maxSteps-exhausted case specifically so we can
-    // give a more useful message ("hit the step limit") instead of the
-    // generic "empty response" error.
-    // Phase 8.4: use effectiveMaxSteps (which includes the extended thinking
-    // boost) so the warning message reports the right limit.
-    const maxStepsLimit = effectiveMaxSteps;
     if (!fullContent && status !== 'error') {
-      let errMsg: string;
-      let resultStatus: 'error' | 'max_steps_reached';
-      if (stepCount >= maxStepsLimit) {
-        errMsg = `The agent hit the max-steps limit (${maxStepsLimit}) without producing a final answer. It made ${stepCount} tool calls. Try increasing maxSteps in the agent config, or simplify the task.`;
-        resultStatus = 'max_steps_reached';
-      } else {
-        errMsg = `The model ${providerId}/${modelId} returned an empty response. This can happen with free models that have rate limits, or when the model only made tool calls without producing a final answer. Try sending the message again, or switch to a different model.`;
-        resultStatus = 'error';
-      }
+      const errMsg = `The model ${providerId}/${modelId} returned an empty response. This can happen with free models that have rate limits, or when the model only made tool calls without producing a final answer. Try sending the message again, or switch to a different model.`;
       send('chat:stream-error', { error: errMsg });
-      return { content: '', steps: stepCount, status: resultStatus };
-    }
-
-    // Phase 8.2: also surface max-steps-reached even when we DID get content
-    // (the agent may have produced partial work but hit the limit mid-task).
-    if (stepCount >= maxStepsLimit && status !== 'error') {
-      status = 'max_steps_reached';
-      send('chat:stream-warning', {
-        warning: `Hit the max-steps limit (${maxStepsLimit}). The result may be incomplete — ask the agent to continue if needed.`,
-      });
+      return { content: '', steps: stepCount, status: 'error' };
     }
 
     return { content: fullContent, steps: stepCount, status };
@@ -2593,19 +2089,6 @@ function registerIpcHandlers(): void {
         const session = await sessionManager.load(sessionId);
         const agentMode = agentSessionBridge.getCurrentMode(sessionId);
 
-        // Phase 8.9: Trace the user message so it shows up in the Trace tab.
-        // The old chat:send handler did this but chat:stream (which the UI
-        // actually uses) never did — so the Trace tab was always empty.
-        try {
-          await traceCollector.addEntry(sessionId, {
-            type: 'info',
-            content: `User: ${message}`,
-            metadata: { source: 'user', agentMode },
-          });
-        } catch {
-          // Non-fatal — trace is best-effort.
-        }
-
         const send = (channel: string, data: unknown) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send(channel, { sessionId, ...((typeof data === 'object' && data !== null) ? data : { data }) });
@@ -2664,25 +2147,12 @@ function registerIpcHandlers(): void {
             const chatImages = (options?.images as string[]) || undefined;
             // Phase 4.2: pass thinking effort
             const chatThinkingEffort = (options?.thinkingEffort as string) || undefined;
-            // Phase 8.2: build a chat-mode system prompt (lightweight — no
-            // tools are available in chat mode, so we don't include the
-            // full agentic prompt).
-            const chatSystemPrompt = buildChatSystemPrompt({
-              workingDirectory: (session.metadata as any)?.workingDirectory || process.cwd(),
-              sessionId,
-            });
-            // Phase 8.9: buffers for accumulating thinking + content into
-            // trace entries (chat mode — no tools, but still want to trace
-            // the reasoning + final answer).
-            let chatThinkingBuffer = '';
-            let chatContentBuffer = '';
             for await (const chunk of chatEngine.chatStream({
               model: `${providerId}/${model}`,
               messages: [
                 ...session.messages.map((m: any) => ({ role: m.role, content: m.content, images: (m as any).images })),
                 { role: 'user' as const, content: message, images: chatImages },
               ],
-              systemPrompt: chatSystemPrompt,
               thinkingEffort: chatThinkingEffort,
             }, {
               thinkingEffort: chatThinkingEffort,
@@ -2692,14 +2162,10 @@ function registerIpcHandlers(): void {
                   if (chunk.content) {
                     fullResponse += chunk.content;
                     send('chat:stream-chunk', { chunk: chunk.content });
-                    chatContentBuffer += chunk.content;
                   }
                   break;
                 case 'thinking':
-                  if (chunk.content) {
-                    send('chat:stream-thinking', { thinking: chunk.content });
-                    chatThinkingBuffer += chunk.content;
-                  }
+                  if (chunk.content) send('chat:stream-thinking', { thinking: chunk.content });
                   break;
                 case 'tool_call_start':
                 case 'tool_call_delta':
@@ -2713,27 +2179,11 @@ function registerIpcHandlers(): void {
                   break;
                 case 'error':
                   send('chat:stream-error', { error: chunk.error?.message || 'Unknown stream error' });
-                  // Phase 8.9: trace errors in chat mode too.
-                  try {
-                    await traceCollector.addEntry(sessionId, {
-                      type: 'error',
-                      content: chunk.error?.message || 'Unknown stream error',
-                      metadata: { source: 'stream', providerId, model: session.model },
-                    });
-                  } catch { /* best-effort */ }
                   return;
                 case 'done':
-                  // Phase 8.9: flush buffered thinking + content as trace entries.
-                  await flushTraceBuffers(sessionId, { thinking: chatThinkingBuffer, content: chatContentBuffer });
-                  chatThinkingBuffer = '';
-                  chatContentBuffer = '';
                   await sessionManager.addMessage(sessionId, { role: 'user', content: message });
                   await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
                   send('chat:stream-end', { content: fullResponse });
-                  // Phase 8.3: trigger auto-compaction check after the turn.
-                  // If the conversation is getting long, compact in the
-                  // background and notify the renderer.
-                  maybeAutoCompact(sessionId, send).catch(() => {});
                   return;
               }
             }
@@ -2741,13 +2191,9 @@ function registerIpcHandlers(): void {
             // If we got content, finalize normally. If not, send a clear
             // error so the user isn't left with a blank bubble.
             if (fullResponse) {
-              // Phase 8.9: flush any remaining buffered thinking + content.
-              await flushTraceBuffers(sessionId, { thinking: chatThinkingBuffer, content: chatContentBuffer });
               await sessionManager.addMessage(sessionId, { role: 'user', content: message });
               await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
               send('chat:stream-end', { content: fullResponse });
-              // Phase 8.3: same auto-compaction check on the no-done-token path.
-              maybeAutoCompact(sessionId, send).catch(() => {});
             } else {
               send('chat:stream-error', {
                 error: `The model ${session.providerId}/${session.model} returned an empty response. Try sending again or switch to a different model.`,
@@ -3228,21 +2674,6 @@ function registerIpcHandlers(): void {
     return { success: true, data: execution };
   }));
 
-  // Phase 8.4: list ALL skills available to the agent — combines disk
-  // skills (from ~/.claude/skills/) + builtin registry skills. Used by
-  // the Skills view in the renderer to show what the agent can invoke.
-  ipcMain.handle("skill:list-agentic", wrapIPC(async () => {
-    return { success: true, data: getAgenticSkills() };
-  }));
-
-  // Phase 8.4: reload skills from disk on demand (e.g. after the user
-  // drops a new skill into ~/.claude/skills/).
-  ipcMain.handle("skill:reload", wrapIPC(async () => {
-    const userSkillsPath = path.join(os.homedir(), '.claude', 'skills');
-    await reloadDiskSkills(userSkillsPath);
-    return { success: true, data: { count: loadedDiskSkills.length } };
-  }));
-
   // ── Provider Health IPC ──────────────────────────────────────────────────
 
   ipcMain.handle("provider:health:check", wrapIPC(async (_event, providerId: string) => {
@@ -3323,33 +2754,6 @@ function registerIpcHandlers(): void {
     return { savedTokens: result.savedTokens };
   }));
   ipcMain.handle("context:windowInfo", wrapIPC(async (_e, modelId: string) => contextWindowManager.getContextWindow(modelId)));
-
-  // ── Phase 8.3: Todo Store IPC ─────────────────────────────────────────────
-  // The agent writes todos via the TodoWrite tool; the renderer reads them
-  // here for the TodoPanel. todos:updated is pushed via IPC events (set up
-  // in the runAgent onToolCall callback above) — these handlers are for the
-  // initial load when the panel mounts.
-  const todoStore = getTodoStore();
-  todoStore.load();
-  // Forward store-level 'updated' events to the renderer so the panel
-  // stays live even when the change didn't come from a tool call (e.g.
-  // todos:clear below).
-  todoStore.on('updated', (ev: TodoUpdateEvent) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('todos:updated', ev);
-    }
-  });
-  ipcMain.handle("todos:list", wrapIPC(async (_e, sessionId: string) => {
-    return { success: true, data: todoStore.getTodos(sessionId) };
-  }));
-  ipcMain.handle("todos:summary", wrapIPC(async (_e, sessionId: string) => {
-    return { success: true, data: todoStore.getSummary(sessionId) };
-  }));
-  ipcMain.handle("todos:clear", wrapIPC(async (_e, sessionId: string) => {
-    todoStore.clear(sessionId);
-    return { success: true };
-  }));
-
   ipcMain.handle("memory:core:list", wrapIPC(async () => coreMemoryStore.list()));
   ipcMain.handle("memory:core:set", wrapIPC(async (_e, cat: string, key: string, val: string) => coreMemoryStore.set(cat as any, key, val)));
   ipcMain.handle("memory:core:delete", wrapIPC(async (_e, id: string) => { await coreMemoryStore.delete(id); }));
