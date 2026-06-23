@@ -2147,12 +2147,15 @@ function registerIpcHandlers(): void {
             const chatImages = (options?.images as string[]) || undefined;
             // Phase 4.2: pass thinking effort
             const chatThinkingEffort = (options?.thinkingEffort as string) || undefined;
+            // Phase 0.5: Build a system prompt for chat mode too
+            const chatSystemPrompt = `You are a helpful AI assistant inside the OpenAgent-Desktop application.\nCurrent date: ${new Date().toDateString()}`;
             for await (const chunk of chatEngine.chatStream({
               model: `${providerId}/${model}`,
               messages: [
                 ...session.messages.map((m: any) => ({ role: m.role, content: m.content, images: (m as any).images })),
                 { role: 'user' as const, content: message, images: chatImages },
               ],
+              systemPrompt: chatSystemPrompt,
               thinkingEffort: chatThinkingEffort,
             }, {
               thinkingEffort: chatThinkingEffort,
