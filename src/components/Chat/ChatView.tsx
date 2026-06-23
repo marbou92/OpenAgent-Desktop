@@ -56,6 +56,7 @@ import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
 import AskUserQuestionDialog from './AskUserQuestionDialog';
+import TodoPanel from '../Layout/RightPanel/TodoPanel';
 import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
 
@@ -113,6 +114,10 @@ const ChatView: React.FC<ChatViewProps> = ({
   // because it's a different dialog (renders questions + options, not
   // Allow/Deny buttons).
   const [askUserRequest, setAskUserRequest] = useState<{ id: string; toolName: string; questions: AskUserQuestionItem[] } | null>(null);
+  // Phase 8.6: Todo list — shown inline in the chat area (not the right
+  // sidebar). Collapsible. Only renders when there are todos.
+  const [todoCount, setTodoCount] = useState(0);
+  const [todoPanelExpanded, setTodoPanelExpanded] = useState(true);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
   // Phase 4: image attachments (base64 data URLs) + structured output panel
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
@@ -212,6 +217,30 @@ const ChatView: React.FC<ChatViewProps> = ({
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingContent, autoScroll]);
+
+  // Phase 8.6: Subscribe to todos:updated events so the inline TodoPanel
+  // shows/hides based on whether there are any todos. Also auto-expand
+  // the panel when new todos arrive (so the user sees the agent's plan).
+  useEffect(() => {
+    const api = (window as any).openagent;
+    if (!api?.on?.todosUpdated) return;
+
+    // Initial load — fetch the current todo count for this session.
+    if (sessionId && api?.todos?.summary) {
+      api.todos.summary(sessionId).then((s: { total: number }) => {
+        setTodoCount(s.total);
+        if (s.total > 0) setTodoPanelExpanded(true);
+      }).catch(() => {});
+    }
+
+    const unsub = api.on.todosUpdated((data: { sessionId: string; todos: any[] }) => {
+      if (data.sessionId !== sessionId) return;
+      setTodoCount(data.todos.length);
+      // Auto-expand when the first todo arrives so the user sees the plan.
+      if (data.todos.length > 0) setTodoPanelExpanded(true);
+    });
+    return () => unsub?.();
+  }, [sessionId]);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -444,6 +473,51 @@ const ChatView: React.FC<ChatViewProps> = ({
           onStop={executionContext.onStop}
           onCompact={executionContext.onCompact}
         />
+      )}
+
+      {/* ─── Phase 8.6: Inline Todo List ─────────────────────────────────── */}
+      {/* Shown above the messages area when the agent has created todos. */}
+      {/* Collapsible — click the header to toggle. */}
+      {todoCount > 0 && sessionId && (
+        <div
+          className="border-b flex-shrink-0"
+          style={{ borderColor: 'var(--color-border-secondary)', background: 'var(--color-bg-secondary)' }}
+        >
+          {/* Collapse/expand header */}
+          <button
+            onClick={() => setTodoPanelExpanded(v => !v)}
+            className="w-full flex items-center gap-2 px-4 py-2 text-xs font-medium transition-colors"
+            style={{ color: 'var(--color-text-secondary)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            {/* Checklist icon */}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-accent)' }}>
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            <span>Plan</span>
+            <span
+              className="text-[10px] px-1.5 py-0 rounded-full"
+              style={{ background: 'var(--color-accent-soft)', color: 'var(--color-accent)' }}
+            >
+              {todoCount}
+            </span>
+            <span className="flex-1" />
+            <svg
+              width="12" height="12" viewBox="0 0 12 12" fill="none"
+              style={{ transform: todoPanelExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s ease', color: 'var(--color-text-muted)' }}
+            >
+              <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {/* The panel itself — max-height so it doesn't eat the whole chat */}
+          {todoPanelExpanded && (
+            <div style={{ maxHeight: '280px', overflow: 'hidden' }}>
+              <TodoPanel sessionId={sessionId} />
+            </div>
+          )}
+        </div>
       )}
 
       {/* ─── Messages Area ────────────────────────────────────────────── */}

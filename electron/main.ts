@@ -2158,15 +2158,33 @@ function registerIpcHandlers(): void {
         maxSteps: effectiveMaxSteps,
         thinkingEffort, // Phase 4.2: pass thinking effort
         onToolCall: (tc: any) => {
-          send('chat:stream-tool-call', { toolCall: tc });
+          // Phase 8.6: The AI SDK v4's onStepFinish passes step.toolCalls
+          // items with shape { toolCallId, toolName, args }. But the
+          // fullStream chunk path (tool-call parts) translates to
+          // { id, name, arguments }. We normalize here so the renderer
+          // always gets the { id, name, arguments } shape, and so the
+          // TodoWrite intercept works regardless of which path fired.
+          const normalizedTc = {
+            id: tc?.id || tc?.toolCallId || crypto.randomUUID(),
+            name: tc?.name || tc?.toolName || 'unknown',
+            arguments: tc?.arguments || tc?.args || {},
+          };
+          send('chat:stream-tool-call', { toolCall: normalizedTc });
+
           // Phase 8.3: intercept TodoWrite calls and forward to the TodoStore.
           // The tool's execute() handler already runs (and stores todos on
           // toolDeps._todos), but we ALSO need to persist them per-session
           // and emit an IPC event so the renderer's TodoPanel can update.
-          if (tc?.name === 'TodoWrite' && Array.isArray(tc?.args?.todos)) {
+          //
+          // Phase 8.6 fix: previously checked tc.name which was always
+          // undefined (AI SDK uses toolName). Now checks both field names
+          // for robustness.
+          const isTodoWrite = normalizedTc.name === 'TodoWrite';
+          const todosArg = normalizedTc.arguments?.todos || (tc?.args?.todos);
+          if (isTodoWrite && Array.isArray(todosArg)) {
             try {
               const todoStore = getTodoStore();
-              const todos = todoStore.setTodos(sessionId, tc.args.todos as any);
+              const todos = todoStore.setTodos(sessionId, todosArg as any);
               send('todos:updated', { sessionId, todos });
             } catch (err) {
               logger.warn('TodoStore', 'Failed to persist todos', err);
