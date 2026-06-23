@@ -139,10 +139,10 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({ sessionId }) => {
   const pct = todos.length > 0 ? Math.round((completed / todos.length) * 100) : 0;
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--color-bg-secondary)' }}>
+    <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-secondary)' }}>
       {/* Header */}
-      <div className="px-4 py-2 border-b flex-shrink-0" style={{ borderColor: 'var(--color-border-secondary)' }}>
-        <div className="flex items-center justify-between mb-1.5">
+      <div className="px-4 py-3 border-b flex-shrink-0" style={{ borderColor: 'var(--color-border-secondary)' }}>
+        <div className="flex items-center justify-between mb-2">
           <div className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
             {completed}/{todos.length} complete{inProgress > 0 ? ` · ${inProgress} in progress` : ''}
           </div>
@@ -167,7 +167,7 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({ sessionId }) => {
       </div>
 
       {/* Grouped lists */}
-      <div className="flex-1 p-2.5 space-y-2">
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {groups.map(group => {
           if (group.items.length === 0) return null;
           const meta = STATUS_META[group.status];

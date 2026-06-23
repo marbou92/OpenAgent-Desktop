@@ -549,6 +549,17 @@ const electronAPI = {
     chat: (request: any): Promise<any> => invoke("provider:chat", request),
   },
 
+  // ── Phase 8.3: Todos ───────────────────────────────────────────────────────
+  // The agent writes todos via the TodoWrite tool; the renderer reads them
+  // here for the TodoPanel. Live updates arrive via on.todosUpdated().
+  todos: {
+    list: (sessionId: string): Promise<any[]> =>
+      invoke<any>("todos:list", sessionId).then((r: any) => r?.data ?? []),
+    summary: (sessionId: string): Promise<{ total: number; completed: number; inProgress: number; pending: number }> =>
+      invoke<any>("todos:summary", sessionId).then((r: any) => r?.data ?? { total: 0, completed: 0, inProgress: 0, pending: 0 }),
+    clear: (sessionId: string): Promise<void> => invoke("todos:clear", sessionId),
+  },
+
   // ── Platform ───────────────────────────────────────────────────────────────
 
   platform: {
@@ -675,6 +686,20 @@ const electronAPI = {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; warning: string }) => callback(data);
       ipcRenderer.on("chat:stream-warning", handler);
       return () => ipcRenderer.removeListener("chat:stream-warning", handler);
+    },
+
+    // Phase 8.3: todos updated (agent called TodoWrite, or store was cleared).
+    todosUpdated: (callback: (data: { sessionId: string; todos: any[] }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; todos: any[] }) => callback(data);
+      ipcRenderer.on("todos:updated", handler);
+      return () => ipcRenderer.removeListener("todos:updated", handler);
+    },
+
+    // Phase 8.3: auto-compaction ran after a chat turn.
+    contextCompacted: (callback: (data: { sessionId: string; savedTokens: number; strategy: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; savedTokens: number; strategy: string }) => callback(data);
+      ipcRenderer.on("context:compacted", handler);
+      return () => ipcRenderer.removeListener("context:compacted", handler);
     },
 
     chatStreamEnd: (callback: (data: { sessionId: string; content: string }) => void): (() => void) => {

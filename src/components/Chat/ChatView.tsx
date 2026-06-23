@@ -54,7 +54,6 @@ import ChatEmptyState from './ChatEmptyState';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
-import TodoWriteCard from './message/TodoWriteCard';
 import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
 
@@ -108,8 +107,6 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
-  const [askUserRequestId, setAskUserRequestId] = useState<string | null>(null);
-  const [composerTodos, setComposerTodos] = useState<any[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
   // Phase 4: image attachments (base64 data URLs) + structured output panel
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
@@ -135,8 +132,8 @@ const ChatView: React.FC<ChatViewProps> = ({
     onMessagesUpdate,
     onTraceEntry: addTraceEntry,
     onPermissionRequest: (req) => setPermissionRequest(req),
-    onAskUser: (req) => setAskUserRequestId(req.id),
     onContextCompacted: (data) => {
+      // Phase 8.3: show a toast when auto-compaction runs.
       addToast({
         type: 'info',
         title: 'Context compacted',
@@ -208,22 +205,6 @@ const ChatView: React.FC<ChatViewProps> = ({
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingContent, autoScroll]);
-
-  // Phase 10.7: Subscribe to todos:updated events for the composer-connected todo list.
-  useEffect(() => {
-    const api = (window as any).openagent;
-    if (!api?.on?.todosUpdated) return;
-    if (sessionId && api?.todos?.list) {
-      api.todos.list(sessionId).then((todos: any[]) => {
-        setComposerTodos(todos || []);
-      }).catch(() => {});
-    }
-    const unsub = api.on.todosUpdated((data: { sessionId: string; todos: any[] }) => {
-      if (data.sessionId !== sessionId) return;
-      setComposerTodos(data.todos || []);
-    });
-    return () => unsub?.();
-  }, [sessionId]);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -471,19 +452,60 @@ const ChatView: React.FC<ChatViewProps> = ({
                     : undefined
                 }
                 onCopy={handleCopyMessage}
-                askUserRequestId={askUserRequestId}
-                onAskUserAnswer={(requestId, answer) => {
-                  if (api?.permissions?.respondToQuestion) {
-                    api.permissions.respondToQuestion(requestId, answer);
-                  }
-                  setAskUserRequestId(null);
-                }}
               />
             ))}
 
-            {/* Phase 11.7: REMOVED activeToolCalls section — tool calls are now
-                rendered inside the message's toolCalls via MessageBubble (Phase 10.3).
-                Having both caused duplicate cards. */}
+            {/* Active tool calls (when streaming) */}
+            {activeToolCalls.length > 0 && (
+              <div className="space-y-2">
+                {activeToolCalls.map((tc) => (
+                  <div
+                    key={tc.id}
+                    className="rounded-lg border px-3 py-2 flex items-center gap-2.5"
+                    style={{
+                      background: 'var(--color-bg-secondary)',
+                      borderColor: 'var(--color-border-primary)',
+                    }}
+                  >
+                    {tc.status === 'pending' ? (
+                      <div
+                        className="w-3.5 h-3.5 border-2 rounded-full animate-spin-slow flex-shrink-0"
+                        style={{
+                          borderColor: 'var(--color-accent)',
+                          borderTopColor: 'transparent',
+                        }}
+                      />
+                    ) : (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--color-success)"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="flex-shrink-0"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                    <span
+                      className="text-xs font-medium font-mono"
+                      style={{ color: 'var(--color-text-primary)' }}
+                    >
+                      {tc.name}
+                    </span>
+                    <span
+                      className="text-[10px] uppercase tracking-wider"
+                      style={{ color: 'var(--color-text-muted)' }}
+                    >
+                      {tc.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div ref={messagesEndRef} />
           </div>
@@ -629,14 +651,6 @@ const ChatView: React.FC<ChatViewProps> = ({
           </svg>
           <span>{fileError}</span>
         </div>
-      )}
-
-      {/* ─── Phase 10.9: Todo dropdown above composer ── */}
-      {composerTodos.length > 0 && (
-        <TodoWriteCard
-          todos={composerTodos}
-          isStreaming={isStreaming}
-        />
       )}
 
       {/* ─── Composer (with inline agent + model selectors) ────────────── */}

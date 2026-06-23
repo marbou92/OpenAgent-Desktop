@@ -25,6 +25,8 @@ interface UseChatOptions {
   onMessagesUpdate?: (messages: ChatMessage[]) => void;
   onTraceEntry?: (entry: TraceEntry) => void;
   onPermissionRequest?: (request: PermissionRequest) => void;
+  /** Phase 8.3: fired when auto-compaction runs after a chat turn. */
+  onContextCompacted?: (data: { savedTokens: number; strategy?: string }) => void;
   // BUGFIX: previously useChat ignored external messages, so loading a saved
   // session showed an empty chat. Now we accept an externalMessages array and
   // sync it into local state whenever it changes (typically when App.tsx loads
@@ -54,6 +56,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onMessagesUpdate,
     onTraceEntry,
     onPermissionRequest,
+    onContextCompacted,
     externalMessages,
   } = options;
 
@@ -140,12 +143,16 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // risking dropped events.
   const onTraceEntryRef = useRef(onTraceEntry);
   const onPermissionRequestRef = useRef(onPermissionRequest);
+  const onContextCompactedRef = useRef(onContextCompacted);
   useEffect(() => {
     onTraceEntryRef.current = onTraceEntry;
   }, [onTraceEntry]);
   useEffect(() => {
     onPermissionRequestRef.current = onPermissionRequest;
   }, [onPermissionRequest]);
+  useEffect(() => {
+    onContextCompactedRef.current = onContextCompacted;
+  }, [onContextCompacted]);
   // Cleanup listeners on unmount or session change
   useEffect(() => {
     return () => {
@@ -354,6 +361,13 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       });
     }) ?? (() => {});
 
+    // Phase 8.3: auto-compaction ran after a chat turn. Notify the parent
+    // so it can toast + reload the (now-compacted) message list.
+    const unsubCompacted = api.on?.contextCompacted?.((data: { sessionId?: string; savedTokens: number; strategy?: string }) => {
+      if (data.sessionId && data.sessionId !== sessionId) return;
+      onContextCompactedRef.current?.({ savedTokens: data.savedTokens, strategy: data.strategy });
+    }) ?? (() => {});
+
     unsubscribeRef.current = [
       unsubChunk,
       unsubThinking,
@@ -365,6 +379,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       unsubCancelled,
       unsubTrace,
       unsubPermission,
+      unsubCompacted,
     ];
 
     return () => {

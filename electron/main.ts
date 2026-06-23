@@ -73,6 +73,7 @@ import { ConfigSetManager } from './providers/config-sets';
 import { ModelVariantManager } from './providers/model-variants';
 import { ProviderDiagnostics } from './providers/diagnostics';
 import { AutoCompactionManager } from './context/auto-compaction-manager';
+import { getTodoStore, TodoUpdateEvent } from './context/todo-store';
 import { ContextWindowManager } from './context/context-window-manager';
 import { SemanticSearchEngine } from './memory/embedding-search';
 import { CoreMemoryStore } from './memory/core-store';
@@ -897,6 +898,40 @@ function getMergedProvidersForCurrentSource(): any[] {
     }
   }
   return out;
+}
+
+// ─── Phase 8.3: Auto-Compaction Helper ────────────────────────────────────────
+//
+// Called after each chat turn ends. Loads the session's messages, computes
+// the current context usage, and asks the AutoCompactionManager to evaluate
+// triggers. If compaction runs, notifies the renderer so the UI can show
+// a "context compacted" toast + reload the message list.
+//
+// This is fire-and-forget — errors are swallowed (logged) so they never
+// crash the chat loop. The user's chat is already done by this point.
+
+async function maybeAutoCompact(sessionId: string, send: (channel: string, data: any) => void): Promise<void> {
+  if (!autoCompactionManager || !sessionManager || !contextWindowManager) return;
+  try {
+    const session = await sessionManager.load(sessionId);
+    const messages = session.messages || [];
+    if (messages.length < 10) return; // Not enough to bother.
+    // Compute context usage. We pass empty arrays for memory/tools/system
+    // because we just want a rough estimate of the conversation size.
+    const allocation = contextWindowManager.allocate(sessionId, messages, [], '', []);
+    const usage = contextWindowManager.createContextUsage(allocation);
+    const result = await autoCompactionManager.checkAndCompact(sessionId, usage, messages);
+    if (result) {
+      logger.info('AutoCompaction', `Compacted session ${sessionId}: ${result.savedTokens} tokens saved`);
+      send('context:compacted', {
+        sessionId,
+        savedTokens: result.savedTokens,
+        strategy: result.strategy,
+      });
+    }
+  } catch (err) {
+    logger.warn('AutoCompaction', 'Failed to evaluate/compact', err);
+  }
 }
 
 // ─── Subsystem Initialization ─────────────────────────────────────────────────
@@ -1943,6 +1978,19 @@ function registerIpcHandlers(): void {
         thinkingEffort, // Phase 4.2: pass thinking effort
         onToolCall: (tc: any) => {
           send('chat:stream-tool-call', { toolCall: tc });
+          // Phase 8.3: intercept TodoWrite calls and forward to the TodoStore.
+          // The tool's execute() handler already runs (and stores todos on
+          // toolDeps._todos), but we ALSO need to persist them per-session
+          // and emit an IPC event so the renderer's TodoPanel can update.
+          if (tc?.name === 'TodoWrite' && Array.isArray(tc?.args?.todos)) {
+            try {
+              const todoStore = getTodoStore();
+              const todos = todoStore.setTodos(sessionId, tc.args.todos as any);
+              send('todos:updated', { sessionId, todos });
+            } catch (err) {
+              logger.warn('TodoStore', 'Failed to persist todos', err);
+            }
+          }
         },
         onToolResult: (tr: any) => {
           send('chat:stream-tool-result', { toolResult: tr });
@@ -2251,6 +2299,10 @@ function registerIpcHandlers(): void {
                   await sessionManager.addMessage(sessionId, { role: 'user', content: message });
                   await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
                   send('chat:stream-end', { content: fullResponse });
+                  // Phase 8.3: trigger auto-compaction check after the turn.
+                  // If the conversation is getting long, compact in the
+                  // background and notify the renderer.
+                  maybeAutoCompact(sessionId, send).catch(() => {});
                   return;
               }
             }
@@ -2261,6 +2313,8 @@ function registerIpcHandlers(): void {
               await sessionManager.addMessage(sessionId, { role: 'user', content: message });
               await sessionManager.addMessage(sessionId, { role: 'assistant', content: fullResponse });
               send('chat:stream-end', { content: fullResponse });
+              // Phase 8.3: same auto-compaction check on the no-done-token path.
+              maybeAutoCompact(sessionId, send).catch(() => {});
             } else {
               send('chat:stream-error', {
                 error: `The model ${session.providerId}/${session.model} returned an empty response. Try sending again or switch to a different model.`,
@@ -2821,6 +2875,33 @@ function registerIpcHandlers(): void {
     return { savedTokens: result.savedTokens };
   }));
   ipcMain.handle("context:windowInfo", wrapIPC(async (_e, modelId: string) => contextWindowManager.getContextWindow(modelId)));
+
+  // ── Phase 8.3: Todo Store IPC ─────────────────────────────────────────────
+  // The agent writes todos via the TodoWrite tool; the renderer reads them
+  // here for the TodoPanel. todos:updated is pushed via IPC events (set up
+  // in the runAgent onToolCall callback above) — these handlers are for the
+  // initial load when the panel mounts.
+  const todoStore = getTodoStore();
+  todoStore.load();
+  // Forward store-level 'updated' events to the renderer so the panel
+  // stays live even when the change didn't come from a tool call (e.g.
+  // todos:clear below).
+  todoStore.on('updated', (ev: TodoUpdateEvent) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('todos:updated', ev);
+    }
+  });
+  ipcMain.handle("todos:list", wrapIPC(async (_e, sessionId: string) => {
+    return { success: true, data: todoStore.getTodos(sessionId) };
+  }));
+  ipcMain.handle("todos:summary", wrapIPC(async (_e, sessionId: string) => {
+    return { success: true, data: todoStore.getSummary(sessionId) };
+  }));
+  ipcMain.handle("todos:clear", wrapIPC(async (_e, sessionId: string) => {
+    todoStore.clear(sessionId);
+    return { success: true };
+  }));
+
   ipcMain.handle("memory:core:list", wrapIPC(async () => coreMemoryStore.list()));
   ipcMain.handle("memory:core:set", wrapIPC(async (_e, cat: string, key: string, val: string) => coreMemoryStore.set(cat as any, key, val)));
   ipcMain.handle("memory:core:delete", wrapIPC(async (_e, id: string) => { await coreMemoryStore.delete(id); }));
