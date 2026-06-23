@@ -375,22 +375,28 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       });
     }) ?? (() => {});
 
-    // Phase 8.5: AskUserQuestion — agent asks the user a question with
-    // multiple-choice options. Forward to the parent so it can render
-    // the AskUserQuestionDialog (separate from PermissionDialog).
-    //
-    // The IPC event shape is { sessionId, id, toolName, args: { questions: [...] } }
-    // because main.ts's `send` helper spreads the data object. We extract
-    // `questions` from `args` so the parent receives a clean shape.
-    const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }; questions?: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }) => {
+    // Phase 10.2: AskUserQuestion — agent asks the user a question.
+    // We forward to the parent AND inject _askRequestId into the tool
+    // call's arguments so the inline card can always find its requestId.
+    const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<any> }; questions?: Array<any> }) => {
       if (data.sessionId !== sessionId) return;
-      // Support both shapes: questions at top level (if main ever sends it directly)
-      // or nested under args (current main.ts send helper spreads it).
       const questions = data.questions || data.args?.questions || [];
-      onAskUserRef.current?.({
-        id: data.id,
-        toolName: data.toolName,
-        questions,
+      onAskUserRef.current?.({ id: data.id, toolName: data.toolName, questions });
+      // Inject _askRequestId into the latest unanswered AskUserQuestion tool call.
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.toolCalls) {
+          let found = false;
+          lastMsg.toolCalls = lastMsg.toolCalls.map(tc => {
+            if (tc.name === 'AskUserQuestion' && !tc.result && !found) {
+              found = true;
+              return { ...tc, arguments: { ...tc.arguments, _askRequestId: data.id } };
+            }
+            return tc;
+          });
+        }
+        return updated;
       });
     }) ?? (() => {});
 

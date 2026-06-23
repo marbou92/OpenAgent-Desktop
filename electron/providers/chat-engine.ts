@@ -1289,10 +1289,18 @@ Usage notes:
         }
         try {
           const result = await tool.execute(tc.arguments);
-          const content = typeof result === 'string' ? result : JSON.stringify(result);
-          toolResults.push({ id: tc.id, content });
-          options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
-          yield { type: 'tool_result', toolResult: { id: tc.id, content } };
+          // Phase 10.2: Handle { error: string } results from denied permissions.
+          if (result && typeof result === 'object' && 'error' in result) {
+            const content = (result as any).error || 'Permission denied';
+            toolResults.push({ id: tc.id, content });
+            options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
+            yield { type: 'tool_result', toolResult: { id: tc.id, content } };
+          } else {
+            const content = typeof result === 'string' ? result : JSON.stringify(result);
+            toolResults.push({ id: tc.id, content });
+            options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
+            yield { type: 'tool_result', toolResult: { id: tc.id, content } };
+          }
         } catch (err: any) {
           const errMsg = err?.message || String(err);
           console.warn(`[DirectAgentLoop] Tool '${tc.name}' error:`, errMsg);
