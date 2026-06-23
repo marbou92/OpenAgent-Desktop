@@ -58,7 +58,32 @@ export class PermissionEvaluator {
   }
 
   evaluate(toolName: string, args: Record<string, unknown>): PermissionLevel {
-    // Try policy engine first (if available and has active policy)
+    // Phase 0.7: Check agent.permissions (simple rules) FIRST so user-saved
+    // "always_allow" / "always_deny" rules from the permission dialog actually
+    // take effect.
+    //
+    // Previously the policy engine was consulted first and its built-in
+    // templates (which always return a level for every tool) shadowed the
+    // agent's own rules — making the "Always Allow" / "Always Deny" buttons
+    // silent no-ops. The rule would be persisted to agent.permissions but
+    // never consulted again.
+    //
+    // evaluateRules() returns 'ask' as the default when no rule matches. We
+    // only fall through to the policy engine when the agent's own rules
+    // don't produce a definitive allow/deny. This way:
+    //   - User-saved "always_allow" / "always_deny" rules take precedence
+    //   - Built-in policy templates still apply as mode-specific defaults
+    //   - The '*' catch-all in agent.permissions (e.g. '*'='allow' in Build
+    //     mode) still works because evaluateRules will return 'allow' and
+    //     we return immediately without consulting the policy engine.
+    const ruleLevel = this.evaluateRules(toolName, args);
+    if (ruleLevel !== 'ask') {
+      return ruleLevel;
+    }
+
+    // No specific agent rule matched (default 'ask'). Fall back to the
+    // policy engine for mode-specific defaults (e.g. Safe Mode auto-allows
+    // read operations).
     if (this.policyEngine) {
       const activePolicy = this.policyEngine.getActivePolicy(this.currentAgentMode);
       if (activePolicy) {
@@ -71,8 +96,7 @@ export class PermissionEvaluator {
       }
     }
 
-    // Fall back to simple rule evaluation
-    return this.evaluateRules(toolName, args);
+    return 'ask';
   }
 
   private evaluateRules(toolName: string, args: Record<string, unknown>): PermissionLevel {
