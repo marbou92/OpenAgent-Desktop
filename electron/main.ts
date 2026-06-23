@@ -56,6 +56,7 @@ import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
 import { getModelsDevClient } from './providers/models-dev-client';
+import { getPiDevClient } from './providers/pi-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
 import { GithubCopilotAuth } from './providers/github-copilot-auth';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
@@ -135,86 +136,6 @@ interface IPCError {
   context?: Record<string, unknown>;
 }
 
-// ─── Phase 11.8: Tool Filtering by Mode ──────────────────────────────────────
-//
-// Filters the tools map based on the agent's mode + permissions. Tools that
-// are 'deny' by default are NOT passed to the model — the model can't even
-// try to call them. This enforces Plan mode (read-only) and Chat mode (no
-// tools) at the model level, not just at the execution level.
-
-function filterToolsByMode(
-  allTools: Record<string, any>,
-  mode: string,
-  permissions: Record<string, string>
-): Record<string, any> {
-  // Chat mode: no tools at all.
-  if (mode === 'chat') {
-    return {};
-  }
-
-  // For Plan mode: only allow tools that are explicitly 'allow' or 'ask'
-  // (not 'deny'). This removes write/edit/bash (except read-only bash commands
-  // which are 'allow' in DEFAULT_PLAN_PERMISSIONS).
-  // For Build mode: all tools pass through (the '*' rule is 'allow').
-  // For Smart mode: all tools pass through (the '*' rule is 'ask', so the
-  //   permission dialog handles it).
-  const filtered: Record<string, any> = {};
-
-  for (const [name, tool] of Object.entries(allTools)) {
-    // Check the permission level for this tool.
-    const level = evaluatePermissionLevel(name, permissions);
-
-    if (level === 'deny') {
-      // Skip denied tools — don't even tell the model about them.
-      continue;
-    }
-
-    // For Plan mode, additionally filter out tools that could modify state
-    // even if they're 'ask' (edit, write, bash without read-only commands).
-    // The user shouldn't see permission dialogs in Plan mode — they should
-    // just not have those tools available.
-    if (mode === 'plan') {
-      // In plan mode, only allow tools that are explicitly 'allow'.
-      // 'ask' tools are excluded — plan mode is read-only, no prompts.
-      if (level !== 'allow') {
-        continue;
-      }
-    }
-
-    filtered[name] = tool;
-  }
-
-  return filtered;
-}
-
-/**
- * Evaluate the permission level for a tool name against the permissions map.
- * Uses last-match-wins semantics (like the PermissionEvaluator).
- */
-function evaluatePermissionLevel(toolName: string, permissions: Record<string, string>): string {
-  let result = 'ask'; // Default
-
-  for (const [pattern, level] of Object.entries(permissions)) {
-    if (pattern === '*') {
-      result = level;
-      continue;
-    }
-    // Check if the pattern matches the tool name.
-    // Simple matching: exact match, or prefix match (e.g., "bash" matches "bash").
-    if (pattern === toolName || toolName.startsWith(pattern.split(':')[0])) {
-      // More specific patterns override less specific ones.
-      // Only override if the pattern is more specific than just the tool name.
-      if (pattern.includes(':') || pattern === toolName) {
-        result = level;
-      } else if (!result || result === 'ask') {
-        result = level;
-      }
-    }
-  }
-
-  return result;
-}
-
 function wrapIPC<T>(handler: (...args: any[]) => Promise<T>): (...args: any[]) => Promise<T | IPCError> {
   return async (...args) => {
     try {
@@ -262,7 +183,11 @@ let providerClient: ProviderClient;
 let chatEngine: ChatEngine;
 let opencodeConfig: OpencodeConfig;
 let modelsDevClient: ReturnType<typeof getModelsDevClient>;
+let piDevClient: ReturnType<typeof getPiDevClient>;
 let catalogReady = false; // Phase 4.4: set to true when the catalog refresh completes
+// Phase 8.1 — which catalog is the source of truth for provider:list-providers.
+// Persisted to userData/catalog-source.json so the choice survives restarts.
+let catalogSource: 'models.dev' | 'pi.dev' | 'merged' = 'models.dev';
 let copilotAuth: GithubCopilotAuth;
 
 // ─── Phase 1-8: New Subsystem Globals ────────────────────────────────────────
@@ -879,6 +804,100 @@ function setupAutoUpdater(): void {
   }
 }
 
+// ─── Phase 8.1: Catalog Source Merge ──────────────────────────────────────────
+//
+// Returns the merged provider list according to the user's catalogSource choice:
+//   - 'models.dev' → only models.dev (the original behavior, unchanged)
+//   - 'pi.dev'     → only pi.dev (replaces models.dev entirely)
+//   - 'merged'     → models.dev providers + pi.dev-only providers, with
+//                    pi.dev model entries merged into matching providers
+//
+// When the user picks 'pi.dev' alone, the existing builtin opencode providers
+// (anthropic, openai, google, etc.) get their model lists completely replaced
+// by pi.dev's view of those providers — this is the "pi.dev as primary
+// catalog" mode the user requested.
+//
+// When 'merged', pi.dev models that don't exist in models.dev are appended
+// to matching providers, and pi.dev-only providers (e.g. kimi-coding,
+// opencode-go, xiaomi-token-plan-*) are added as new entries.
+
+function getMergedProvidersForCurrentSource(): any[] {
+  if (!modelsDevClient) return [];
+  const modelsDevProviders = modelsDevClient.getMergedProviders();
+
+  if (catalogSource === 'models.dev') {
+    return modelsDevProviders;
+  }
+
+  if (catalogSource === 'pi.dev') {
+    // Replace the catalog entirely with pi.dev. We still keep the
+    // builtin opencode-registry entries (anthropic/openai/google/etc.)
+    // because they carry authMethods / npm package info that pi.dev
+    // doesn't have — but we replace their model lists with pi.dev's.
+    const piProviders = piDevClient.getProviders();
+    const piById = new Map(piProviders.map(p => [p.id, p]));
+    const out: any[] = [];
+    const seen = new Set<string>();
+
+    for (const def of modelsDevProviders) {
+      const pi = piById.get(def.id);
+      if (pi) {
+        // Replace model list with pi.dev's view, but keep the builtin's
+        // authMethods / npm / docsUrl metadata.
+        out.push({
+          ...def,
+          models: { ...pi.models },
+        });
+        seen.add(def.id);
+      } else {
+        // models.dev provider that has no pi.dev counterpart — drop it
+        // in pure pi.dev mode so the catalog is purely pi.dev.
+      }
+    }
+    // Add pi.dev-only providers (kimi-coding, opencode-go, xiaomi-*, etc.).
+    for (const pi of piProviders) {
+      if (!seen.has(pi.id)) {
+        out.push(pi);
+        seen.add(pi.id);
+      }
+    }
+    return out;
+  }
+
+  // 'merged' — combine both catalogs.
+  const piProviders = piDevClient.getProviders();
+  const piById = new Map(piProviders.map(p => [p.id, p]));
+  const out: any[] = [];
+  const seen = new Set<string>();
+
+  for (const def of modelsDevProviders) {
+    const pi = piById.get(def.id);
+    if (pi) {
+      // Merge model maps: pi.dev models that aren't already in models.dev
+      // get added with source = 'pi.dev'. Existing models.dev entries win
+      // on conflicts so the live-fetched data takes precedence.
+      const mergedModels: Record<string, any> = { ...(def.models || {}) };
+      for (const [modelId, mc] of Object.entries(pi.models || {})) {
+        if (!mergedModels[modelId]) {
+          mergedModels[modelId] = mc;
+        }
+      }
+      out.push({ ...def, models: mergedModels });
+      seen.add(def.id);
+    } else {
+      out.push(def);
+    }
+  }
+  // Add pi.dev-only providers as new entries.
+  for (const pi of piProviders) {
+    if (!seen.has(pi.id)) {
+      out.push(pi);
+      seen.add(pi.id);
+    }
+  }
+  return out;
+}
+
 // ─── Subsystem Initialization ─────────────────────────────────────────────────
 
 async function initializeSubsystems(): Promise<void> {
@@ -979,6 +998,24 @@ async function initializeSubsystems(): Promise<void> {
 
   modelsDevClient = getModelsDevClient();
   modelsDevClient.loadCache();
+
+  // Phase 8.1 — Initialize the pi.dev catalog client (static/bundled) and
+  // load the persisted catalog source choice from disk so it survives
+  // app restarts. The file is just a tiny JSON blob with { source: ... }.
+  piDevClient = getPiDevClient();
+  try {
+    const csPath = path.join(app.getPath('userData'), 'catalog-source.json');
+    if (fs.existsSync(csPath)) {
+      const raw = fs.readFileSync(csPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed?.source === 'models.dev' || parsed?.source === 'pi.dev' || parsed?.source === 'merged') {
+        catalogSource = parsed.source;
+      }
+    }
+  } catch {
+    // Ignore — fall back to the default 'models.dev'.
+  }
+  logger.info('Catalog', `Catalog source: ${catalogSource}`);
 
   // Phase 4.3: Send catalog progress events to the renderer so the splash
   // screen can show a progress bar. The refresh is still non-blocking —
@@ -1291,7 +1328,57 @@ function registerIpcHandlers(): void {
     if (!modelsDevClient) {
       return { success: true, data: getOpencodeRegistry().listAll() };
     }
-    return { success: true, data: modelsDevClient.getMergedProviders() };
+    // Phase 8.1 — honor the user's catalog source choice.
+    return { success: true, data: getMergedProvidersForCurrentSource() };
+  }));
+
+  // Phase 8.1 — Catalog source switching.
+  // The renderer reads the current source + a per-source summary so the
+  // Settings UI can show "models.dev: 145 providers / 2357 models,
+  // pi.dev: 31 providers / 969 models, current: merged".
+  ipcMain.handle("provider:get-catalog-source", wrapIPC(async () => {
+    return { success: true, data: catalogSource };
+  }));
+
+  ipcMain.handle("provider:set-catalog-source", wrapIPC(async (_event, source: 'models.dev' | 'pi.dev' | 'merged') => {
+    if (source !== 'models.dev' && source !== 'pi.dev' && source !== 'merged') {
+      return { success: false, error: `Invalid catalog source: ${source}` };
+    }
+    catalogSource = source;
+    // Persist to disk so the choice survives restarts.
+    try {
+      const csPath = path.join(app.getPath('userData'), 'catalog-source.json');
+      const tmp = csPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify({ source, savedAt: new Date().toISOString() }), 'utf-8');
+      fs.renameSync(tmp, csPath);
+    } catch (err) {
+      logger.warn('Catalog', 'Failed to persist catalog source', err);
+    }
+    logger.info('Catalog', `Catalog source switched to: ${source}`);
+    // Notify the renderer so any open provider pickers can refresh.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('provider:catalog-source-changed', { source });
+    }
+    return { success: true, data: catalogSource };
+  }));
+
+  ipcMain.handle("provider:get-catalog-summary", wrapIPC(async () => {
+    return {
+      success: true,
+      data: {
+        current: catalogSource,
+        modelsDev: {
+          providers: modelsDevClient ? modelsDevClient.getCachedProviderIds().length : 0,
+          models: modelsDevClient ? modelsDevClient.getTotalModelCount() : 0,
+          fetchedAt: modelsDevClient ? modelsDevClient.getFetchedAt() : null,
+        },
+        piDev: {
+          providers: piDevClient ? piDevClient.getCachedProviderIds().length : 0,
+          models: piDevClient ? piDevClient.getTotalModelCount() : 0,
+          fetchedAt: piDevClient ? piDevClient.getFetchedAt() : null,
+        },
+      },
+    };
   }));
 
   ipcMain.handle("provider:list-auth", wrapIPC(async () => {
@@ -1306,13 +1393,29 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("provider:refresh-catalog", wrapIPC(async () => {
     if (!modelsDevClient) return { success: false, error: 'Catalog not initialized yet' };
+    // Always refresh models.dev (pi.dev is static — no refresh needed).
     await modelsDevClient.refresh();
-    return { success: true, data: { providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
+    // Report the combined counts so the UI matches what provider:list-providers returns.
+    const providers = getMergedProvidersForCurrentSource();
+    const modelCount = providers.reduce((acc: number, p: any) => acc + Object.keys(p.models || {}).length, 0);
+    return { success: true, data: { providerCount: providers.length, modelCount } };
   }));
 
   ipcMain.handle("provider:get-catalog-info", wrapIPC(async () => {
-    if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0 } };
-    return { success: true, data: { fetchedAt: modelsDevClient.getFetchedAt(), providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
+    if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0, source: catalogSource } };
+    // Report combined counts based on the current catalog source so the
+    // header in ProvidersView matches what's actually shown.
+    const providers = getMergedProvidersForCurrentSource();
+    const modelCount = providers.reduce((acc: number, p: any) => acc + Object.keys(p.models || {}).length, 0);
+    return {
+      success: true,
+      data: {
+        fetchedAt: modelsDevClient.getFetchedAt(),
+        providerCount: providers.length,
+        modelCount,
+        source: catalogSource,
+      },
+    };
   }));
 
   // Phase 4.4: Let the renderer check if the catalog is already ready.
@@ -1716,62 +1819,17 @@ function registerIpcHandlers(): void {
 
   const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
 
-  // Phase 11.6: Store tool info alongside each pending permission request
-  // so we can persist 'always_allow'/'always_deny' rules.
-  const pendingPermissionRequestInfo = new Map<string, { agentId: string; toolName: string; args: Record<string, unknown> }>();
-
-  // Phase 8.5: Pending AskUserQuestion requests.
-  const pendingAskUserRequests = new Map<string, (answer: string | null) => void>();
-
   ipcMain.handle("permission:respond", wrapIPC(async (_e, requestId: string, response: string) => {
     const resolve = pendingPermissionRequests.get(requestId);
     if (!resolve) {
       return { success: false, error: 'No pending permission request for this id' };
     }
     pendingPermissionRequests.delete(requestId);
-
-    // Phase 11.4: Handle 'always_allow' and 'always_deny' by persisting rules.
-    if (response === 'always_allow' || response === 'always_deny') {
-      try {
-        const pendingInfo = pendingPermissionRequestInfo.get(requestId);
-        if (pendingInfo) {
-          const { agentId, toolName, args } = pendingInfo;
-          const agent = agentRegistry.get(agentId);
-          if (agent) {
-            let pattern = toolName;
-            if (toolName === 'bash' && args.command) {
-              const cmd = String(args.command).trim().split(/\s+/)[0];
-              pattern = `bash:${cmd} *`;
-            } else if ((toolName === 'edit' || toolName === 'write') && args.path) {
-              pattern = `${toolName}:${args.path}`;
-            }
-            const newPerms = { ...agent.permissions };
-            newPerms[pattern] = response === 'always_allow' ? 'allow' : 'deny';
-            agent.permissions = newPerms;
-            logger.info('Permissions', `Persisted rule: ${pattern} → ${response === 'always_allow' ? 'allow' : 'deny'}`);
-          }
-        }
-        pendingPermissionRequestInfo.delete(requestId);
-      } catch (err) {
-        logger.warn('Permissions', 'Failed to persist permission rule', err);
-      }
-    }
-
+    // Map the renderer's response to a ToolPermissionLevel.
     const level: ToolPermissionLevel =
       response === 'allow_once' || response === 'always_allow' ? 'allow' :
       response === 'deny_once' || response === 'always_deny' ? 'deny' : 'ask';
     resolve(level);
-    return { success: true };
-  }));
-
-  // Phase 8.5: AskUserQuestion response handler.
-  ipcMain.handle("askUser:respond", wrapIPC(async (_e, requestId: string, answer: string | null) => {
-    const resolve = pendingAskUserRequests.get(requestId);
-    if (!resolve) {
-      return { success: false, error: 'No pending ask-user request for this id' };
-    }
-    pendingAskUserRequests.delete(requestId);
-    resolve(answer);
     return { success: true };
   }));
 
@@ -1826,54 +1884,24 @@ function registerIpcHandlers(): void {
 
     const permissionChecker = {
       checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny' {
-        const freshEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
-        freshEvaluator.setAgentMode(agent.mode);
-        if (permissionPolicyEngine) {
-          freshEvaluator.setPolicyEngine(permissionPolicyEngine);
-        }
-        return freshEvaluator.evaluate(toolName, args);
+        return permissionEvaluator.evaluate(toolName, args);
       },
       requestPermission(toolName: string, args: Record<string, unknown>): Promise<boolean> {
         return new Promise((resolve) => {
           const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           pendingPermissionRequests.set(requestId, (level: ToolPermissionLevel) => resolve(level === 'allow'));
-          pendingPermissionRequestInfo.set(requestId, { agentId: agent.id, toolName, args });
           send('chat:permission-request', { id: requestId, toolName, args });
-        });
-      },
-      requestUserAnswer(toolName: string, args: Record<string, unknown>): Promise<string | null> {
-        return new Promise((resolve) => {
-          const requestId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          pendingAskUserRequests.set(requestId, (answer: string | null) => resolve(answer));
-          send('chat:ask-user', { id: requestId, toolName, args });
         });
       },
     };
 
     // Build AI SDK tool definitions with execute() handlers.
-    const allTools = chatEngine.buildTools(toolDeps, permissionChecker, executeToolCall);
-
-    // Phase 11.8: Filter tools based on the agent's permission mode.
-    // In Plan mode, only pass read-only tools to the model (read, glob, grep,
-    // list_files). In Chat mode, pass NO tools. This prevents the model from
-    // even attempting to call tools it shouldn't have access to.
-    const tools = filterToolsByMode(allTools, agent.mode, agent.permissions);
+    const tools = chatEngine.buildTools(toolDeps, permissionChecker, executeToolCall);
 
     // Build the system prompt.
     const systemPrompt = agent.prompt
       ? `${agent.prompt}\n\nCurrent mode: ${agent.mode.toUpperCase()}\nWorking directory: ${toolDeps.workingDirectory}`
       : `You are an AI assistant in ${agent.mode.toUpperCase()} mode. Working directory: ${toolDeps.workingDirectory}`;
-
-    // Phase 11.8: Add mode-specific restrictions to the system prompt.
-    let modeRestriction = '';
-    if (agent.mode === 'plan') {
-      modeRestriction = '\n\nYou are in PLAN mode — you are READ-ONLY. You can only read files, search, and inspect. You MUST NOT write, edit, or run commands that modify anything. If the user asks you to make changes, explain what you WOULD do and suggest they switch to BUILD mode.';
-    } else if (agent.mode === 'chat') {
-      modeRestriction = '\n\nYou are in CHAT mode — no tools are available. Answer directly from the conversation context.';
-    } else if (agent.mode === 'smart') {
-      modeRestriction = '\n\nYou are in SMART APPROVE mode — read operations run automatically, but any write/edit/mutation requires explicit user approval.';
-    }
-    const fullSystemPrompt = systemPrompt + modeRestriction;
 
     // Build messages array from session history.
     // Phase 4: attach images to the latest user message for multi-modal.
@@ -1896,7 +1924,7 @@ function registerIpcHandlers(): void {
       {
         model: `${providerId}/${modelId}`,
         messages,
-        systemPrompt: fullSystemPrompt,
+        systemPrompt,
         temperature: agent.temperature,
       },
       {

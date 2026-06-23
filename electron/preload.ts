@@ -479,18 +479,12 @@ const electronAPI = {
     get: (skillId: string): Promise<any> => invoke("skill:get", skillId),
     execute: (skillId: string, variables: Record<string, unknown>, context?: Record<string, unknown>): Promise<any> =>
       invoke("skill:execute", skillId, variables, context),
-    /** Phase 8.4: list all skills available to the agent (disk + builtin). */
-    listAgentic: (): Promise<any[]> => invoke<any>("skill:list-agentic").then((r: any) => r?.data ?? []),
-    /** Phase 8.4: reload skills from ~/.claude/skills/ on demand. */
-    reload: (): Promise<{ count: number }> => invoke<any>("skill:reload").then((r: any) => r?.data ?? { count: 0 }),
   },
 
   // ── Permissions (AgentRunner) ──────────────────────────────────────────────
 
   permissions: {
     respond: (requestId: string, response: string): Promise<void> => invoke("permission:respond", requestId, response),
-    /** Phase 8.5: respond to an AskUserQuestion request with the selected option. */
-    respondToQuestion: (requestId: string, answer: string | null): Promise<void> => invoke("askUser:respond", requestId, answer),
   },
 
   // ── Aether v2: Crash Logger ───────────────────────────────────────────────
@@ -548,25 +542,11 @@ const electronAPI = {
     startCopilot: (): Promise<any> => invoke("provider:start-copilot"),
     cancelCopilot: (): Promise<void> => invoke("provider:cancel-copilot"),
 
-    // Phase 8.7: Gemini (Free OAuth) — Google OAuth 2.0 with PKCE
-    startGeminiOAuth: (): Promise<any> => invoke("provider:start-gemini-oauth"),
-
     // Health
     runHealthCheck: (providerId: string): Promise<any> => invoke("provider:run-health-check", providerId),
 
     // Chat
     chat: (request: any): Promise<any> => invoke("provider:chat", request),
-  },
-
-  // ── Phase 8.3: Todos ───────────────────────────────────────────────────────
-  // The agent writes todos via the TodoWrite tool; the renderer reads them
-  // here for the TodoPanel. Live updates arrive via on.todosUpdated().
-  todos: {
-    list: (sessionId: string): Promise<any[]> =>
-      invoke<any>("todos:list", sessionId).then((r: any) => r?.data ?? []),
-    summary: (sessionId: string): Promise<{ total: number; completed: number; inProgress: number; pending: number }> =>
-      invoke<any>("todos:summary", sessionId).then((r: any) => r?.data ?? { total: 0, completed: 0, inProgress: 0, pending: 0 }),
-    clear: (sessionId: string): Promise<void> => invoke("todos:clear", sessionId),
   },
 
   // ── Platform ───────────────────────────────────────────────────────────────
@@ -690,27 +670,6 @@ const electronAPI = {
       return () => ipcRenderer.removeListener("chat:stream-error", handler);
     },
 
-    // Phase 8.2: non-fatal warnings (e.g. max-steps reached but content was produced).
-    chatStreamWarning: (callback: (data: { sessionId: string; warning: string }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; warning: string }) => callback(data);
-      ipcRenderer.on("chat:stream-warning", handler);
-      return () => ipcRenderer.removeListener("chat:stream-warning", handler);
-    },
-
-    // Phase 8.3: todos updated (agent called TodoWrite, or store was cleared).
-    todosUpdated: (callback: (data: { sessionId: string; todos: any[] }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; todos: any[] }) => callback(data);
-      ipcRenderer.on("todos:updated", handler);
-      return () => ipcRenderer.removeListener("todos:updated", handler);
-    },
-
-    // Phase 8.3: auto-compaction ran after a chat turn.
-    contextCompacted: (callback: (data: { sessionId: string; savedTokens: number; strategy: string }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; savedTokens: number; strategy: string }) => callback(data);
-      ipcRenderer.on("context:compacted", handler);
-      return () => ipcRenderer.removeListener("context:compacted", handler);
-    },
-
     chatStreamEnd: (callback: (data: { sessionId: string; content: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; content: string }) => callback(data);
       ipcRenderer.on("chat:stream-end", handler);
@@ -780,19 +739,6 @@ const electronAPI = {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => callback(data);
       ipcRenderer.on("chat:permission-request", handler);
       return () => ipcRenderer.removeListener("chat:permission-request", handler);
-    },
-
-    // Phase 8.5: AskUserQuestion request — agent asks the user a question
-    // with multiple-choice options. Rendered as a dedicated dialog (NOT the
-    // generic PermissionDialog). The renderer calls permissions.respondToQuestion()
-    // with the selected option label to resolve the pending tool call.
-    //
-    // The IPC event shape is { sessionId, id, toolName, args: { questions: [...] } }
-    // because main.ts's `send` helper spreads the data object.
-    askUser: (callback: (data: { sessionId: string; id: string; toolName: string; args: { questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> } }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on("chat:ask-user", handler);
-      return () => ipcRenderer.removeListener("chat:ask-user", handler);
     },
 
     // File events

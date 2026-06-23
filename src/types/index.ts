@@ -352,8 +352,6 @@ export interface ChatMessage {
   isStreaming?: boolean;
   thinking?: string;
   error?: string;
-  /** Phase 8.2: non-fatal warning (e.g. max-steps reached with partial content). */
-  warning?: string;
   files?: AttachedFile[];
   /** Phase 4: base64 data URLs for images attached to this message */
   images?: string[];
@@ -600,6 +598,8 @@ export interface AppSettings {
   opencodeHostname: string;
   opencodeAutoStart: boolean;
   autoStartSandbox: boolean;
+  /** Phase 8.1 — which catalog provides the provider/model list. */
+  catalogSource: 'models.dev' | 'pi.dev' | 'merged';
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: number;
@@ -636,6 +636,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   opencodeHostname: '127.0.0.1',
   opencodeAutoStart: true,
   autoStartSandbox: false,
+  catalogSource: 'models.dev',
   // Session
   maxConcurrentSessions: 5,
   autoSave: true,
@@ -925,8 +926,6 @@ declare global {
         addRule: (agentId: string, pattern: string, level: PermissionLevel, reason?: string) => Promise<void>;
         removeRule: (agentId: string, pattern: string) => Promise<void>;
         respond: (requestId: string, response: PermissionConfirmation['userResponse']) => Promise<void>;
-        /** Phase 8.5: respond to an AskUserQuestion request with the selected option. */
-        respondToQuestion: (requestId: string, answer: string | null) => Promise<void>;
       };
       context: {
         usage: (sessionId: string) => Promise<ContextUsage>;
@@ -975,15 +974,8 @@ declare global {
         agentSwitched: (callback: (data: { from: string; to: string; agent: AgentDefinition }) => void) => () => void;
         configSetSwitched: (callback: (data: ProviderConfigSet) => void) => () => void;
         permissionRequest: (callback: (data: PermissionRequest & { sessionId: string }) => void) => () => void;
-        /** Phase 8.5: agent asks the user a question with multiple-choice options. */
-        askUser: (callback: (data: { sessionId: string; id: string; toolName: string; args: { questions: AskUserQuestionItem[] } }) => void) => () => void;
-        /** Phase 8.2: non-fatal warning (e.g. max-steps reached with partial content). */
-        chatStreamWarning: (callback: (data: { sessionId: string; warning: string }) => void) => () => void;
-        /** Phase 8.3: live todo updates from the agent (TodoWrite tool). */
-        todosUpdated: (callback: (data: { sessionId: string; todos: TodoItem[] }) => void) => () => void;
         mainReady: (callback: () => void) => () => void;
-        /** Phase 8.3: auto-compaction ran (manual or after a chat turn). */
-        contextCompacted: (callback: (data: { sessionId?: string; savedTokens: number; strategy?: string }) => void) => () => void;
+        contextCompacted: (callback: (data: { savedTokens: number }) => void) => () => void;
       };
     };
   }
@@ -1096,39 +1088,6 @@ export interface PermissionRequest {
   args: Record<string, unknown>;
   matchedPattern?: string;
   reason?: string;
-}
-
-// ─── Phase 8.5: AskUserQuestion Types ─────────────────────────────────────────
-
-export interface AskUserQuestionOption {
-  label: string;
-  description?: string;
-}
-
-export interface AskUserQuestionItem {
-  question: string;
-  header?: string;
-  options: AskUserQuestionOption[];
-}
-
-export interface AskUserQuestionRequest {
-  id: string;
-  toolName: string; // always 'AskUserQuestion'
-  questions: AskUserQuestionItem[];
-}
-
-// ─── Phase 8.3: Todos ─────────────────────────────────────────────────────────
-
-export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
-export type TodoPriority = 'high' | 'medium' | 'low';
-
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: TodoStatus;
-  priority: TodoPriority;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface PermissionConfirmation {
