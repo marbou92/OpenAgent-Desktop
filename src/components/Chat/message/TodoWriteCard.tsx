@@ -82,7 +82,7 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
   return (
     <div
       className="relative flex justify-center mb-1 transition-opacity duration-500"
-      style={{ opacity: fadingOut ? 0 : 1 }}
+      style={{ opacity: fadingOut ? 0 : 1, background: 'transparent' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -100,6 +100,7 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
           opacity: visible ? 1 : 0,
           transform: visible ? 'translateY(0) scale(1)' : 'translateY(8px) scale(0.95)',
           pointerEvents: visible ? 'auto' : 'none',
+          overflow: 'hidden',
         }}
       >
         {/* Progress header */}
