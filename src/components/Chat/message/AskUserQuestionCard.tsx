@@ -52,6 +52,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
     (answered || '').split(',').map(s => s.trim()).filter(Boolean)
   );
   const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
+  // Phase 10.5: Once answered, lock the card — no more changes allowed.
+  const [isLocked, setIsLocked] = useState(false);
   // Phase 10.4: Minimize when answered, allow re-expand on click.
   const [minimized, setMinimized] = useState(false);
 
@@ -66,6 +68,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         }
       });
       setAnswers(init);
+      setIsLocked(true);
       setMinimized(true); // Auto-minimize when answered
     }
   }, [answered]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -73,7 +76,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   if (!questions || questions.length === 0) return null;
 
   const handleToggle = (qIndex: number, label: string, multiple: boolean) => {
-    if (answered) return;
+    // Phase 10.5: Once locked, no changes allowed.
+    if (isLocked || answered) return;
     setAnswers(prev => {
       const current = new Set(prev[qIndex] || []);
       if (multiple) {
@@ -81,6 +85,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         else current.add(label);
         return { ...prev, [qIndex]: current };
       } else {
+        // Single-select: lock immediately after picking.
+        setIsLocked(true);
         onAnswer?.(label);
         return { ...prev, [qIndex]: new Set([label]) };
       }
@@ -88,13 +94,15 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   };
 
   const handleSubmitMulti = (qIndex: number) => {
+    if (isLocked || answered) return;
     const selected = answers[qIndex];
     if (!selected || selected.size === 0) return;
+    setIsLocked(true); // Lock after submit
     onAnswer?.(Array.from(selected).join(', '));
   };
 
   // Check if any question has been answered (for minimizing)
-  const hasAnswer = answered || Object.values(answers).some(s => s.size > 0);
+  const hasAnswer = answered || isLocked;
 
   // ─── Minimized view: compact one-liner ────────────────────────────────
   if (minimized && hasAnswer) {
@@ -224,7 +232,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                 {options.map((opt, oIdx) => {
                   const letter = LETTERS[oIdx] || String(oIdx + 1);
                   const isSelected = selectedSet.has(opt.label);
-                  const isDisabled = !!answered;
+                  const isDisabled = isLocked || !!answered;
 
                   return (
                     <button
@@ -296,7 +304,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
               </div>
 
               {/* Submit button for multi-select */}
-              {multiple && !answered && (
+              {multiple && !isLocked && !answered && (
                 <button
                   onClick={() => handleSubmitMulti(qIdx)}
                   disabled={selectedSet.size === 0}
