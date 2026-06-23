@@ -952,6 +952,8 @@ declare global {
         addRule: (agentId: string, pattern: string, level: PermissionLevel, reason?: string) => Promise<void>;
         removeRule: (agentId: string, pattern: string) => Promise<void>;
         respond: (requestId: string, response: PermissionConfirmation['userResponse']) => Promise<void>;
+        /** Phase 8.5: respond to an AskUserQuestion request with the selected option. */
+        respondToQuestion: (requestId: string, answer: string | null) => Promise<void>;
       };
       context: {
         usage: (sessionId: string) => Promise<ContextUsage>;
@@ -1004,6 +1006,8 @@ declare global {
         agentSwitched: (callback: (data: { from: string; to: string; agent: AgentDefinition }) => void) => () => void;
         configSetSwitched: (callback: (data: ProviderConfigSet) => void) => () => void;
         permissionRequest: (callback: (data: PermissionRequest & { sessionId: string }) => void) => () => void;
+        /** Phase 8.5: agent asks the user a question with multiple-choice options. */
+        askUser: (callback: (data: { sessionId: string; id: string; toolName: string; args: { questions: AskUserQuestionItem[] } }) => void) => () => void;
         mainReady: (callback: () => void) => () => void;
         /** Phase 8.3: auto-compaction ran (manual or after a chat turn). */
         contextCompacted: (callback: (data: { sessionId?: string; savedTokens: number; strategy?: string }) => void) => () => void;
@@ -1121,6 +1125,25 @@ export interface PermissionRequest {
   args: Record<string, unknown>;
   matchedPattern?: string;
   reason?: string;
+}
+
+// ─── Phase 8.5: AskUserQuestion Types ─────────────────────────────────────────
+
+export interface AskUserQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AskUserQuestionItem {
+  question: string;
+  header?: string;
+  options: AskUserQuestionOption[];
+}
+
+export interface AskUserQuestionRequest {
+  id: string;
+  toolName: string; // always 'AskUserQuestion'
+  questions: AskUserQuestionItem[];
 }
 
 export interface PermissionConfirmation {
