@@ -27,9 +27,13 @@ interface MessageBubbleProps {
   isLast: boolean;
   onRetry?: () => void;
   onCopy?: (content: string) => void;
+  /** Phase 10: Called when the user answers an inline AskUserQuestion. */
+  onAskUserAnswer?: (toolCallId: string, answer: string) => void;
+  /** Phase 10: The active ask-user request ID (for matching tool calls). */
+  askUserRequestId?: string | null;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy, onAskUserAnswer, askUserRequestId }) => {
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
 
@@ -149,6 +153,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                       questions={tc.arguments.questions as any[]}
                       toolCallId={tc.id}
                       answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
+                      onAnswer={(answer) => {
+                        // Phase 10: Send the answer back to main.ts via the
+                        // ask-user IPC flow. Use the requestId from the
+                        // chat:ask-user event (stored in askUserRequestId).
+                        if (askUserRequestId && onAskUserAnswer) {
+                          onAskUserAnswer(askUserRequestId, answer);
+                        }
+                      }}
                     />
                   );
                 }

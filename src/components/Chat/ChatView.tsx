@@ -43,7 +43,6 @@ import {
   TraceEntry,
   Toast,
   PermissionRequest,
-  AskUserQuestionItem,
   AgentMode,
   AttachedFile,
 } from '../../types';
@@ -55,7 +54,6 @@ import ChatEmptyState from './ChatEmptyState';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
-import AskUserQuestionDialog from './AskUserQuestionDialog';
 import TodoPanel from '../Layout/RightPanel/TodoPanel';
 import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
@@ -110,10 +108,9 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
-  // Phase 8.5: AskUserQuestion request. Separate from permissionRequest
-  // because it's a different dialog (renders questions + options, not
-  // Allow/Deny buttons).
-  const [askUserRequest, setAskUserRequest] = useState<{ id: string; toolName: string; questions: AskUserQuestionItem[] } | null>(null);
+  // Phase 10: Store the ask-user requestId so the inline AskUserQuestionCard
+  // can send the answer back via permissions.respondToQuestion.
+  const [askUserRequestId, setAskUserRequestId] = useState<string | null>(null);
   // Phase 8.6: Todo list — shown inline in the chat area (not the right
   // sidebar). Collapsible. Only renders when there are todos.
   const [todoCount, setTodoCount] = useState(0);
@@ -143,7 +140,7 @@ const ChatView: React.FC<ChatViewProps> = ({
     onMessagesUpdate,
     onTraceEntry: addTraceEntry,
     onPermissionRequest: (req) => setPermissionRequest(req),
-    onAskUser: (req) => setAskUserRequest(req),
+    onAskUser: (req) => setAskUserRequestId(req.id),
     onContextCompacted: (data) => {
       // Phase 8.3: show a toast when auto-compaction runs.
       addToast({
@@ -295,18 +292,6 @@ const ChatView: React.FC<ChatViewProps> = ({
   );
 
   // Phase 8.5: AskUserQuestion response handler. Sends the user's selected
-  // option label (or null if dismissed) back to main.ts to resolve the
-  // pending tool call.
-  const handleAskUserRespond = useCallback(
-    (requestId: string, answer: string | null) => {
-      if (api?.permissions?.respondToQuestion) {
-        api.permissions.respondToQuestion(requestId, answer);
-      }
-      setAskUserRequest(null);
-    },
-    [],
-  );
-
   const handleNameSubmit = useCallback(() => {
     setIsEditingName(false);
     if (sessionId && api?.sessions?.update && sessionName) {
@@ -546,6 +531,13 @@ const ChatView: React.FC<ChatViewProps> = ({
                     : undefined
                 }
                 onCopy={handleCopyMessage}
+                askUserRequestId={askUserRequestId}
+                onAskUserAnswer={(requestId, answer) => {
+                  if (api?.permissions?.respondToQuestion) {
+                    api.permissions.respondToQuestion(requestId, answer);
+                  }
+                  setAskUserRequestId(null);
+                }}
               />
             ))}
 
@@ -811,9 +803,6 @@ const ChatView: React.FC<ChatViewProps> = ({
 
       {/* ─── Permission Dialog ────────────────────────────────────────── */}
       <PermissionDialog request={permissionRequest} onRespond={handlePermissionRespond} />
-
-      {/* ─── Phase 8.5: AskUserQuestion Dialog ─────────────────────────── */}
-      <AskUserQuestionDialog request={askUserRequest} onRespond={handleAskUserRespond} />
 
       {/* ─── Phase 4: Structured Output Panel ──────────────────────────── */}
       <StructuredOutputPanel
