@@ -1059,12 +1059,19 @@ Usage notes:
           // Permission check.
           const permission = permissionChecker.checkPermission(tool.name, args);
           if (permission === 'deny') {
-            return { error: `Permission denied for tool: ${tool.name}` };
+            // Phase 0.7: Return a directive string (not just `{ error }`) so
+            // the model understands it must NOT retry the same tool. A bare
+            // `{ error: '...' }` was being interpreted as "the tool ran but
+            // returned an error" → the model would retry, popping another
+            // permission dialog, making the user feel that "Deny" did nothing.
+            return `Permission DENIED for tool "${tool.name}" by the permission policy. Do NOT retry this tool — it has been blocked. Try a different approach or ask the user how to proceed.`;
           }
           if (permission === 'ask') {
             const approved = await permissionChecker.requestPermission(tool.name, args);
             if (!approved) {
-              return { error: `User denied permission for tool: ${tool.name}` };
+              // Phase 0.7: Same directive style — the user explicitly clicked
+              // "Deny" (or "Always Deny"), so the model must not retry.
+              return `The user explicitly DENIED permission for tool "${tool.name}". Do NOT retry this tool — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.`;
             }
           }
 
@@ -1090,10 +1097,14 @@ Usage notes:
             parameters: wrapParams(extTool.parameters || { type: 'object', properties: {} }),
             execute: async (args: Record<string, unknown>) => {
               const permission = permissionChecker.checkPermission(extTool.name, args);
-              if (permission === 'deny') return { error: `Permission denied: ${extTool.name}` };
+              if (permission === 'deny') {
+                return `Permission DENIED for tool "${extTool.name}" by the permission policy. Do NOT retry this tool — it has been blocked. Try a different approach or ask the user how to proceed.`;
+              }
               if (permission === 'ask') {
                 const approved = await permissionChecker.requestPermission(extTool.name, args);
-                if (!approved) return { error: `User denied: ${extTool.name}` };
+                if (!approved) {
+                  return `The user explicitly DENIED permission for tool "${extTool.name}". Do NOT retry this tool — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.`;
+                }
               }
               const result = await executeToolFn(
                 { id: crypto.randomUUID(), name: extTool.name, arguments: args },
@@ -1137,7 +1148,7 @@ Usage notes:
             // code via index.js, so we never auto-approve).
             const approved = await permissionChecker.requestPermission(toolName, args);
             if (!approved) {
-              return { error: `User denied skill execution: ${skill.name}` };
+              return `The user explicitly DENIED permission to run skill "${skill.name}". Do NOT retry this skill — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.`;
             }
             try {
               const result = await toolDeps.executeSkill!(skill.id, args, {
