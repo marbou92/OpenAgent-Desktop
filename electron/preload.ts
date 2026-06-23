@@ -670,6 +670,13 @@ const electronAPI = {
       return () => ipcRenderer.removeListener("chat:stream-error", handler);
     },
 
+    // Phase 8.2: non-fatal warnings (e.g. max-steps reached but content was produced).
+    chatStreamWarning: (callback: (data: { sessionId: string; warning: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; warning: string }) => callback(data);
+      ipcRenderer.on("chat:stream-warning", handler);
+      return () => ipcRenderer.removeListener("chat:stream-warning", handler);
+    },
+
     chatStreamEnd: (callback: (data: { sessionId: string; content: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; content: string }) => callback(data);
       ipcRenderer.on("chat:stream-end", handler);

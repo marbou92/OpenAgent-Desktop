@@ -25,10 +25,6 @@ interface UseChatOptions {
   onMessagesUpdate?: (messages: ChatMessage[]) => void;
   onTraceEntry?: (entry: TraceEntry) => void;
   onPermissionRequest?: (request: PermissionRequest) => void;
-  /** Phase 8.3: fired when auto-compaction runs after a chat turn. */
-  onContextCompacted?: (data: { savedTokens: number; strategy?: string }) => void;
-  /** Phase 8.5: fired when the agent calls AskUserQuestion. */
-  onAskUser?: (request: { id: string; toolName: string; questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }) => void;
   // BUGFIX: previously useChat ignored external messages, so loading a saved
   // session showed an empty chat. Now we accept an externalMessages array and
   // sync it into local state whenever it changes (typically when App.tsx loads
@@ -58,8 +54,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onMessagesUpdate,
     onTraceEntry,
     onPermissionRequest,
-    onContextCompacted,
-    onAskUser,
     externalMessages,
   } = options;
 
@@ -77,7 +71,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const lastFilesRef = useRef<AttachedFile[]>([]);
   const messagesRef = useRef<ChatMessage[]>(messages);
   const isStreamingRef = useRef(false);
-  const activeToolCallsRef = useRef<ToolCall[]>([]);
 
   // Keep messagesRef in sync
   useEffect(() => {
@@ -88,25 +81,57 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // calling handleLoadSession set the Zustand store but useChat still showed
   // an empty list. Now we sync externalMessages into local state when the
   // array reference changes (App sets it on session load).
+  //
+  // Phase 6.4: Fix React error #185 (infinite loop). The problem was:
+  //   useChat updates messages → onMessagesUpdate(setMessages in App)
+  //   → App passes new externalMessages → useEffect fires → setMessages again
+  //   → infinite loop.
+  // Fix: Only sync from externalMessages when we're NOT currently streaming
+  // AND the external messages are different from what we already have.
+  const lastExternalSyncRef = useRef<ChatMessage[] | null>(null);
+  // Phase 6.5: Skip notifying parent when we just synced FROM externalMessages
+  const skipNextNotifyRef = useRef(false);
+  const lastSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
+    // Don't sync from external while streaming — local state is the source of truth
+    if (isStreamingRef.current) return;
+
+    // Phase 6.8: If the session ID changed, ALWAYS clear and sync — this
+    // handles the "new chat" case where App sets messages to [] but useChat
+    // still has the old session's messages in local state.
+    const sessionChanged = lastSessionIdRef.current !== sessionId;
+    lastSessionIdRef.current = sessionId;
+
     if (externalMessages && externalMessages.length > 0) {
+      // Skip if we already synced this exact array (prevents loop)
+      if (!sessionChanged && lastExternalSyncRef.current === externalMessages) return;
+      lastExternalSyncRef.current = externalMessages;
+
       // Mark any streaming messages as finalized since we are loading from disk.
       const sanitized = externalMessages.map(m => ({ ...m, isStreaming: false }));
+      // Phase 6.5: Skip the next onMessagesUpdate since we're syncing FROM external
+      skipNextNotifyRef.current = true;
       setMessages(sanitized);
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
       setActiveToolCalls([]);
       setIsStreaming(false);
       isStreamingRef.current = false;
-    } else if (externalMessages && externalMessages.length === 0 && sessionId === null) {
-      // App cleared the session — clear local messages too.
+    } else if (externalMessages && externalMessages.length === 0) {
+      // Phase 6.8: Clear messages whenever external is empty — not just when
+      // sessionId is null. This fixes "new chat shows old messages" because
+      // App sets messages to [] on new session, but useChat kept old ones.
+      // Only skip if we're already empty and session didn't change.
+      if (messagesRef.current.length === 0 && !sessionChanged) return;
+      skipNextNotifyRef.current = true;
       setMessages([]);
+      lastExternalSyncRef.current = null;
+      streamingContentRef.current = '';
+      streamingThinkingRef.current = '';
+      setActiveToolCalls([]);
     }
-    // We intentionally depend only on externalMessages, not sessionId, so that
-    // re-mounting the same session does not wipe state. App.tsx passes a fresh
-    // array on each load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalMessages]);
+  }, [externalMessages, sessionId]);
 
   // Stable callbacks: wrap onTraceEntry / onPermissionRequest in refs so that
   // the streaming subscription effect does not re-subscribe on every render
@@ -115,20 +140,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // risking dropped events.
   const onTraceEntryRef = useRef(onTraceEntry);
   const onPermissionRequestRef = useRef(onPermissionRequest);
-  const onContextCompactedRef = useRef(onContextCompacted);
-  const onAskUserRef = useRef(onAskUser);
   useEffect(() => {
     onTraceEntryRef.current = onTraceEntry;
   }, [onTraceEntry]);
   useEffect(() => {
     onPermissionRequestRef.current = onPermissionRequest;
   }, [onPermissionRequest]);
-  useEffect(() => {
-    onContextCompactedRef.current = onContextCompacted;
-  }, [onContextCompacted]);
-  useEffect(() => {
-    onAskUserRef.current = onAskUser;
-  }, [onAskUser]);
   // Cleanup listeners on unmount or session change
   useEffect(() => {
     return () => {
@@ -162,10 +179,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubThinking = api.on.chatStreamThinking((data: { sessionId: string; thinking: string }) => {
       if (data.sessionId !== sessionId) return;
-      // Phase 8.8 fix: APPEND each thinking chunk instead of replacing.
-      const accumulated = streamingThinkingRef.current + data.thinking;
-      streamingThinkingRef.current = accumulated;
-      setStreamingThinking(accumulated);
+      streamingThinkingRef.current = data.thinking;
+      setStreamingThinking(data.thinking);
 
       // Update the streaming assistant message thinking
       setMessages(prev => {
@@ -174,7 +189,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
           updated[updated.length - 1] = {
             ...lastMsg,
-            thinking: accumulated,
+            thinking: data.thinking,
           };
         }
         return updated;
@@ -184,41 +199,23 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
       const incomingToolCall = data.toolCall;
-      // Phase 11.3: Store content offset for positioning AskUserQuestion card.
-      const splitOffset = streamingContentRef.current.length;
       const newToolCall: ToolCall = {
         id: (incomingToolCall.id as string) || crypto.randomUUID(),
         name: (incomingToolCall.name as string) || 'unknown',
         arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
         status: 'pending',
-        ...({ _splitOffset: splitOffset } as any),
       };
 
       setActiveToolCalls(prev => [...prev, newToolCall]);
-      activeToolCallsRef.current = [...activeToolCallsRef.current, newToolCall];
 
-      // Phase 10.3: Also add to the streaming message's toolCalls so the
-      // MessageBubble can render inline cards DURING streaming.
-      setMessages(prev => {
-        const updated = [...prev];
-        const lastMsg = updated[updated.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          const existing = lastMsg.toolCalls || [];
-          if (!existing.some(tc => tc.id === newToolCall.id)) {
-            updated[updated.length - 1] = {
-              ...lastMsg,
-              toolCalls: [...existing, newToolCall],
-            };
-          }
-        }
-        return updated;
-      });
-      //
-      // Now, permissions are handled SOLELY by main.ts: the execute handler
-      // calls checkPermission() → if 'ask', calls requestPermission() → sends
-      // chat:permission-request with a 'perm-...' ID → the renderer's
-      // on.permissionRequest handler fires → PermissionDialog shows → user
-      // clicks a button → permission:respond with the correct 'perm-...' ID.
+      // If permission mode requires approval, emit a permission request
+      if (permissionMode === 'approve' || permissionMode === 'smart_approve') {
+        onPermissionRequestRef.current?.({
+          id: newToolCall.id,
+          toolName: newToolCall.name,
+          args: newToolCall.arguments,
+        });
+      }
     });
 
     const unsubToolResult = api.on.chatStreamToolResult((data: { sessionId: string; toolResult: Record<string, unknown> }) => {
@@ -247,20 +244,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          // Phase 10.3: Preserve tool calls in the finalized message.
-          const existingToolCalls = lastMsg.toolCalls || [];
-          const allToolCalls = [...existingToolCalls];
-          for (const atc of activeToolCallsRef.current) {
-            if (!allToolCalls.some(tc => tc.id === atc.id)) {
-              allToolCalls.push(atc);
-            }
-          }
           updated[updated.length - 1] = {
             ...lastMsg,
             content: data.content || streamingContentRef.current,
             isStreaming: false,
             thinking: streamingThinkingRef.current || lastMsg.thinking,
-            toolCalls: allToolCalls,
           };
         }
         return updated;
@@ -272,7 +260,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setStreamingThinking('');
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
-      activeToolCallsRef.current = [];
       setActiveToolCalls([]);
     });
 
@@ -301,6 +288,25 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
       setActiveToolCalls([]);
+    });
+
+    // Phase 8.2: non-fatal warnings (e.g. max-steps reached with partial content).
+    // We don't stop streaming — the stream-end will follow — but we surface the
+    // warning so the user knows the agent hit a limit.
+    const unsubWarning = api.on.chatStreamWarning((data: { sessionId: string; warning: string }) => {
+      if (data.sessionId !== sessionId) return;
+      // Stash on the in-flight assistant message so the UI can show it.
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            warning: data.warning,
+          };
+        }
+        return updated;
+      });
     });
 
     const unsubCancelled = api.on.chatStreamCancelled((data: { sessionId: string }) => {
@@ -348,35 +354,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       });
     }) ?? (() => {});
 
-    // Phase 10.2: AskUserQuestion — inject _askRequestId into tool call args.
-    const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<any> }; questions?: Array<any> }) => {
-      if (data.sessionId !== sessionId) return;
-      const questions = data.questions || data.args?.questions || [];
-      onAskUserRef.current?.({ id: data.id, toolName: data.toolName, questions });
-      // Inject _askRequestId into the latest unanswered AskUserQuestion tool call.
-      setMessages(prev => {
-        const updated = [...prev];
-        const lastMsg = updated[updated.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.toolCalls) {
-          let found = false;
-          lastMsg.toolCalls = lastMsg.toolCalls.map(tc => {
-            if (tc.name === 'AskUserQuestion' && !tc.result && !found) {
-              found = true;
-              return { ...tc, arguments: { ...tc.arguments, _askRequestId: data.id } };
-            }
-            return tc;
-          });
-        }
-        return updated;
-      });
-    }) ?? (() => {});
-
-    // Phase 8.3: auto-compaction.
-    const unsubCompacted = api.on?.contextCompacted?.((data: { sessionId?: string; savedTokens: number; strategy?: string }) => {
-      if (data.sessionId && data.sessionId !== sessionId) return;
-      onContextCompactedRef.current?.({ savedTokens: data.savedTokens, strategy: data.strategy });
-    }) ?? (() => {});
-
     unsubscribeRef.current = [
       unsubChunk,
       unsubThinking,
@@ -384,11 +361,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       unsubToolResult,
       unsubEnd,
       unsubError,
+      unsubWarning,
       unsubCancelled,
       unsubTrace,
       unsubPermission,
-      unsubAskUser,
-      unsubCompacted,
     ];
 
     return () => {
@@ -398,7 +374,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   }, [sessionId, permissionMode]);
 
   // Notify parent when messages change
+  // Phase 6.5: Skip notifying parent if WE just synced from externalMessages
   useEffect(() => {
+    if (skipNextNotifyRef.current) {
+      skipNextNotifyRef.current = false;
+      return;
+    }
     onMessagesUpdate?.(messages);
   }, [messages, onMessagesUpdate]);
 

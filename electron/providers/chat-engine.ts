@@ -27,7 +27,6 @@ import { OpencodeConfig } from './opencode-config';
 import { getOpencodeRegistry } from './opencode-registry';
 import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
 import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
-import { directChatStream, DirectToolDefinition } from './direct-chat-stream';
 
 // AI SDK loading state.
 let _aiSdkLoaded = false;
@@ -69,38 +68,28 @@ export function buildThinkingProviderOptions(
 ): Record<string, unknown> | undefined {
   if (!effort || effort === 'off') return undefined;
 
-  // Map UI levels to OpenAI's 3-level system.
-  // Phase 8.4: 'extended' maps to 'high' for OpenAI (they don't have a
-  // higher tier), but the caller also bumps maxTokens + maxSteps when
-  // effort === 'extended' (see getExtendedThinkingBoost()).
+  // Map UI levels to OpenAI's 3-level system
   const openaiEffortMap: Record<string, string> = {
     low: 'low',
     medium: 'medium',
     high: 'high',
-    max: 'high',      // OpenAI only has 3 levels; 'max' maps to 'high'
-    extended: 'high', // Phase 8.4: 'extended' also maps to 'high' for OpenAI
+    max: 'high', // OpenAI only has 3 levels; 'max' maps to 'high'
   };
 
-  // Map UI levels to Anthropic budget tokens.
-  // Phase 8.4: 'extended' uses 128K — double the 'max' budget. This is
-  // the sweet spot for hard multi-step problems where the model needs
-  // to reason through several iterations before committing to an answer.
+  // Map UI levels to Anthropic budget tokens
   const anthropicBudgetMap: Record<string, number> = {
     low: 5000,
     medium: 16000,
     high: 32000,
     max: 64000,
-    extended: 128000,
   };
 
-  // Map UI levels to Google thinking budget.
-  // Phase 8.4: 'extended' uses 65536 — double the 'max' budget.
+  // Map UI levels to Google thinking budget
   const googleBudgetMap: Record<string, number> = {
     low: 2048,
     medium: 8192,
     high: 16384,
     max: 32768,
-    extended: 65536,
   };
 
   const provider = providerId.toLowerCase();
@@ -143,49 +132,6 @@ export function buildThinkingProviderOptions(
   return {
     'openai-compatible': { reasoningEffort: mapped },
   };
-}
-
-/**
- * Phase 8.4: Extended Thinking Boost
- *
- * When the user picks "Extended" thinking effort, we don't just bump the
- * reasoning budget — we ALSO boost maxTokens (so the model has room to
- * produce a long answer after thinking) and maxSteps (so the agent loop
- * can iterate more times on hard problems).
- *
- * Returns null for non-extended efforts so callers can skip applying
- * the boost.
- */
-export function getExtendedThinkingBoost(effort: string | undefined): { maxTokensBoost: number; maxStepsBoost: number } | null {
-  if (effort !== 'extended') return null;
-  return {
-    // +8K tokens of output room — enough for a substantial code change
-    // plus an explanation, even after a long thinking trace.
-    maxTokensBoost: 8192,
-    // +50 steps — doubles the default 50-step budget for hard multi-step
-    // tasks (read 10 files, edit 5, run tests, fix failures, repeat).
-    maxStepsBoost: 50,
-  };
-}
-
-/**
- * Phase 9.7: Extract the raw JSON Schema from a tool's parameters field.
- *
- * The AI SDK wraps schemas with jsonSchema() which produces an object like:
- *   { _type: undefined, jsonSchema: { type: 'object', ... }, validate: fn }
- * We need to extract the raw `jsonSchema` field to send it directly to the
- * provider's API (which expects raw JSON Schema, not the SDK wrapper).
- *
- * If the parameters are already a raw JSON Schema (no wrapping), return as-is.
- */
-function extractRawSchema(params: any): Record<string, unknown> {
-  if (!params) return { type: 'object', properties: {} };
-  // Check if it's a jsonSchema() wrapper (has a `jsonSchema` field).
-  if (params.jsonSchema && typeof params.jsonSchema === 'object') {
-    return params.jsonSchema;
-  }
-  // Already a raw JSON Schema — return as-is.
-  return params;
 }
 
 /**
@@ -292,46 +238,15 @@ export interface ChatEngineOptions {
   config?: OpencodeConfig;
 }
 
-export interface AgentSkillDefinition {
-  /** Stable skill ID, e.g. "create-component". */
-  id: string;
-  /** Human-readable name, e.g. "Create Component". */
-  name: string;
-  /** What the skill does — shown to the model as the tool description. */
-  description: string;
-  /** JSON Schema for the skill's input parameters. */
-  parameters?: Record<string, unknown>;
-  /** Whether the skill is currently enabled. Disabled skills are skipped. */
-  enabled?: boolean;
-  /** Category for grouping in the UI (coding, writing, data, etc.). */
-  category?: string;
-}
-
 export interface AgentToolDeps {
   sandboxManager: any;
   workingDirectory: string;
   extensionRegistry?: any;
-  /** Phase 8.4: loaded skills (from ~/.claude/skills/ + builtin registry). */
-  skills?: AgentSkillDefinition[];
-  /** Phase 8.4: callback to actually execute a skill by ID. */
-  executeSkill?: (id: string, args: Record<string, unknown>, context: { sessionId: string; workingDir: string }) => Promise<{ success: boolean; output: string; error?: string }>;
-  /** Phase 8.4: current session ID — passed to skill executions. */
-  sessionId?: string;
 }
 
 export interface PermissionChecker {
   checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny';
   requestPermission(toolName: string, args: Record<string, unknown>): Promise<boolean>;
-  /**
-   * Phase 8.5: Ask the user a question with multiple-choice options.
-   * Returns the user's selected answer (the option label), or null if
-   * the user dismissed the dialog without answering.
-   *
-   * Used by the AskUserQuestion tool. Distinct from requestPermission
-   * because the response is a free-form string (the selected option),
-   * not a boolean allow/deny.
-   */
-  requestUserAnswer?(toolName: string, args: Record<string, unknown>): Promise<string | null>;
 }
 
 export class ChatEngine {
@@ -458,27 +373,6 @@ export class ChatEngine {
     }
   ): AsyncGenerator<StreamChunk> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
-
-    // Phase 9.7: Try the DIRECT HTTP path FIRST when tools are provided.
-    // Bypasses the AI SDK — sends raw OpenAI Chat Completions with tools
-    // as raw JSON Schema. This is how opencode does it and works reliably
-    // with DeepSeek + other models that don't handle AI SDK wrapping.
-    if (options?.tools && baseUrl) {
-      console.info(`[ChatEngine] Direct HTTP path for ${provider.id}/${modelId}`);
-      try {
-        const directTools: DirectToolDefinition[] = Object.entries(options.tools).map(([name, tool]: [string, any]) => ({
-          name,
-          description: tool.description || '',
-          parameters: extractRawSchema(tool.parameters),
-          execute: tool.execute,
-        }));
-        const providerOptions = buildThinkingProviderOptions(provider.id, options?.thinkingEffort);
-        yield* this.runDirectAgentLoop({ request, options, provider, auth, baseUrl, modelId, directTools, providerOptions });
-        return;
-      } catch (err: any) {
-        console.warn(`[ChatEngine] Direct HTTP path failed, falling back to AI SDK:`, err?.message || err);
-      }
-    }
 
     // Try AI SDK path.
     const available = await ensureAiSdk();
@@ -625,10 +519,13 @@ export class ChatEngine {
                 case 'finish':
                   // Phase 4.1: if we got NO text-delta parts but DID get
                   // reasoning content, yield the reasoning as the answer.
+                  // This happens with reasoning models (DeepSeek, o1, etc.)
+                  // that put everything in reasoning_content and leave the
+                  // regular content field empty.
                   if (!yieldedContent && accumulatedReasoning.trim()) {
+                    console.info(`[ChatEngine] No text-delta parts received, using ${accumulatedReasoning.length} chars of reasoning as content`);
                     yield { type: 'content', content: accumulatedReasoning };
                   }
-
                   if (result.usage) {
                     yield {
                       type: 'usage',
@@ -638,6 +535,7 @@ export class ChatEngine {
                       },
                     };
                   }
+                  console.info(`[ChatEngine] Stream finished after ${partCount} parts (yieldedContent: ${yieldedContent})`);
                   yield { type: 'done' };
                   return;
 
@@ -726,43 +624,23 @@ export class ChatEngine {
   ): Record<string, any> {
     const tools: Record<string, any> = {};
 
-    // Phase 9: Wrap plain JSON Schema objects with the AI SDK's jsonSchema()
-    // helper. In AI SDK v4, ToolParameters must be `z.ZodTypeAny | Schema<any>`
-    // — a plain JSON Schema object is NOT valid. When you pass a plain object,
-    // the SDK can't validate tool arguments and silently fails to call the
-    // execute handler. This was the root cause of AskUserQuestion + TodoWrite
-    // not working: the model would emit a tool call, but execute() never ran.
-    const jsonSchemaFn = getJsonSchema();
-    const wrapParams = (schema: Record<string, unknown>): any => {
-      if (!jsonSchemaFn) return schema; // SDK not loaded — fall back to raw
-      return jsonSchemaFn(schema);
-    };
-
     // Built-in tools with AI SDK tool() format.
-    // Phase 9.4: Descriptions rewritten using opencode's proven tool
-    // descriptions (github.com/anomalyco/opencode). These are battle-tested
-    // across many models and give clearer guidance on WHEN to use each tool.
+    // Using plain JSON schemas (not zod) for compatibility.
+    //
+    // Phase 8.2: Tool descriptions are written Claude-Code-style — they tell
+    // the model WHEN to use each tool, not just WHAT it does. This matters
+    // because the system prompt tells the model to "use tools proactively",
+    // and the descriptions are the model's only guide for picking the right
+    // one. Each description also includes a "Returns" line so the model
+    // knows what to expect in the result.
     const builtinTools = [
       {
         name: 'bash',
-        description: `Executes a shell command in the working directory.
-
-Usage:
-- This tool is for terminal operations like git, npm, docker, building, running tests, etc.
-- DO NOT use this tool for file operations (reading, writing, editing, searching files) — use the specialized tools (read, write, edit, glob, grep) instead.
-- Returns stdout, stderr, exit code, and timing.
-- Commands run with the working directory as cwd.
-- Avoid \`rm -rf\` and \`sudo\` — they trigger a permission prompt.
-
-# Git and GitHub
-- Only commit, amend, push, or create PRs when explicitly requested.
-- Before committing, inspect \`git status\`, \`git diff\`, and \`git log --oneline -10\`.
-- Write a concise commit message that matches the repo style.
-- Do not force-push or create empty commits unless explicitly requested.`,
+        description: 'Execute a shell command in the working directory. Returns stdout, stderr, exit code, and timing. Use this for: running tests, git commands, building code, listing directories (ls), and any one-off shell task. For repeated file inspection prefer `read` or `grep`. Avoid `rm -rf` and `sudo` — they trigger a permission prompt.',
         parameters: {
           type: 'object',
           properties: {
-            command: { type: 'string', description: 'The shell command to execute.' },
+            command: { type: 'string', description: 'The shell command to execute. Use pipes/redirection as needed.' },
             cwd: { type: 'string', description: 'Working directory (defaults to the agent cwd)' },
             timeout: { type: 'number', description: 'Timeout in ms (default 30000, max 300000)' },
           },
@@ -771,23 +649,11 @@ Usage:
       },
       {
         name: 'read',
-        description: `Read a file or directory from the local filesystem. If the path does not exist, an error is returned.
-
-Usage:
-- The path parameter should be an absolute path or relative to the working directory.
-- By default, this tool returns up to 2000 lines from the start of the file.
-- The offset parameter is the line number to start from (1-indexed).
-- To read later sections, call this tool again with a larger offset.
-- Use the grep tool to find specific content in large files or files with long lines.
-- If you are unsure of the correct file path, use the glob tool to look up filenames by glob pattern.
-- Contents are returned with each line prefixed with its line number: \`<line>: <content>\`.
-- For directories, entries are returned one per line with a trailing \`/\` for subdirectories.
-- Any line longer than 2000 characters is truncated.
-- You MUST call this tool before editing a file — the edit tool requires an exact text match.`,
+        description: 'Read the contents of a file. Always call this before `edit` so you have the exact text to match. Returns the file content with line numbers prepended (cat -n style). Supports optional offset/limit for large files — but reading the whole file is preferred when feasible so you have full context.',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'File or directory path (relative to cwd or absolute)' },
+            path: { type: 'string', description: 'File path (relative to cwd or absolute)' },
             offset: { type: 'number', description: 'Starting line number (1-indexed, default 1)' },
             limit: { type: 'number', description: 'Max lines to read (default 2000)' },
           },
@@ -796,15 +662,7 @@ Usage:
       },
       {
         name: 'write',
-        description: `Writes a file to the local filesystem.
-
-Usage:
-- This tool overwrites the existing file if there is one at the provided path.
-- If editing an existing file, you MUST use the Read tool first to read its contents.
-- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
-- NEVER proactively create documentation files (*.md) or README files.
-- Creates parent directories if needed.
-- For targeted changes to an existing file, prefer the edit tool.`,
+        description: 'Write content to a file, overwriting it if it exists. Creates parent directories if needed. Use this for new files or full rewrites. For targeted changes to an existing file, prefer `edit` (it preserves the rest of the file and is less error-prone).',
         parameters: {
           type: 'object',
           properties: {
@@ -816,15 +674,7 @@ Usage:
       },
       {
         name: 'edit',
-        description: `Performs exact string replacements in files.
-
-Usage:
-- You must use the Read tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
-- The oldString MUST match the file exactly (including whitespace and indentation).
-- The edit will FAIL if oldString is not found in the file.
-- The edit will FAIL if oldString is found multiple times — provide more surrounding context to make the match unique.
-- To delete code, set newString to an empty string.
-- ALWAYS prefer editing existing files. NEVER write new files unless explicitly required.`,
+        description: 'Edit a file by replacing a unique old_string with new_string. The old_string MUST match the file exactly (including whitespace and indentation) — if it does not match, the tool returns an error and the file is unchanged. Tip: call `read` first to get the exact text. To delete code, set new_string to an empty string.',
         parameters: {
           type: 'object',
           properties: {
@@ -837,13 +687,7 @@ Usage:
       },
       {
         name: 'glob',
-        description: `Fast file pattern matching tool that works with any codebase size.
-
-- Supports glob patterns like "**/*.js" or "src/**/*.ts"
-- Returns matching file paths
-- Use this tool when you need to find files by name patterns
-- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
-- For searching file CONTENTS, use grep instead.`,
+        description: 'Find files matching a glob pattern. Use this to discover files by name/extension (e.g. "**/*.ts" finds all TypeScript files). Returns a list of paths relative to the search directory. For searching file CONTENTS, use `grep` instead.',
         parameters: {
           type: 'object',
           properties: {
@@ -855,14 +699,7 @@ Usage:
       },
       {
         name: 'grep',
-        description: `Fast content search tool that works with any codebase size.
-
-- Searches file contents using regular expressions
-- Supports full regex syntax (eg. "log.*Error", "function\\s+\\w+", etc.)
-- Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}")
-- Returns file paths and line numbers with matching lines
-- Use this tool when you need to find files containing specific patterns
-- For finding files by NAME, use glob instead.`,
+        description: 'Search file contents with a regex (ripgrep-style). Use this to find where a function/symbol/constant is defined or referenced. Returns matching lines with file paths and line numbers. For finding files by NAME, use `glob` instead. Supports include patterns to limit which file types are searched.',
         parameters: {
           type: 'object',
           properties: {
@@ -875,12 +712,7 @@ Usage:
       },
       {
         name: 'list_files',
-        description: `List the contents of a directory.
-
-- Returns names + types (file/dir) for each entry.
-- Subdirectories have a trailing \`/\`.
-- Use this to orient yourself when you don't know the project structure.
-- For recursive discovery, use glob with a pattern like "**/*".`,
+        description: 'List the contents of a directory. Use this to orient yourself when you don\'t know the project structure. Returns names + types (file/dir). For recursive discovery, use `glob` with a pattern like "**/*".',
         parameters: {
           type: 'object',
           properties: {
@@ -891,39 +723,7 @@ Usage:
       },
       {
         name: 'TodoWrite',
-        description: `Create and maintain a structured task list for the current coding session. Tracks progress, organizes multi-step work, and surfaces status to the user.
-
-## When to use
-Use proactively when:
-- The task requires 3+ distinct steps or actions
-- The work is non-trivial and benefits from planning
-- The user provides multiple tasks (numbered or comma-separated) or explicitly asks for a todo list
-- New instructions arrive — capture them as todos
-- You start a task — mark it \`in_progress\` (only one at a time) before working
-- You finish a task — mark it \`completed\` and add any follow-ups discovered during the work
-
-## When NOT to use
-Skip when:
-- The work is a single, straightforward task (or <3 trivial steps)
-- The request is purely informational or conversational
-- Tracking adds no organizational value
-
-## States
-- \`pending\` — not started
-- \`in_progress\` — actively working (exactly ONE at a time)
-- \`completed\` — finished successfully
-- \`cancelled\` — no longer needed
-
-## Clearing the todo list
-When ALL tasks are completed and you're done with the work, call TodoWrite with \`clear: true\` to dismiss the todo UI. This removes the todo list from the chat. Do NOT clear if there are pending or in_progress items.
-
-## Rules
-- Update status in real time; don't batch completions
-- Mark \`completed\` only after the required work is actually done
-- Keep exactly one \`in_progress\` while work remains
-- Items should be specific and actionable; break large work into smaller steps
-
-When in doubt, use it.`,
+        description: 'Create or update the agent\'s todo list for the current task. Call this at the start of multi-step work (3+ steps) to lay out a plan, then update each todo\'s status as you progress through it. The user can see the todos in real time. Statuses: pending (not started), in_progress (currently working), completed (done), cancelled (decided not to do). At most ONE todo should be in_progress at a time.',
         parameters: {
           type: 'object',
           properties: {
@@ -934,58 +734,45 @@ When in doubt, use it.`,
                 type: 'object',
                 properties: {
                   id: { type: 'string', description: 'Stable ID for this todo (e.g. "1", "2a"). Reuse the same ID when updating.' },
-                  content: { type: 'string', description: 'Brief description of the task' },
-                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: 'Current status of the task' },
-                  priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Priority level of the task' },
+                  content: { type: 'string', description: 'What needs to be done (short imperative, e.g. "Add input validation to login form")' },
+                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: 'Current status' },
+                  priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Priority (default medium)' },
                 },
                 required: ['id', 'content', 'status'],
               },
             },
-            clear: { type: 'boolean', description: 'Set to true to dismiss/clear the todo UI. Use when all tasks are completed and the work is done.' },
           },
           required: ['todos'],
         },
       },
       {
         name: 'AskUserQuestion',
-        description: `Use this tool when you need to ask the user questions during execution. This allows you to:
-1. Gather user preferences or requirements
-2. Clarify ambiguous instructions
-3. Get decisions on implementation choices as you work
-4. Offer choices to the user about what direction to take.
-
-Usage notes:
-- Answers are returned as the selected option labels (comma-separated for multi-select).
-- If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label.
-- Set multiple: true on a question to allow the user to select more than one option.
-- Questions are rendered INLINE in the chat (not as a popup). The user sees all questions at once.
-- You can ask multiple questions in a single call — each will have its own section with a header.`,
+        description: 'Ask the user a question with multiple-choice options. Use this when you need clarification or a decision from the user before proceeding.',
         parameters: {
           type: 'object',
           properties: {
             questions: {
               type: 'array',
-              description: 'Questions to ask the user',
+              description: 'Array of questions to ask the user',
               items: {
                 type: 'object',
                 properties: {
                   question: { type: 'string', description: 'The question text' },
-                  header: { type: 'string', description: 'Short header label for the question (e.g. "SCOPE", "METHOD")' },
-                  multiple: { type: 'boolean', description: 'If true, the user can select multiple options. Default: false (single-select).' },
+                  header: { type: 'string', description: 'Short header label for the question' },
                   options: {
                     type: 'array',
                     description: 'Multiple-choice options',
                     items: {
                       type: 'object',
                       properties: {
-                        label: { type: 'string', description: 'Option label (short title)' },
-                        description: { type: 'string', description: 'Optional longer description of the option' },
+                        label: { type: 'string', description: 'Option label' },
+                        description: { type: 'string', description: 'Optional description of the option' },
                       },
                       required: ['label'],
                     },
                   },
                 },
-                required: ['question', 'options'],
+                required: ['question'],
               },
             },
           },
@@ -997,42 +784,17 @@ Usage notes:
     for (const tool of builtinTools) {
       tools[tool.name] = {
         description: tool.description,
-        // Phase 9: wrap with jsonSchema() so the AI SDK can validate args
-        // and actually call execute(). Without this, the tool call is
-        // emitted but execute() never runs.
-        parameters: wrapParams(tool.parameters),
+        parameters: tool.parameters,
         execute: async (args: Record<string, unknown>) => {
-          // Phase 7.1 + Phase 8.5: AskUserQuestion uses a dedicated
-          // ask-user flow (NOT the permission flow) to get the user's
-          // selected answer. The UI shows a question card with the
-          // multiple-choice options, the user picks one, and the
-          // selected option label is returned as the tool result.
-          //
-          // Phase 8.5 fix: previously this called requestPermission()
-          // which only returns boolean — so the agent never saw the
-          // user's actual answer, just "User acknowledged the question."
-          // Now we use requestUserAnswer() which returns the selected
-          // option string, or null if the user dismissed the dialog.
+          // Phase 7.1: AskUserQuestion uses the permission request flow to
+          // get the user's answer. The UI shows a question card, the user
+          // selects an option, and the response is sent back as the tool result.
           if (tool.name === 'AskUserQuestion') {
-            if (permissionChecker.requestUserAnswer) {
-              const answer = await permissionChecker.requestUserAnswer(tool.name, args);
-              if (answer === null) {
-                return 'User dismissed the question without answering.';
-              }
-              // Return the answer in a structured format so the agent
-              // can parse it: "Question: <q>\nAnswer: <selected option>"
-              const questions = Array.isArray(args.questions) ? args.questions : [];
-              const firstQ = questions[0] as any;
-              const questionText = firstQ?.question || '(unknown question)';
-              return `Question: ${questionText}\nUser's answer: ${answer}`;
-            }
-            // Fallback for old permission checkers that don't implement
-            // requestUserAnswer — degrade to boolean approval.
             const approved = await permissionChecker.requestPermission(tool.name, args);
             if (!approved) {
               return 'User declined to answer.';
             }
-            return 'User acknowledged the question. (Note: actual answer not captured — upgrade to requestUserAnswer for full support.)';
+            return 'User acknowledged the question.';
           }
 
           // Phase 8.2: TodoWrite is handled entirely in-process — it never
@@ -1043,13 +805,9 @@ Usage notes:
           // store + acknowledge.
           if (tool.name === 'TodoWrite') {
             const todos = Array.isArray(args.todos) ? args.todos : [];
-            const isClear = args.clear === true;
             // Stash on the toolDeps so the renderer-side bridge can read it.
+            // (Phase 8.3 will add a proper TodoStore with IPC + UI.)
             (toolDeps as any)._todos = todos;
-            (toolDeps as any)._todosCleared = isClear;
-            if (isClear) {
-              return 'Todo list cleared. The todo UI has been dismissed.';
-            }
             const completed = todos.filter((t: any) => t?.status === 'completed').length;
             const inProgress = todos.filter((t: any) => t?.status === 'in_progress').length;
             const pending = todos.filter((t: any) => t?.status === 'pending').length;
@@ -1086,8 +844,7 @@ Usage notes:
           if (tools[extTool.name]) continue; // Built-in takes precedence.
           tools[extTool.name] = {
             description: extTool.description,
-            // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
-            parameters: wrapParams(extTool.parameters || { type: 'object', properties: {} }),
+            parameters: extTool.parameters || { type: 'object', properties: {} },
             execute: async (args: Record<string, unknown>) => {
               const permission = permissionChecker.checkPermission(extTool.name, args);
               if (permission === 'deny') return { error: `Permission denied: ${extTool.name}` };
@@ -1108,233 +865,7 @@ Usage notes:
       }
     }
 
-    // Phase 8.4: Add skill tools.
-    //
-    // Each loaded skill becomes a tool the agent can invoke. The tool name
-    // is `skill_<id>` (prefixed to avoid clashing with builtin tools like
-    // `edit`). The description is the skill's description + a hint that
-    // the agent should pass the skill's required parameters as args.
-    //
-    // We skip disabled skills and skills whose ID would collide with an
-    // existing tool. The actual execution is delegated to the
-    // `executeSkill` callback on toolDeps (wired up in main.ts to call
-    // skillRegistry.execute()).
-    if (toolDeps.skills && toolDeps.executeSkill && toolDeps.sessionId) {
-      for (const skill of toolDeps.skills) {
-        if (skill.enabled === false) continue;
-        const toolName = `skill_${skill.id}`;
-        if (tools[toolName]) continue; // Don't overwrite
-
-        // Build a description that tells the model when to use this skill.
-        const desc = `[Skill] ${skill.description}\n\nInvoke this skill by passing its required parameters as arguments. The skill runs in the main process and returns its output as text.`;
-
-        tools[toolName] = {
-          description: desc,
-          // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
-          parameters: wrapParams(skill.parameters || { type: 'object', properties: {}, description: 'Skill parameters (see skill description)' }),
-          execute: async (args: Record<string, unknown>) => {
-            // Skills always require user approval (they can run arbitrary
-            // code via index.js, so we never auto-approve).
-            const approved = await permissionChecker.requestPermission(toolName, args);
-            if (!approved) {
-              return { error: `User denied skill execution: ${skill.name}` };
-            }
-            try {
-              const result = await toolDeps.executeSkill!(skill.id, args, {
-                sessionId: toolDeps.sessionId!,
-                workingDir: toolDeps.workingDirectory,
-              });
-              if (!result.success) {
-                return { error: result.error || `Skill '${skill.name}' failed` };
-              }
-              return result.output;
-            } catch (err: any) {
-              return { error: `Skill '${skill.name}' threw: ${err?.message || String(err)}` };
-            }
-          },
-        };
-      }
-    }
-
     return tools;
-  }
-
-  // ─── Phase 9.7: Direct HTTP Agent Loop ─────────────────────────────────────
-
-  /**
-   * Run the agentic tool loop using the direct HTTP stream.
-   *
-   * This bypasses the AI SDK entirely and sends raw OpenAI Chat Completions
-   * requests. Tools are sent as raw JSON Schema (not wrapped with
-   * jsonSchema()), and native tool_calls are parsed from the SSE stream.
-   *
-   * The loop:
-   *   1. Send the request with tools.
-   *   2. Stream the response (text + thinking + tool_calls).
-   *   3. When tool_calls are received, execute them via the tool's execute()
-   *      handler.
-   *   4. Send the tool results back as a new message.
-   *   5. Repeat until the model stops calling tools or maxSteps is reached.
-   */
-  async *runDirectAgentLoop(opts: {
-    request: ChatRequest;
-    options?: any;
-    provider: ProviderDefinition;
-    auth: AuthProvider;
-    baseUrl: string;
-    modelId: string;
-    directTools: DirectToolDefinition[];
-    providerOptions?: Record<string, unknown>;
-  }): AsyncGenerator<StreamChunk> {
-    const { request, options, provider, auth, baseUrl, modelId, directTools, providerOptions } = opts;
-    const maxSteps = options?.maxSteps || 50;
-    let stepCount = 0;
-    // Build the conversation messages. We'll append assistant messages
-    // (with tool_calls) + tool result messages as we go.
-    const conversationMessages: Array<{ role: string; content: string | Array<Record<string, unknown>>; tool_calls?: any[] }> = [];
-    for (const m of request.messages) {
-      conversationMessages.push({
-        role: m.role,
-        content: typeof m.content === 'string' ? m.content : String(m.content || ''),
-      });
-    }
-
-    while (stepCount < maxSteps) {
-      stepCount++;
-
-      // Collect tool calls from this step.
-      const pendingToolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
-      let stepContent = '';
-      let stepThinking = '';
-
-      // Stream this step.
-      for await (const chunk of directChatStream({
-        auth,
-        baseUrl,
-        model: modelId,
-        messages: conversationMessages,
-        systemPrompt: request.systemPrompt,
-        tools: directTools,
-        temperature: request.temperature,
-        maxTokens: request.maxTokens,
-        signal: options?.signal,
-        providerOptions,
-      })) {
-        switch (chunk.type) {
-          case 'content':
-            if (chunk.content) stepContent += chunk.content;
-            yield chunk;
-            break;
-          case 'thinking':
-            if (chunk.content) stepThinking += chunk.content;
-            yield chunk;
-            break;
-          case 'tool_call_start':
-          case 'tool_call_delta':
-            // Phase 9.9: Don't yield tool_call chunks from the direct loop —
-            // the onToolCall callback already sends them to the renderer via
-            // main.ts. Yielding them here would create DUPLICATE tool call
-            // entries in the renderer (one from onToolCall, one from the
-            // yield → main.ts switch → send path).
-            break;
-          case 'tool_call_end':
-            if (chunk.toolCall) {
-              pendingToolCalls.push({
-                id: chunk.toolCall.id || `call-${Date.now()}`,
-                name: chunk.toolCall.name || 'unknown',
-                arguments: chunk.toolCall.arguments || {},
-              });
-              // Notify the caller (main.ts intercepts TodoWrite etc.)
-              options?.onToolCall?.({
-                id: chunk.toolCall.id,
-                name: chunk.toolCall.name,
-                arguments: chunk.toolCall.arguments || {},
-              });
-            }
-            // Phase 9.9: Don't yield — onToolCall already sent it.
-            break;
-          case 'tool_result':
-            // Phase 9.9: Don't yield — onToolResult already sent it.
-            break;
-          case 'usage':
-            yield chunk;
-            break;
-          case 'error':
-            yield chunk;
-            return;
-          case 'done':
-            // Don't yield done yet — we may have tool calls to execute.
-            break;
-        }
-      }
-
-      // If no tool calls, we're done — yield done + return.
-      if (pendingToolCalls.length === 0) {
-        // Phase 4.1: reasoning-to-content fallback.
-        if (!stepContent.trim() && stepThinking.trim()) {
-          yield { type: 'content', content: stepThinking };
-        }
-        yield { type: 'done' };
-        return;
-      }
-
-      // Execute the tool calls + collect results.
-      const toolResults: Array<{ id: string; content: string }> = [];
-      for (const tc of pendingToolCalls) {
-        const tool = directTools.find(t => t.name === tc.name);
-        if (!tool || typeof tool.execute !== 'function') {
-          console.warn(`[DirectAgentLoop] Tool '${tc.name}' not found`);
-          toolResults.push({ id: tc.id, content: `Tool '${tc.name}' not found.` });
-          continue;
-        }
-        try {
-          const result = await tool.execute(tc.arguments);
-          // Phase 10.2: Handle { error: string } results from denied permissions.
-          if (result && typeof result === 'object' && 'error' in result) {
-            const content = (result as any).error || 'Permission denied';
-            toolResults.push({ id: tc.id, content });
-            options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
-            yield { type: 'tool_result', toolResult: { id: tc.id, content } };
-          } else {
-            const content = typeof result === 'string' ? result : JSON.stringify(result);
-            toolResults.push({ id: tc.id, content });
-            options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
-            yield { type: 'tool_result', toolResult: { id: tc.id, content } };
-          }
-        } catch (err: any) {
-          const errMsg = err?.message || String(err);
-          console.warn(`[DirectAgentLoop] Tool '${tc.name}' error:`, errMsg);
-          toolResults.push({ id: tc.id, content: `Error: ${errMsg}` });
-          yield { type: 'tool_result', toolResult: { id: tc.id, content: `Error: ${errMsg}` } };
-        }
-      }
-
-      // Add the assistant message (with tool_calls) + tool results to the
-      // conversation for the next step.
-      conversationMessages.push({
-        role: 'assistant',
-        content: stepContent || '',
-        tool_calls: pendingToolCalls.map(tc => ({
-          id: tc.id,
-          type: 'function',
-          function: {
-            name: tc.name,
-            arguments: JSON.stringify(tc.arguments),
-          },
-        })),
-      });
-      for (const tr of toolResults) {
-        conversationMessages.push({
-          role: 'tool',
-          content: tr.content,
-          tool_call_id: tr.id,
-        } as any);
-      }
-    }
-
-    // maxSteps reached.
-    console.warn(`[DirectAgentLoop] Reached maxSteps (${maxSteps})`);
-    yield { type: 'done' };
   }
 
   // ─── Phase 4: Advanced AI SDK Features ────────────────────────────────────

@@ -178,29 +178,10 @@ ${opts.agentPrompt.trim()}`
   if (opts.availableTools && opts.availableTools.length > 0) {
     sections.push(
 `# Available tools
-You have access to these tools: ${opts.availableTools.join(', ')}
+${opts.availableTools.join(', ')}
 
-## CRITICAL: How to call tools
-Use the AI SDK's native function calling mechanism. Do NOT emit tool calls as
-XML text, <tool_calls> tags, <invoke> tags, <ask_user_question> tags, or
-\`\`\`javascript code blocks. The framework handles tool execution automatically
-when you use native function calling. If you emit text instead, the tools will
-NOT execute and the user will see raw text in the chat.
-
-## Tool reference
-- **bash** — execute a shell command (param: command). Use for git, npm, docker, tests, builds. NOT for file I/O.
-- **read** — read a file or directory (param: path, optional: offset, limit). MUST call before edit.
-- **write** — write a file (params: path, content). Overwrites existing. Read first.
-- **edit** — edit a file (params: path, old_string, new_string). Exact match required.
-- **glob** — find files by name pattern (param: pattern, optional: path).
-- **grep** — search file contents by regex (param: pattern, optional: path, include).
-- **list_files** — list directory contents (param: path).
-- **TodoWrite** — update the todo list (param: todos — array of {id, content, status, priority}). Use for 3+ step tasks.
-- **AskUserQuestion** — ask the user a question (param: questions — array of {question, header?, options: [{label, description?}]}). Use when you need clarification.
-
-## Tool names (use EXACTLY these names — no aliases)
-Do NOT invent tool names like "create_todo", "ask_user_question", "run_command",
-"read_file", etc. Use the EXACT names above.`
+Call tools by name. Tool arguments are passed as a JSON object. The framework
+handles execution and returns the result inline so you can continue the turn.`
     );
   }
 
