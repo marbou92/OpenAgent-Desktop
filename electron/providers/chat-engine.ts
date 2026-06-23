@@ -27,7 +27,6 @@ import { OpencodeConfig } from './opencode-config';
 import { getOpencodeRegistry } from './opencode-registry';
 import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
 import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
-import { parseXmlToolCalls } from './xml-tool-parser';
 import { directChatStream, DirectToolDefinition } from './direct-chat-stream';
 
 // AI SDK loading state.
@@ -456,13 +455,6 @@ export class ChatEngine {
       onToolCall?: (toolCall: any) => void;
       onToolResult?: (toolResult: any) => void;
       thinkingEffort?: string; // Phase 4.2: 'off'|'low'|'medium'|'high'|'max'
-      /**
-       * Phase 9.1: Execute a parsed XML tool call. When the model emits
-       * tool calls as XML text (instead of via native function calling),
-       * we parse them and call this callback to execute the tool. The
-       * callback should return the tool's result string.
-       */
-      executeXmlToolCall?: (name: string, args: Record<string, unknown>) => Promise<string>;
     }
   ): AsyncGenerator<StreamChunk> {
     const { provider, auth, baseUrl, modelId } = this.resolveModel(request.model);
@@ -472,7 +464,7 @@ export class ChatEngine {
     // as raw JSON Schema. This is how opencode does it and works reliably
     // with DeepSeek + other models that don't handle AI SDK wrapping.
     if (options?.tools && baseUrl) {
-      console.info(`[ChatEngine] Direct HTTP path for ${provider.id}/${modelId} (tools: ${Object.keys(options.tools).length})`);
+      console.info(`[ChatEngine] Direct HTTP path for ${provider.id}/${modelId}`);
       try {
         const directTools: DirectToolDefinition[] = Object.entries(options.tools).map(([name, tool]: [string, any]) => ({
           name,
@@ -512,20 +504,6 @@ export class ChatEngine {
             // Phase 4.2: build providerOptions for thinking effort.
             const providerOptions = buildThinkingProviderOptions(provider.id, options?.thinkingEffort);
 
-            // Phase 9.6: Log what we're sending to the model so we can verify
-            // tools are actually being passed. This helps diagnose why the
-            // model emits text (DSML/XML) instead of native function calls.
-            const toolCount = options?.tools ? Object.keys(options.tools).length : 0;
-            console.info(`[ChatEngine] streamText call: model=${provider.id}/${modelId}, tools=${toolCount}, maxSteps=${options?.maxSteps || 'none'}, systemPrompt=${request.systemPrompt ? 'yes' : 'no'} (${request.systemPrompt?.length || 0} chars)`);
-            if (toolCount > 0) {
-              console.info(`[ChatEngine] Tool names: ${Object.keys(options!.tools!).join(', ')}`);
-              // Log the first tool's parameters shape to verify jsonSchema wrapping
-              const firstTool = Object.values(options!.tools!)[0] as any;
-              if (firstTool?.parameters) {
-                console.info(`[ChatEngine] First tool parameters type: ${typeof firstTool.parameters}, keys: ${Object.keys(firstTool.parameters).join(', ')}`);
-              }
-            }
-
             const result = streamText({
               model,
               messages: aiMessages,
@@ -562,11 +540,6 @@ export class ChatEngine {
             let yieldedContent = false;
             let fallbackToAdapter = false;
             let accumulatedReasoning = '';
-            // Phase 9.1: accumulate text content so we can scan for XML-style
-            // tool calls at the end. Some models emit tool calls as XML text
-            // instead of using native function calling — we parse + execute
-            // them after the stream finishes.
-            let accumulatedText = '';
             let partCount = 0;
             streamLoop:
             for await (const part of result.fullStream) {
@@ -578,7 +551,6 @@ export class ChatEngine {
                 case 'text-delta':
                   if (part.textDelta) {
                     yieldedContent = true;
-                    accumulatedText += part.textDelta;
                     yield { type: 'content', content: part.textDelta };
                   }
                   break;
@@ -591,9 +563,6 @@ export class ChatEngine {
                   break;
 
                 case 'tool-call':
-                  // Phase 9.6: Log native tool calls so we know the model IS
-                  // using function calling (vs falling back to text/DSML).
-                  console.info(`[ChatEngine] Native tool-call received: ${part.toolName} (id=${part.toolCallId})`);
                   yieldedContent = true;
                   yield {
                     type: 'tool_call_end',
@@ -657,67 +626,7 @@ export class ChatEngine {
                   // Phase 4.1: if we got NO text-delta parts but DID get
                   // reasoning content, yield the reasoning as the answer.
                   if (!yieldedContent && accumulatedReasoning.trim()) {
-                    console.info(`[ChatEngine] No text-delta parts received, using ${accumulatedReasoning.length} chars of reasoning as content`);
                     yield { type: 'content', content: accumulatedReasoning };
-                    accumulatedText = accumulatedReasoning;
-                  }
-
-                  // Phase 9.5: Debug log the accumulated text so we can see
-                  // what format the model actually emitted. This helps diagnose
-                  // why tool calls aren't executing.
-                  if (accumulatedText) {
-                    console.info(`[ChatEngine] Stream finished. accumulatedText length=${accumulatedText.length}, first 500 chars:`, accumulatedText.substring(0, 500));
-                  }
-
-                  // Phase 9.1: Check for XML-style tool calls in the text.
-                  // Some models (especially free/OpenAI-compatible ones) emit
-                  // tool calls as XML text instead of using native function
-                  // calling. We parse them here and execute the tools.
-                  if (accumulatedText && options?.executeXmlToolCall) {
-                    const xmlCalls = parseXmlToolCalls(accumulatedText);
-                    if (xmlCalls.length > 0) {
-                      console.info(`[ChatEngine] Found ${xmlCalls.length} XML/text tool call(s) in text — executing`);
-                      for (const xmlCall of xmlCalls) {
-                        // Notify the caller that a tool call was detected
-                        // (so main.ts can intercept TodoWrite, forward to
-                        // the trace, etc.).
-                        const toolCallId = `xml-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                        options.onToolCall?.({
-                          id: toolCallId,
-                          name: xmlCall.name,
-                          arguments: xmlCall.args,
-                        });
-                        // Yield a tool_call_end so the renderer's
-                        // ToolUseCard renders the call.
-                        yield {
-                          type: 'tool_call_end',
-                          toolCall: {
-                            id: toolCallId,
-                            name: xmlCall.name,
-                            arguments: xmlCall.args,
-                          },
-                        };
-                        try {
-                          const result = await options.executeXmlToolCall(xmlCall.name, xmlCall.args);
-                          options.onToolResult?.({
-                            toolCallId,
-                            toolName: xmlCall.name,
-                            args: xmlCall.args,
-                            result,
-                          });
-                          yield {
-                            type: 'tool_result',
-                            toolResult: { id: toolCallId, content: result },
-                          };
-                        } catch (err: any) {
-                          const errMsg = err?.message || String(err);
-                          yield {
-                            type: 'tool_result',
-                            toolResult: { id: toolCallId, content: `Error: ${errMsg}` },
-                          };
-                        }
-                      }
-                    }
                   }
 
                   if (result.usage) {
@@ -728,16 +637,6 @@ export class ChatEngine {
                         completionTokens: result.usage.completionTokens || 0,
                       },
                     };
-                  }
-                  console.info(`[ChatEngine] Stream finished after ${partCount} parts (yieldedContent: ${yieldedContent}, tools: ${!!options?.tools}, executeXmlToolCall: ${!!options?.executeXmlToolCall})`);
-                  // Phase 9.5: If we had tools but no native tool-call parts
-                  // AND no XML/text tool calls were found, log a warning so
-                  // the user knows the model didn't call any tools.
-                  if (options?.tools && !yieldedContent && accumulatedText && options?.executeXmlToolCall) {
-                    const xmlCalls = parseXmlToolCalls(accumulatedText);
-                    if (xmlCalls.length === 0) {
-                      console.warn(`[ChatEngine] Model emitted text but no tool calls were detected (neither native nor XML/text). The model may not support function calling. Text preview: "${accumulatedText.substring(0, 200)}"`);
-                    }
                   }
                   yield { type: 'done' };
                   return;
@@ -1108,11 +1007,8 @@ Usage notes:
           // Now we use requestUserAnswer() which returns the selected
           // option string, or null if the user dismissed the dialog.
           if (tool.name === 'AskUserQuestion') {
-            console.info('[ChatEngine] AskUserQuestion execute() called — args:', JSON.stringify(args).substring(0, 200));
             if (permissionChecker.requestUserAnswer) {
-              console.info('[ChatEngine] AskUserQuestion: calling requestUserAnswer...');
               const answer = await permissionChecker.requestUserAnswer(tool.name, args);
-              console.info('[ChatEngine] AskUserQuestion: got answer:', answer);
               if (answer === null) {
                 return 'User dismissed the question without answering.';
               }
@@ -1139,7 +1035,6 @@ Usage notes:
           // The full todo-tracking UI lands in Phase 8.3; for now we just
           // store + acknowledge.
           if (tool.name === 'TodoWrite') {
-            console.info('[ChatEngine] TodoWrite execute() called — todos:', JSON.stringify(args.todos).substring(0, 200));
             const todos = Array.isArray(args.todos) ? args.todos : [];
             // Stash on the toolDeps so the renderer-side bridge can read it.
             (toolDeps as any)._todos = todos;
@@ -1294,7 +1189,6 @@ Usage notes:
 
     while (stepCount < maxSteps) {
       stepCount++;
-      console.info(`[DirectAgentLoop] Step ${stepCount}/${maxSteps}`);
 
       // Collect tool calls from this step.
       const pendingToolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
@@ -1364,24 +1258,6 @@ Usage notes:
         if (!stepContent.trim() && stepThinking.trim()) {
           yield { type: 'content', content: stepThinking };
         }
-        // Phase 9.1: Check for XML/text tool calls as a fallback.
-        if (stepContent && options?.executeXmlToolCall) {
-          const xmlCalls = parseXmlToolCalls(stepContent);
-          if (xmlCalls.length > 0) {
-            console.info(`[DirectAgentLoop] Found ${xmlCalls.length} XML/text tool call(s) — executing`);
-            for (const xmlCall of xmlCalls) {
-              const toolCallId = `xml-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-              options?.onToolCall?.({ id: toolCallId, name: xmlCall.name, arguments: xmlCall.args });
-              yield { type: 'tool_call_end', toolCall: { id: toolCallId, name: xmlCall.name, arguments: xmlCall.args } };
-              try {
-                const result = await options.executeXmlToolCall(xmlCall.name, xmlCall.args);
-                yield { type: 'tool_result', toolResult: { id: toolCallId, content: result } };
-              } catch (err: any) {
-                yield { type: 'tool_result', toolResult: { id: toolCallId, content: `Error: ${err?.message || err}` } };
-              }
-            }
-          }
-        }
         yield { type: 'done' };
         return;
       }
@@ -1391,11 +1267,10 @@ Usage notes:
       for (const tc of pendingToolCalls) {
         const tool = directTools.find(t => t.name === tc.name);
         if (!tool || typeof tool.execute !== 'function') {
-          console.warn(`[DirectAgentLoop] Tool '${tc.name}' not found or has no execute handler`);
+          console.warn(`[DirectAgentLoop] Tool '${tc.name}' not found`);
           toolResults.push({ id: tc.id, content: `Tool '${tc.name}' not found.` });
           continue;
         }
-        console.info(`[DirectAgentLoop] Executing tool: ${tc.name} (id=${tc.id})`);
         try {
           const result = await tool.execute(tc.arguments);
           const content = typeof result === 'string' ? result : JSON.stringify(result);
@@ -1404,7 +1279,7 @@ Usage notes:
           yield { type: 'tool_result', toolResult: { id: tc.id, content } };
         } catch (err: any) {
           const errMsg = err?.message || String(err);
-          console.warn(`[DirectAgentLoop] Tool '${tc.name}' threw:`, errMsg);
+          console.warn(`[DirectAgentLoop] Tool '${tc.name}' error:`, errMsg);
           toolResults.push({ id: tc.id, content: `Error: ${errMsg}` });
           yield { type: 'tool_result', toolResult: { id: tc.id, content: `Error: ${errMsg}` } };
         }
