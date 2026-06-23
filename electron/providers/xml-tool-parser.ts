@@ -109,7 +109,7 @@ function canonicalizeToolName(name: string): string {
 }
 
 /**
- * Scan text for ALL supported tool call patterns (XML + code-block).
+ * Scan text for ALL supported tool call patterns (XML + code-block + DSML).
  * Returns all matches found, in order of appearance.
  */
 export function parseXmlToolCalls(text: string): ParsedToolCall[] {
@@ -118,6 +118,9 @@ export function parseXmlToolCalls(text: string): ParsedToolCall[] {
 
   // ─── Format 0: Code-block function calls ──────────────────────────────
   calls.push(...parseCodeBlockToolCalls(text));
+
+  // ─── Format DSML: <｜｜DSML｜｜tool_calls> (DeepSeek format) ──────────
+  calls.push(...parseDsmlToolCalls(text));
 
   // ─── Format 2: <ask_user_question>...</ask_user_question> ────────────
   calls.push(...parseAskUserQuestionTag(text));
@@ -312,6 +315,81 @@ function fixJsonLenient(s: string): string | null {
   } catch {
     return null;
   }
+}
+
+// ─── Format DSML: <｜｜DSML｜｜tool_calls> (DeepSeek format) ───────────────────
+// DeepSeek models emit tool calls using a proprietary DSML format with
+// fullwidth vertical bar characters (｜ = U+FF5C). The format is:
+//   <｜｜DSML｜｜tool_calls>
+//   <｜｜DSML｜｜invoke name="AskUserQuestion">
+//   <｜｜DSML｜｜parameter name="questions" string="false">[{...}]</｜｜DSML｜｜parameter>
+//   </｜｜DSML｜｜invoke>
+//   </｜｜DSML｜｜tool_calls>
+// The `string="false"` attribute indicates the parameter value is JSON
+// (not a plain string). We parse it accordingly.
+
+// The fullwidth vertical bar character used in DSML tags.
+const DSML_BAR = '\uFF5C'; // ｜
+const DSML_OPEN = `<${DSML_BAR}${DSML_BAR}DSML${DSML_BAR}${DSML_BAR}`; // <｜｜DSML｜｜
+
+function parseDsmlToolCalls(text: string): ParsedToolCall[] {
+  const calls: ParsedToolCall[] = [];
+  if (!text.includes(DSML_OPEN)) return calls;
+
+  // Match: <｜｜DSML｜｜tool_calls>...<｜｜DSML｜｜invoke name="X">...<｜｜DSML｜｜parameter name="Y" ...>VALUE</｜｜DSML｜｜parameter>...</｜｜DSML｜｜invoke>...</｜｜DSML｜｜tool_calls>
+  // We use a broad regex to find the tool_calls block, then parse invokes inside.
+  const dsmlBlockRegex = new RegExp(
+    `${escapeRegex(DSML_OPEN)}tool_calls>([\\s\\S]*?)${escapeRegex(DSML_OPEN)}/tool_calls>`,
+    'gi'
+  );
+  const invokeRegex = new RegExp(
+    `${escapeRegex(DSML_OPEN)}invoke\\s+name=["']([^"']+)["']\\s*>([\\s\\S]*?)${escapeRegex(DSML_OPEN)}/invoke>`,
+    'gi'
+  );
+  const paramRegex = new RegExp(
+    `${escapeRegex(DSML_OPEN)}parameter\\s+name=["']([^"']+)["'](?:\\s+string=["']([^"']*)["'])?[^>]*>([\\s\\S]*?)${escapeRegex(DSML_OPEN)}/parameter>`,
+    'gi'
+  );
+
+  let blockMatch: RegExpExecArray | null;
+  while ((blockMatch = dsmlBlockRegex.exec(text)) !== null) {
+    const blockContent = blockMatch[1];
+
+    let invokeMatch: RegExpExecArray | null;
+    invokeRegex.lastIndex = 0;
+    while ((invokeMatch = invokeRegex.exec(blockContent)) !== null) {
+      const toolName = invokeMatch[1].trim();
+      const invokeBody = invokeMatch[2];
+
+      const args: Record<string, unknown> = {};
+      let paramMatch: RegExpExecArray | null;
+      paramRegex.lastIndex = 0;
+      while ((paramMatch = paramRegex.exec(invokeBody)) !== null) {
+        const paramName = paramMatch[1].trim();
+        const isString = paramMatch[2]; // "true" or "false" or undefined
+        const paramValue = paramMatch[3].trim();
+
+        // If string="false", the value is JSON — parse it.
+        if (isString === 'false') {
+          args[paramName] = tryParseValue(paramValue);
+        } else {
+          args[paramName] = tryParseValue(paramValue);
+        }
+      }
+
+      calls.push({
+        name: toolName,
+        args,
+        rawText: blockMatch[0],
+      });
+    }
+  }
+
+  return calls;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ─── Format 1: <tool_calls><invoke> ───────────────────────────────────────────
@@ -584,6 +662,20 @@ function coerceToolArgs(toolName: string, rawArgs: Record<string, unknown>): Rec
 export function stripXmlToolCalls(text: string): string {
   if (!text) return text;
   let cleaned = text;
+  // Strip DSML blocks (DeepSeek format with fullwidth vertical bars)
+  const dsmlBar = '\uFF5C';
+  const dsmlOpen = `<${dsmlBar}${dsmlBar}DSML${dsmlBar}${dsmlBar}`;
+  const dsmlRegex = new RegExp(
+    `${escapeRegex(dsmlOpen)}[\\s\\S]*?${escapeRegex(dsmlOpen)}/tool_calls>`,
+    'gi'
+  );
+  cleaned = cleaned.replace(dsmlRegex, '');
+  // Also strip any remaining DSML tags that weren't in a tool_calls block
+  const dsmlTagRegex = new RegExp(
+    `${escapeRegex(dsmlOpen)}[a-z_/]+[^>]*>[\\s\\S]*?${escapeRegex(dsmlOpen)}/[a-z_]+>`,
+    'gi'
+  );
+  cleaned = cleaned.replace(dsmlTagRegex, '');
   // Strip code blocks that contain known tool calls
   cleaned = cleaned.replace(/```(?:[a-zA-Z]+)?\s*\n\s*(?:AskUserQuestion|TodoWrite|bash|read|write|edit|glob|grep|list_files|create_todo|ask_user_question|run_command|read_file|write_file|edit_file|find_files|search)[\s\S]*?```/gi, '');
   // Strip XML tool call blocks
@@ -593,6 +685,9 @@ export function stripXmlToolCalls(text: string): string {
   cleaned = cleaned.replace(/<function_declaration>[\s\S]*?<\/function_declaration>/gi, '');
   cleaned = cleaned.replace(/<tool_use\s+name=["'][^"']+["'][\s\S]*?<\/tool_use>/gi, '');
   cleaned = cleaned.replace(/<invoke\s+name=["'][^"']+["'][\s\S]*?<\/invoke>/gi, '');
+  // Clean up leftover DSML fragments (individual tags without closing)
+  const dsmlFragmentRegex = new RegExp(escapeRegex(dsmlOpen) + '[^>]*>', 'gi');
+  cleaned = cleaned.replace(dsmlFragmentRegex, '');
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
   return cleaned;
 }
