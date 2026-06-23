@@ -162,8 +162,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubThinking = api.on.chatStreamThinking((data: { sessionId: string; thinking: string }) => {
       if (data.sessionId !== sessionId) return;
-      streamingThinkingRef.current = data.thinking;
-      setStreamingThinking(data.thinking);
+      // Phase 8.8 fix: APPEND each thinking chunk instead of replacing.
+      const accumulated = streamingThinkingRef.current + data.thinking;
+      streamingThinkingRef.current = accumulated;
+      setStreamingThinking(accumulated);
 
       // Update the streaming assistant message thinking
       setMessages(prev => {
@@ -172,7 +174,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
           updated[updated.length - 1] = {
             ...lastMsg,
-            thinking: data.thinking,
+            thinking: accumulated,
           };
         }
         return updated;
@@ -182,23 +184,35 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
       const incomingToolCall = data.toolCall;
+      // Phase 11.3: Store content offset for positioning AskUserQuestion card.
+      const splitOffset = streamingContentRef.current.length;
       const newToolCall: ToolCall = {
         id: (incomingToolCall.id as string) || crypto.randomUUID(),
         name: (incomingToolCall.name as string) || 'unknown',
         arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
         status: 'pending',
+        ...({ _splitOffset: splitOffset } as any),
       };
 
       setActiveToolCalls(prev => [...prev, newToolCall]);
       activeToolCallsRef.current = [...activeToolCallsRef.current, newToolCall];
 
-      // Phase 11.6: REMOVED the renderer-side permission check.
-      // Previously, useChat fired onPermissionRequest for EVERY tool call
-      // when permissionMode was 'approve' or 'smart_approve'. But this used
-      // the toolCall.id as the requestId — which didn't match the requestId
-      // in main.ts's pendingPermissionRequests map (which uses 'perm-...' IDs).
-      // The PermissionDialog would show but the respond call would fail with
-      // "No pending permission request for this id".
+      // Phase 10.3: Also add to the streaming message's toolCalls so the
+      // MessageBubble can render inline cards DURING streaming.
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          const existing = lastMsg.toolCalls || [];
+          if (!existing.some(tc => tc.id === newToolCall.id)) {
+            updated[updated.length - 1] = {
+              ...lastMsg,
+              toolCalls: [...existing, newToolCall],
+            };
+          }
+        }
+        return updated;
+      });
       //
       // Now, permissions are handled SOLELY by main.ts: the execute handler
       // calls checkPermission() → if 'ask', calls requestPermission() → sends
@@ -233,11 +247,20 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          // Phase 10.3: Preserve tool calls in the finalized message.
+          const existingToolCalls = lastMsg.toolCalls || [];
+          const allToolCalls = [...existingToolCalls];
+          for (const atc of activeToolCallsRef.current) {
+            if (!allToolCalls.some(tc => tc.id === atc.id)) {
+              allToolCalls.push(atc);
+            }
+          }
           updated[updated.length - 1] = {
             ...lastMsg,
             content: data.content || streamingContentRef.current,
             isStreaming: false,
             thinking: streamingThinkingRef.current || lastMsg.thinking,
+            toolCalls: allToolCalls,
           };
         }
         return updated;
@@ -249,6 +272,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setStreamingThinking('');
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
+      activeToolCallsRef.current = [];
       setActiveToolCalls([]);
     });
 

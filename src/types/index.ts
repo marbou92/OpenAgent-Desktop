@@ -925,6 +925,8 @@ declare global {
         addRule: (agentId: string, pattern: string, level: PermissionLevel, reason?: string) => Promise<void>;
         removeRule: (agentId: string, pattern: string) => Promise<void>;
         respond: (requestId: string, response: PermissionConfirmation['userResponse']) => Promise<void>;
+        /** Phase 8.5: respond to an AskUserQuestion request with the selected option. */
+        respondToQuestion: (requestId: string, answer: string | null) => Promise<void>;
       };
       context: {
         usage: (sessionId: string) => Promise<ContextUsage>;

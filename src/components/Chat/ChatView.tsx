@@ -54,6 +54,7 @@ import ChatEmptyState from './ChatEmptyState';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
+import TodoWriteCard from './message/TodoWriteCard';
 import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
 
@@ -107,6 +108,8 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
+  const [askUserRequestId, setAskUserRequestId] = useState<string | null>(null);
+  const [composerTodos, setComposerTodos] = useState<any[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
   // Phase 4: image attachments (base64 data URLs) + structured output panel
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
@@ -132,6 +135,14 @@ const ChatView: React.FC<ChatViewProps> = ({
     onMessagesUpdate,
     onTraceEntry: addTraceEntry,
     onPermissionRequest: (req) => setPermissionRequest(req),
+    onAskUser: (req) => setAskUserRequestId(req.id),
+    onContextCompacted: (data) => {
+      addToast({
+        type: 'info',
+        title: 'Context compacted',
+        message: `${data.savedTokens.toLocaleString()} tokens saved via ${data.strategy || 'auto'} compaction`,
+      });
+    },
     externalMessages,
   });
 
@@ -197,6 +208,22 @@ const ChatView: React.FC<ChatViewProps> = ({
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingContent, autoScroll]);
+
+  // Phase 10.7: Subscribe to todos:updated events for the composer-connected todo list.
+  useEffect(() => {
+    const api = (window as any).openagent;
+    if (!api?.on?.todosUpdated) return;
+    if (sessionId && api?.todos?.list) {
+      api.todos.list(sessionId).then((todos: any[]) => {
+        setComposerTodos(todos || []);
+      }).catch(() => {});
+    }
+    const unsub = api.on.todosUpdated((data: { sessionId: string; todos: any[] }) => {
+      if (data.sessionId !== sessionId) return;
+      setComposerTodos(data.todos || []);
+    });
+    return () => unsub?.();
+  }, [sessionId]);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -444,6 +471,13 @@ const ChatView: React.FC<ChatViewProps> = ({
                     : undefined
                 }
                 onCopy={handleCopyMessage}
+                askUserRequestId={askUserRequestId}
+                onAskUserAnswer={(requestId, answer) => {
+                  if (api?.permissions?.respondToQuestion) {
+                    api.permissions.respondToQuestion(requestId, answer);
+                  }
+                  setAskUserRequestId(null);
+                }}
               />
             ))}
 
@@ -595,6 +629,14 @@ const ChatView: React.FC<ChatViewProps> = ({
           </svg>
           <span>{fileError}</span>
         </div>
+      )}
+
+      {/* ─── Phase 10.9: Todo dropdown above composer ── */}
+      {composerTodos.length > 0 && (
+        <TodoWriteCard
+          todos={composerTodos}
+          isStreaming={isStreaming}
+        />
       )}
 
       {/* ─── Composer (with inline agent + model selectors) ────────────── */}

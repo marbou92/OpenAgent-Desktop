@@ -1716,17 +1716,62 @@ function registerIpcHandlers(): void {
 
   const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
 
+  // Phase 11.6: Store tool info alongside each pending permission request
+  // so we can persist 'always_allow'/'always_deny' rules.
+  const pendingPermissionRequestInfo = new Map<string, { agentId: string; toolName: string; args: Record<string, unknown> }>();
+
+  // Phase 8.5: Pending AskUserQuestion requests.
+  const pendingAskUserRequests = new Map<string, (answer: string | null) => void>();
+
   ipcMain.handle("permission:respond", wrapIPC(async (_e, requestId: string, response: string) => {
     const resolve = pendingPermissionRequests.get(requestId);
     if (!resolve) {
       return { success: false, error: 'No pending permission request for this id' };
     }
     pendingPermissionRequests.delete(requestId);
-    // Map the renderer's response to a ToolPermissionLevel.
+
+    // Phase 11.4: Handle 'always_allow' and 'always_deny' by persisting rules.
+    if (response === 'always_allow' || response === 'always_deny') {
+      try {
+        const pendingInfo = pendingPermissionRequestInfo.get(requestId);
+        if (pendingInfo) {
+          const { agentId, toolName, args } = pendingInfo;
+          const agent = agentRegistry.get(agentId);
+          if (agent) {
+            let pattern = toolName;
+            if (toolName === 'bash' && args.command) {
+              const cmd = String(args.command).trim().split(/\s+/)[0];
+              pattern = `bash:${cmd} *`;
+            } else if ((toolName === 'edit' || toolName === 'write') && args.path) {
+              pattern = `${toolName}:${args.path}`;
+            }
+            const newPerms = { ...agent.permissions };
+            newPerms[pattern] = response === 'always_allow' ? 'allow' : 'deny';
+            agent.permissions = newPerms;
+            logger.info('Permissions', `Persisted rule: ${pattern} → ${response === 'always_allow' ? 'allow' : 'deny'}`);
+          }
+        }
+        pendingPermissionRequestInfo.delete(requestId);
+      } catch (err) {
+        logger.warn('Permissions', 'Failed to persist permission rule', err);
+      }
+    }
+
     const level: ToolPermissionLevel =
       response === 'allow_once' || response === 'always_allow' ? 'allow' :
       response === 'deny_once' || response === 'always_deny' ? 'deny' : 'ask';
     resolve(level);
+    return { success: true };
+  }));
+
+  // Phase 8.5: AskUserQuestion response handler.
+  ipcMain.handle("askUser:respond", wrapIPC(async (_e, requestId: string, answer: string | null) => {
+    const resolve = pendingAskUserRequests.get(requestId);
+    if (!resolve) {
+      return { success: false, error: 'No pending ask-user request for this id' };
+    }
+    pendingAskUserRequests.delete(requestId);
+    resolve(answer);
     return { success: true };
   }));
 
@@ -1781,13 +1826,26 @@ function registerIpcHandlers(): void {
 
     const permissionChecker = {
       checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny' {
-        return permissionEvaluator.evaluate(toolName, args);
+        const freshEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
+        freshEvaluator.setAgentMode(agent.mode);
+        if (permissionPolicyEngine) {
+          freshEvaluator.setPolicyEngine(permissionPolicyEngine);
+        }
+        return freshEvaluator.evaluate(toolName, args);
       },
       requestPermission(toolName: string, args: Record<string, unknown>): Promise<boolean> {
         return new Promise((resolve) => {
           const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           pendingPermissionRequests.set(requestId, (level: ToolPermissionLevel) => resolve(level === 'allow'));
+          pendingPermissionRequestInfo.set(requestId, { agentId: agent.id, toolName, args });
           send('chat:permission-request', { id: requestId, toolName, args });
+        });
+      },
+      requestUserAnswer(toolName: string, args: Record<string, unknown>): Promise<string | null> {
+        return new Promise((resolve) => {
+          const requestId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          pendingAskUserRequests.set(requestId, (answer: string | null) => resolve(answer));
+          send('chat:ask-user', { id: requestId, toolName, args });
         });
       },
     };
