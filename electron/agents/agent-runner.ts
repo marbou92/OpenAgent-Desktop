@@ -334,7 +334,7 @@ export class AgentRunner extends EventEmitter {
             currentMessages.push({
               id: crypto.randomUUID(),
               role: 'tool',
-              content: JSON.stringify({ error: 'Permission denied', toolName: toolCall.name }),
+              content: `Permission DENIED for tool "${toolCall.name}" by the permission policy. Do NOT retry this tool — it has been blocked. Try a different approach or ask the user how to proceed.`,
               toolCallId: toolCall.id,
               timestamp: new Date().toISOString(),
             });
@@ -348,7 +348,7 @@ export class AgentRunner extends EventEmitter {
               currentMessages.push({
                 id: crypto.randomUUID(),
                 role: 'tool',
-                content: JSON.stringify({ error: 'User denied permission', toolName: toolCall.name }),
+                content: `The user explicitly DENIED permission for tool "${toolCall.name}". Do NOT retry this tool — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.`,
                 toolCallId: toolCall.id,
                 timestamp: new Date().toISOString(),
               });
