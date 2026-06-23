@@ -895,6 +895,10 @@ declare global {
         list: () => Promise<SkillDefinition[]>;
         get: (skillId: string) => Promise<SkillDefinition>;
         execute: (skillId: string, variables: Record<string, unknown>, context?: Record<string, unknown>) => Promise<SkillExecution>;
+        /** Phase 8.4: list all skills available to the agent (disk + builtin). */
+        listAgentic: () => Promise<Array<{ id: string; name: string; description: string; enabled?: boolean; category?: string }>>;
+        /** Phase 8.4: reload skills from ~/.claude/skills/ on demand. */
+        reload: () => Promise<{ count: number }>;
       };
       platform: {
         getOS: () => NodeJS.Platform;
