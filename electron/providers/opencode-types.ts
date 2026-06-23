@@ -227,7 +227,7 @@ export interface StreamChunk {
   content?: string;
   toolCall?: Partial<ToolCallInfo> & { index?: number };
   toolCallId?: string;
-  toolResult?: { id: string; content: string; isError?: boolean };
+  toolResult?: { id: string; content: string; isError?: boolean; denied?: boolean };
   usage?: { promptTokens: number; completionTokens: number; totalTokens?: number };
   error?: { message: string; code?: string };
 }

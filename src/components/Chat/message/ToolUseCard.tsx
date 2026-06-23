@@ -20,6 +20,7 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
   const isAskUserQuestion = toolNameLower === 'askuserquestion' || toolNameLower === 'ask_user_question' || toolNameLower === 'ask-user-question';
   const isRunning = toolCall.status === 'pending';
   const isError = toolCall.status === 'failed';
+  const isDenied = toolCall.status === 'denied';
   const isSuccess = toolCall.status === 'completed';
 
   // ─── AskUserQuestion special card ──────────────────────────────
@@ -65,15 +66,18 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
   }
 
   // ─── Regular tool card ─────────────────────────────────────────
-  const statusColor = isError ? 'var(--color-error)' : isRunning ? 'var(--color-accent)' : 'var(--color-success)';
-  const borderColor = isError ? 'rgba(239,68,68,0.25)' : isRunning ? 'rgba(214,122,82,0.15)' : 'var(--color-border-secondary)';
-  const bgColor = isError ? 'rgba(239,68,68,0.05)' : isRunning ? 'rgba(214,122,82,0.05)' : 'rgba(0,0,0,0.15)';
+  // Denied uses a red-orange color distinct from error (which is more
+  // alarm-red) so the user can visually tell "I blocked this" vs "the
+  // tool crashed".
+  const statusColor = isDenied ? '#ef4444' : isError ? 'var(--color-error)' : isRunning ? 'var(--color-accent)' : 'var(--color-success)';
+  const borderColor = isDenied ? 'rgba(239,68,68,0.3)' : isError ? 'rgba(239,68,68,0.25)' : isRunning ? 'rgba(214,122,82,0.15)' : 'var(--color-border-secondary)';
+  const bgColor = isDenied ? 'rgba(239,68,68,0.08)' : isError ? 'rgba(239,68,68,0.05)' : isRunning ? 'rgba(214,122,82,0.05)' : 'rgba(0,0,0,0.15)';
 
   // Get summary for collapsed state
   const getSummary = (): string => {
     if (!toolCall.result) return '';
     const content = typeof toolCall.result === 'string' ? toolCall.result : JSON.stringify(toolCall.result);
-    if (isError) {
+    if (isDenied || isError) {
       const firstLine = content.split(/\r?\n/)[0];
       return firstLine.length > 60 ? firstLine.substring(0, 57) + '...' : firstLine;
     }
@@ -97,6 +101,9 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
         <div className="flex-shrink-0" style={{ color: statusColor }}>
           {isRunning ? (
             <div className="w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin-slow" style={{ borderColor: statusColor, borderTopColor: 'transparent' }} />
+          ) : isDenied ? (
+            // Denied: red circle with a horizontal bar (blocked icon)
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={statusColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
           ) : isError ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={statusColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
           ) : (
@@ -105,6 +112,10 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
         </div>
         {/* Tool name */}
         <span className="text-xs font-mono truncate flex-1 min-w-0" style={{ color: 'var(--color-text-secondary)' }}>{toolCall.name}</span>
+        {/* Status label — show "Denied" when blocked by permissions */}
+        {isDenied && !expanded && (
+          <span className="text-[10px] font-semibold uppercase tracking-wide flex-shrink-0" style={{ color: '#ef4444' }}>Denied</span>
+        )}
         {/* Summary when collapsed */}
         {isSuccess && summary && !expanded && (
           <span className="text-[11px] truncate max-w-[180px] flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>{summary}</span>
@@ -128,11 +139,13 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
           {/* Output */}
           {toolCall.result !== undefined && toolCall.result !== null && (
             <div className="px-3 py-2" style={{ borderTop: '1px solid var(--color-border-secondary)' }}>
-              <div className="text-[10px] uppercase tracking-wider font-medium mb-1" style={{ color: 'var(--color-text-muted)' }}>Output</div>
+              <div className="text-[10px] uppercase tracking-wider font-medium mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                {isDenied ? 'Denied' : 'Output'}
+              </div>
               <pre className={`text-xs font-mono whitespace-pre-wrap break-all rounded-lg p-2.5 max-h-[300px] overflow-y-auto ${isError ? '' : ''}`}
                 style={{
-                  background: isError ? 'rgba(239,68,68,0.05)' : 'var(--color-bg-tertiary)',
-                  color: isError ? 'var(--color-error)' : 'var(--color-text-secondary)',
+                  background: (isDenied || isError) ? 'rgba(239,68,68,0.05)' : 'var(--color-bg-tertiary)',
+                  color: (isDenied || isError) ? 'var(--color-error)' : 'var(--color-text-secondary)',
                   border: '1px solid var(--color-border-secondary)',
                 }}>
                 {typeof toolCall.result === 'string' ? toolCall.result : JSON.stringify(toolCall.result, null, 2)}

@@ -1166,6 +1166,29 @@ async function initializeSubsystems(): Promise<void> {
     await agentPresetManager.initialize();
     agentSessionBridge = new AgentSessionBridge(autoModeDetector);
 
+    // Phase 0.8: Load persisted permission overrides from disk so user-saved
+    // "Always Allow" / "Always Deny" rules survive app restarts. Built-in
+    // agents (build/plan/chat/smart) are in-memory only, so without this
+    // the rules would be lost every time the app restarts.
+    try {
+      const overridesPath = path.join(getUserDataPath(), 'permission-overrides.json');
+      const raw = await fs.promises.readFile(overridesPath, 'utf-8');
+      const overrides: Record<string, Record<string, string>> = JSON.parse(raw);
+      for (const [agentId, rules] of Object.entries(overrides)) {
+        const agent = agentRegistry.get(agentId);
+        if (agent && rules) {
+          const newPerms = { ...agent.permissions };
+          for (const [pattern, level] of Object.entries(rules)) {
+            newPerms[pattern] = level as ToolPermissionLevel;
+          }
+          agent.permissions = newPerms;
+          logger.info('Permissions', `Loaded ${Object.keys(rules).length} persisted override(s) for agent '${agentId}'`);
+        }
+      }
+    } catch {
+      // No overrides file yet — that's fine.
+    }
+
     // Phase 2: Provider Overhaul
     modelIdResolver = getModelIdResolver();
     configSetManager = new ConfigSetManager();
@@ -1730,7 +1753,16 @@ function registerIpcHandlers(): void {
     }
     pendingPermissionRequests.delete(requestId);
 
-    // Phase 0.2: Handle 'always_allow' and 'always_deny' by persisting rules.
+    // Phase 0.2 / Phase 0.8: Handle 'always_allow' and 'always_deny' by
+    // persisting rules to the agent AND to disk so they survive app restarts.
+    //
+    // Phase 0.8 fix: the old pattern for edit/write was `${toolName}:${args.path}`
+    // — an EXACT path match. So "Always Allow" on editing /foo/bar.ts only
+    // matched that exact file; editing /foo/baz.ts popped the dialog again.
+    // Now we use just the tool name (`edit` / `write`) so "Always Allow"
+    // means "always allow this tool entirely" — consistent with how
+    // read/glob/grep already work, and with what users expect when they
+    // click "Always Allow".
     if (response === 'always_allow' || response === 'always_deny') {
       try {
         const pendingInfo = pendingPermissionRequestInfo.get(requestId);
@@ -1740,15 +1772,35 @@ function registerIpcHandlers(): void {
           if (agent) {
             let pattern = toolName;
             if (toolName === 'bash' && args.command) {
+              // For bash, always allow/deny by command prefix
+              // (e.g. `bash:git *` — always allow git commands).
               const cmd = String(args.command).trim().split(/\s+/)[0];
               pattern = `bash:${cmd} *`;
-            } else if ((toolName === 'edit' || toolName === 'write') && args.path) {
-              pattern = `${toolName}:${args.path}`;
             }
+            // For edit/write/read/glob/grep and all other tools: use just
+            // the tool name. "Always Allow" means "always allow this tool".
+            const level = response === 'always_allow' ? 'allow' : 'deny';
             const newPerms = { ...agent.permissions };
-            newPerms[pattern] = response === 'always_allow' ? 'allow' : 'deny';
+            newPerms[pattern] = level;
             agent.permissions = newPerms;
-            logger.info('Permissions', `Persisted rule: ${pattern} → ${response === 'always_allow' ? 'allow' : 'deny'}`);
+            logger.info('Permissions', `Persisted rule: ${pattern} → ${level}`);
+
+            // Phase 0.8: Persist to disk so the rule survives app restarts.
+            // Built-in agents (build/plan/chat/smart) are in-memory only,
+            // so without this the rules would be lost on restart.
+            try {
+              const overridesPath = path.join(getUserDataPath(), 'permission-overrides.json');
+              let overrides: Record<string, Record<string, string>> = {};
+              try {
+                const raw = await fs.promises.readFile(overridesPath, 'utf-8');
+                overrides = JSON.parse(raw);
+              } catch { /* file doesn't exist yet */ }
+              if (!overrides[agentId]) overrides[agentId] = {};
+              overrides[agentId][pattern] = level;
+              await fs.promises.writeFile(overridesPath, JSON.stringify(overrides, null, 2), 'utf-8');
+            } catch (persistErr) {
+              logger.warn('Permissions', 'Failed to persist permission rule to disk', persistErr);
+            }
           }
         }
         pendingPermissionRequestInfo.delete(requestId);

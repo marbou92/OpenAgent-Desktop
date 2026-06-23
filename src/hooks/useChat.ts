@@ -195,10 +195,29 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubToolResult = api.on.chatStreamToolResult((data: { sessionId: string; toolResult: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
+      const toolResult = data.toolResult as any;
+      // Phase 0.8: If the tool was denied (by policy or user), set status
+      // to 'denied' so the ToolUseCard renders a "Denied" state instead of
+      // the default "Completed" checkmark.
+      const isDenied = toolResult?.denied === true;
+      const resultValue = toolResult?.result ?? toolResult?.content;
+      const newStatus = isDenied ? 'denied' : 'completed';
+      // Update both the state AND the ref — the ref is read by chatStreamEnd
+      // to finalize the message, so without updating it here the denied
+      // status would be lost when the message is finalized.
+      activeToolCallsRef.current = activeToolCallsRef.current.map(tc =>
+        tc.id === toolResult.id
+          ? { ...tc, result: resultValue, status: newStatus as 'denied' | 'completed' }
+          : tc
+      );
       setActiveToolCalls(prev =>
         prev.map(tc => {
-          if (tc.id === (data.toolResult as any).id) {
-            return { ...tc, result: (data.toolResult as any).result, status: 'completed' as const };
+          if (tc.id === toolResult.id) {
+            return {
+              ...tc,
+              result: resultValue,
+              status: newStatus as 'denied' | 'completed',
+            };
           }
           return tc;
         })
@@ -213,9 +232,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           return prev;
         }
         const existingToolCalls = lastMsg.toolCalls || [];
+        // Phase 0.8: Merge active tool calls (which have the latest statuses
+        // — 'completed' or 'denied') OVER existing ones, instead of only
+        // adding missing ones. Without this, denied tool calls would keep
+        // their stale 'pending' status in the finalized message.
         const allToolCalls = [...existingToolCalls];
         for (const atc of activeToolCallsRef.current) {
-          if (!allToolCalls.some(tc => tc.id === atc.id)) {
+          const idx = allToolCalls.findIndex(tc => tc.id === atc.id);
+          if (idx >= 0) {
+            // Update with the latest status + result from the ref
+            allToolCalls[idx] = { ...allToolCalls[idx], ...atc };
+          } else {
             allToolCalls.push(atc);
           }
         }
