@@ -2080,6 +2080,10 @@ function registerIpcHandlers(): void {
 
   const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
 
+  // Phase 11.4: Store tool info alongside each pending permission request
+  // so we can persist 'always_allow'/'always_deny' rules.
+  const pendingPermissionRequestInfo = new Map<string, { agentId: string; toolName: string; args: Record<string, unknown> }>();
+
   // Phase 8.5: Pending AskUserQuestion requests. Keyed by requestId, the
   // callback resolves with the user's selected answer (option label) or
   // null if the user dismissed the dialog.
@@ -2091,6 +2095,40 @@ function registerIpcHandlers(): void {
       return { success: false, error: 'No pending permission request for this id' };
     }
     pendingPermissionRequests.delete(requestId);
+
+    // Phase 11.4: Handle 'always_allow' and 'always_deny' by persisting
+    // the rule to the agent's permissions. This makes the choice stick
+    // for future calls to the same tool.
+    if (response === 'always_allow' || response === 'always_deny') {
+      try {
+        // Get the pending request's tool info (stored alongside the resolver).
+        const pendingInfo = pendingPermissionRequestInfo.get(requestId);
+        if (pendingInfo) {
+          const { agentId, toolName, args } = pendingInfo;
+          const agent = agentRegistry.get(agentId);
+          if (agent) {
+            // Build a pattern for this tool call.
+            let pattern = toolName;
+            if (toolName === 'bash' && args.command) {
+              // For bash, use the first word of the command as the pattern.
+              const cmd = String(args.command).trim().split(/\s+/)[0];
+              pattern = `bash:${cmd} *`;
+            } else if ((toolName === 'edit' || toolName === 'write') && args.path) {
+              pattern = `${toolName}:${args.path}`;
+            }
+            // Add/update the permission rule.
+            const newPerms = { ...agent.permissions };
+            newPerms[pattern] = response === 'always_allow' ? 'allow' : 'deny';
+            agent.permissions = newPerms;
+            logger.info('Permissions', `Persisted rule: ${pattern} → ${response === 'always_allow' ? 'allow' : 'deny'}`);
+          }
+        }
+        pendingPermissionRequestInfo.delete(requestId);
+      } catch (err) {
+        logger.warn('Permissions', 'Failed to persist permission rule', err);
+      }
+    }
+
     // Map the renderer's response to a ToolPermissionLevel.
     const level: ToolPermissionLevel =
       response === 'allow_once' || response === 'always_allow' ? 'allow' :
@@ -2168,12 +2206,22 @@ function registerIpcHandlers(): void {
 
     const permissionChecker = {
       checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny' {
-        return permissionEvaluator.evaluate(toolName, args);
+        // Phase 11.4: Re-evaluate with the LATEST agent permissions (not the
+        // snapshot from when runAgent started). This ensures 'always_allow'/
+        // 'always_deny' rules take effect immediately for subsequent calls.
+        const freshEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
+        freshEvaluator.setAgentMode(agent.mode);
+        if (permissionPolicyEngine) {
+          freshEvaluator.setPolicyEngine(permissionPolicyEngine);
+        }
+        return freshEvaluator.evaluate(toolName, args);
       },
       requestPermission(toolName: string, args: Record<string, unknown>): Promise<boolean> {
         return new Promise((resolve) => {
           const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           pendingPermissionRequests.set(requestId, (level: ToolPermissionLevel) => resolve(level === 'allow'));
+          // Phase 11.4: Store tool info so we can persist 'always' rules.
+          pendingPermissionRequestInfo.set(requestId, { agentId: agent.id, toolName, args });
           send('chat:permission-request', { id: requestId, toolName, args });
         });
       },
