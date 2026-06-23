@@ -197,20 +197,24 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setActiveToolCalls(prev => [...prev, newToolCall]);
       activeToolCallsRef.current = [...activeToolCallsRef.current, newToolCall];
 
-      // Phase 0.2: Also add to the streaming message's toolCalls so MessageBubble
-      // can render inline cards DURING streaming.
+      // Phase 0.3: Add to streaming message's toolCalls — but ONLY if the
+      // tool call isn't already there. Must return the SAME array reference
+      // when no change is needed, otherwise React re-renders infinitely.
       setMessages(prev => {
-        const updated = [...prev];
-        const lastMsg = updated[updated.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          const existing = lastMsg.toolCalls || [];
-          if (!existing.some(tc => tc.id === newToolCall.id)) {
-            updated[updated.length - 1] = {
-              ...lastMsg,
-              toolCalls: [...existing, newToolCall],
-            };
-          }
+        const lastMsg = prev[prev.length - 1];
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
+          return prev; // Same reference — no re-render
         }
+        const existing = lastMsg.toolCalls || [];
+        if (existing.some(tc => tc.id === newToolCall.id)) {
+          return prev; // Already exists — same reference — no re-render
+        }
+        // Only create a new array when we actually add a tool call.
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...lastMsg,
+          toolCalls: [...existing, newToolCall],
+        };
         return updated;
       });
 
@@ -252,25 +256,26 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       // Finalize the streaming message
       setMessages(prev => {
-        const updated = [...prev];
-        const lastMsg = updated[updated.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          // Phase 0.2: Preserve tool calls in the finalized message.
-          const existingToolCalls = lastMsg.toolCalls || [];
-          const allToolCalls = [...existingToolCalls];
-          for (const atc of activeToolCallsRef.current) {
-            if (!allToolCalls.some(tc => tc.id === atc.id)) {
-              allToolCalls.push(atc);
-            }
-          }
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            content: data.content || streamingContentRef.current,
-            isStreaming: false,
-            thinking: streamingThinkingRef.current || lastMsg.thinking,
-            toolCalls: allToolCalls,
-          };
+        const lastMsg = prev[prev.length - 1];
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
+          return prev; // Same reference — no re-render
         }
+        // Phase 0.2: Preserve tool calls in the finalized message.
+        const existingToolCalls = lastMsg.toolCalls || [];
+        const allToolCalls = [...existingToolCalls];
+        for (const atc of activeToolCallsRef.current) {
+          if (!allToolCalls.some(tc => tc.id === atc.id)) {
+            allToolCalls.push(atc);
+          }
+        }
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...lastMsg,
+          content: data.content || streamingContentRef.current,
+          isStreaming: false,
+          thinking: streamingThinkingRef.current || lastMsg.thinking,
+          toolCalls: allToolCalls,
+        };
         return updated;
       });
 
@@ -362,19 +367,29 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       const questions = data.questions || data.args?.questions || [];
       onAskUserRef.current?.({ id: data.id, toolName: data.toolName, questions });
       // Inject _askRequestId into the latest unanswered AskUserQuestion tool call.
+      // Phase 0.3: Must return SAME reference when no change needed (prevent infinite re-render).
       setMessages(prev => {
-        const updated = [...prev];
-        const lastMsg = updated[updated.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.toolCalls) {
-          let found = false;
-          lastMsg.toolCalls = lastMsg.toolCalls.map(tc => {
-            if (tc.name === 'AskUserQuestion' && !tc.result && !found) {
-              found = true;
-              return { ...tc, arguments: { ...tc.arguments, _askRequestId: data.id } };
-            }
-            return tc;
-          });
+        const lastMsg = prev[prev.length - 1];
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.toolCalls) {
+          return prev; // Same reference — no re-render
         }
+        let found = false;
+        const newToolCalls = lastMsg.toolCalls.map(tc => {
+          if (tc.name === 'AskUserQuestion' && !tc.result && !found) {
+            // Skip if _askRequestId already set
+            if (tc.arguments?._askRequestId) {
+              return tc;
+            }
+            found = true;
+            return { ...tc, arguments: { ...tc.arguments, _askRequestId: data.id } };
+          }
+          return tc;
+        });
+        if (!found) {
+          return prev; // No AskUserQuestion found — same reference
+        }
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...lastMsg, toolCalls: newToolCalls };
         return updated;
       });
     }) ?? (() => {});
