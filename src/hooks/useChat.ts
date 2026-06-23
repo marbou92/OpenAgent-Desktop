@@ -77,6 +77,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const lastFilesRef = useRef<AttachedFile[]>([]);
   const messagesRef = useRef<ChatMessage[]>(messages);
   const isStreamingRef = useRef(false);
+  const activeToolCallsRef = useRef<ToolCall[]>([]);
 
   // Keep messagesRef in sync
   useEffect(() => {
@@ -228,6 +229,26 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       };
 
       setActiveToolCalls(prev => [...prev, newToolCall]);
+      activeToolCallsRef.current = [...activeToolCallsRef.current, newToolCall];
+
+      // Phase 10.3: Also add to the streaming message's toolCalls so the
+      // MessageBubble can render inline cards (TodoWrite, AskUserQuestion)
+      // DURING streaming — not just after the stream ends.
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          // Avoid duplicates — check if this tool call ID already exists.
+          const existing = lastMsg.toolCalls || [];
+          if (!existing.some(tc => tc.id === newToolCall.id)) {
+            updated[updated.length - 1] = {
+              ...lastMsg,
+              toolCalls: [...existing, newToolCall],
+            };
+          }
+        }
+        return updated;
+      });
 
       // If permission mode requires approval, emit a permission request
       if (permissionMode === 'approve' || permissionMode === 'smart_approve') {
@@ -265,11 +286,23 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          // Phase 10.3: Preserve tool calls in the finalized message.
+          // The toolCalls were added during streaming (in chatStreamToolCall),
+          // but we also merge in any activeToolCalls that might not have been
+          // added yet (edge case).
+          const existingToolCalls = lastMsg.toolCalls || [];
+          const allToolCalls = [...existingToolCalls];
+          for (const atc of activeToolCallsRef.current) {
+            if (!allToolCalls.some(tc => tc.id === atc.id)) {
+              allToolCalls.push(atc);
+            }
+          }
           updated[updated.length - 1] = {
             ...lastMsg,
             content: data.content || streamingContentRef.current,
             isStreaming: false,
             thinking: streamingThinkingRef.current || lastMsg.thinking,
+            toolCalls: allToolCalls,
           };
         }
         return updated;
@@ -281,6 +314,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setStreamingThinking('');
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
+      activeToolCallsRef.current = [];
       setActiveToolCalls([]);
     });
 
