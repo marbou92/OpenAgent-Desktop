@@ -914,6 +914,9 @@ Skip when:
 - \`completed\` — finished successfully
 - \`cancelled\` — no longer needed
 
+## Clearing the todo list
+When ALL tasks are completed and you're done with the work, call TodoWrite with \`clear: true\` to dismiss the todo UI. This removes the todo list from the chat. Do NOT clear if there are pending or in_progress items.
+
 ## Rules
 - Update status in real time; don't batch completions
 - Mark \`completed\` only after the required work is actually done
@@ -938,6 +941,7 @@ When in doubt, use it.`,
                 required: ['id', 'content', 'status'],
               },
             },
+            clear: { type: 'boolean', description: 'Set to true to dismiss/clear the todo UI. Use when all tasks are completed and the work is done.' },
           },
           required: ['todos'],
         },
@@ -1039,8 +1043,13 @@ Usage notes:
           // store + acknowledge.
           if (tool.name === 'TodoWrite') {
             const todos = Array.isArray(args.todos) ? args.todos : [];
+            const isClear = args.clear === true;
             // Stash on the toolDeps so the renderer-side bridge can read it.
             (toolDeps as any)._todos = todos;
+            (toolDeps as any)._todosCleared = isClear;
+            if (isClear) {
+              return 'Todo list cleared. The todo UI has been dismissed.';
+            }
             const completed = todos.filter((t: any) => t?.status === 'completed').length;
             const inProgress = todos.filter((t: any) => t?.status === 'in_progress').length;
             const pending = todos.filter((t: any) => t?.status === 'pending').length;
