@@ -25,6 +25,10 @@ interface UseChatOptions {
   onMessagesUpdate?: (messages: ChatMessage[]) => void;
   onTraceEntry?: (entry: TraceEntry) => void;
   onPermissionRequest?: (request: PermissionRequest) => void;
+  /** Phase 8.3: fired when auto-compaction runs after a chat turn. */
+  onContextCompacted?: (data: { savedTokens: number; strategy?: string }) => void;
+  /** Phase 8.5: fired when the agent calls AskUserQuestion. */
+  onAskUser?: (request: { id: string; toolName: string; questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }) => void;
   // BUGFIX: previously useChat ignored external messages, so loading a saved
   // session showed an empty chat. Now we accept an externalMessages array and
   // sync it into local state whenever it changes (typically when App.tsx loads
@@ -54,6 +58,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onMessagesUpdate,
     onTraceEntry,
     onPermissionRequest,
+    onContextCompacted,
+    onAskUser,
     externalMessages,
   } = options;
 
@@ -109,12 +115,20 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // risking dropped events.
   const onTraceEntryRef = useRef(onTraceEntry);
   const onPermissionRequestRef = useRef(onPermissionRequest);
+  const onContextCompactedRef = useRef(onContextCompacted);
+  const onAskUserRef = useRef(onAskUser);
   useEffect(() => {
     onTraceEntryRef.current = onTraceEntry;
   }, [onTraceEntry]);
   useEffect(() => {
     onPermissionRequestRef.current = onPermissionRequest;
   }, [onPermissionRequest]);
+  useEffect(() => {
+    onContextCompactedRef.current = onContextCompacted;
+  }, [onContextCompacted]);
+  useEffect(() => {
+    onAskUserRef.current = onAskUser;
+  }, [onAskUser]);
   // Cleanup listeners on unmount or session change
   useEffect(() => {
     return () => {
@@ -310,6 +324,35 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       });
     }) ?? (() => {});
 
+    // Phase 10.2: AskUserQuestion — inject _askRequestId into tool call args.
+    const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<any> }; questions?: Array<any> }) => {
+      if (data.sessionId !== sessionId) return;
+      const questions = data.questions || data.args?.questions || [];
+      onAskUserRef.current?.({ id: data.id, toolName: data.toolName, questions });
+      // Inject _askRequestId into the latest unanswered AskUserQuestion tool call.
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.toolCalls) {
+          let found = false;
+          lastMsg.toolCalls = lastMsg.toolCalls.map(tc => {
+            if (tc.name === 'AskUserQuestion' && !tc.result && !found) {
+              found = true;
+              return { ...tc, arguments: { ...tc.arguments, _askRequestId: data.id } };
+            }
+            return tc;
+          });
+        }
+        return updated;
+      });
+    }) ?? (() => {});
+
+    // Phase 8.3: auto-compaction.
+    const unsubCompacted = api.on?.contextCompacted?.((data: { sessionId?: string; savedTokens: number; strategy?: string }) => {
+      if (data.sessionId && data.sessionId !== sessionId) return;
+      onContextCompactedRef.current?.({ savedTokens: data.savedTokens, strategy: data.strategy });
+    }) ?? (() => {});
+
     unsubscribeRef.current = [
       unsubChunk,
       unsubThinking,
@@ -320,6 +363,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       unsubCancelled,
       unsubTrace,
       unsubPermission,
+      unsubAskUser,
+      unsubCompacted,
     ];
 
     return () => {
