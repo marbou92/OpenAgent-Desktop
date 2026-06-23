@@ -1219,7 +1219,11 @@ Usage notes:
             break;
           case 'tool_call_start':
           case 'tool_call_delta':
-            yield chunk;
+            // Phase 9.9: Don't yield tool_call chunks from the direct loop —
+            // the onToolCall callback already sends them to the renderer via
+            // main.ts. Yielding them here would create DUPLICATE tool call
+            // entries in the renderer (one from onToolCall, one from the
+            // yield → main.ts switch → send path).
             break;
           case 'tool_call_end':
             if (chunk.toolCall) {
@@ -1235,10 +1239,10 @@ Usage notes:
                 arguments: chunk.toolCall.arguments || {},
               });
             }
-            yield chunk;
+            // Phase 9.9: Don't yield — onToolCall already sent it.
             break;
           case 'tool_result':
-            yield chunk;
+            // Phase 9.9: Don't yield — onToolResult already sent it.
             break;
           case 'usage':
             yield chunk;
