@@ -109,19 +109,22 @@ function canonicalizeToolName(name: string): string {
 }
 
 /**
- * Scan text for ALL supported XML-style tool call patterns.
+ * Scan text for ALL supported tool call patterns (XML + code-block).
  * Returns all matches found, in order of appearance.
  */
 export function parseXmlToolCalls(text: string): ParsedToolCall[] {
   if (!text) return [];
   const calls: ParsedToolCall[] = [];
 
-  // ─── Format 2 FIRST: <ask_user_question>...</ask_user_question> ────────
-  // This is a custom tag some models invent. Parse it before the generic
-  // <tool_calls> patterns so we catch it even without a wrapper.
+  // ─── Format 0: Code-block function calls ──────────────────────────────
+  // ```javascript\nToolName({ json: args })\n```
+  // This is what many models emit when they can't do native function calling.
+  calls.push(...parseCodeBlockToolCalls(text));
+
+  // ─── Format 2: <ask_user_question>...</ask_user_question> ────────────
   calls.push(...parseAskUserQuestionTag(text));
 
-  // ─── Format 1: <tool_calls><invoke name="X"><parameter name="Y">... ───
+  // ─── Format 1: <tool_calls><invoke name="X"><parameter name="Y">... ─
   calls.push(...parseToolCallsBlock(text));
 
   // ─── Format 3: <tool_use name="X" id="...">{json}</tool_use> ──────────
@@ -135,12 +138,176 @@ export function parseXmlToolCalls(text: string): ParsedToolCall[] {
     calls.push(...parseBareInvoke(text));
   }
 
+  // ─── Format 6: Bare function call (no code block) ─────────────────────
+  // ToolName({ json: args })  — as a last resort
+  if (calls.length === 0) {
+    calls.push(...parseBareFunctionCall(text));
+  }
+
   // Canonicalize all tool names + coerce args
   return calls.map(c => ({
     ...c,
     name: canonicalizeToolName(c.name),
     args: coerceToolArgs(c.name, c.args),
   }));
+}
+
+// ─── Format 0: Code-block function calls ──────────────────────────────────────
+// ```javascript\nToolName({ json: args })\n```
+// Models that can't do native function calling often emit this format.
+// We parse the code block, extract the tool name + JSON args, and execute.
+
+// Known tool names — we only match these to avoid false positives.
+const KNOWN_TOOLS = new Set([
+  'AskUserQuestion', 'TodoWrite', 'bash', 'read', 'write', 'edit',
+  'glob', 'grep', 'list_files',
+  // Also match lowercase/aliases
+  'askuserquestion', 'todowrite', 'create_todo', 'add_todo', 'todo_write',
+  'ask_user_question', 'ask_user', 'run_command', 'shell', 'execute_command',
+  'read_file', 'cat', 'write_file', 'create_file', 'edit_file', 'replace',
+  'find_files', 'find', 'search', 'search_files', 'list_files_matching',
+]);
+
+function parseCodeBlockToolCalls(text: string): ParsedToolCall[] {
+  const calls: ParsedToolCall[] = [];
+  // Match fenced code blocks: ```lang\ncontent\n```
+  const codeBlockRegex = /```(?:[a-zA-Z]+)?\s*\n([\s\S]*?)```/g;
+  let blockMatch: RegExpExecArray | null;
+  while ((blockMatch = codeBlockRegex.exec(text)) !== null) {
+    const code = blockMatch[1].trim();
+    // Try to match: ToolName({ ... }) or ToolName({...})
+    // The tool name must be a known tool to avoid false positives.
+    const funcCallRegex = /([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(\{[\s\S]*\})\s*\)\s*;?\s*$/;
+    const funcMatch = funcCallRegex.exec(code);
+    if (funcMatch) {
+      const toolName = funcMatch[1];
+      // Only accept known tool names (case-insensitive)
+      if (!KNOWN_TOOLS.has(toolName) && !KNOWN_TOOLS.has(toolName.toLowerCase())) {
+        continue;
+      }
+      const jsonStr = funcMatch[2];
+      try {
+        const args = JSON.parse(jsonStr);
+        if (typeof args === 'object' && args !== null) {
+          calls.push({
+            name: toolName,
+            args,
+            rawText: blockMatch[0],
+          });
+        }
+      } catch {
+        // JSON parse failed — try to fix common issues (trailing commas,
+        // unquoted keys, etc.) with a lenient parser.
+        const fixed = fixJsonLenient(jsonStr);
+        if (fixed) {
+          try {
+            const args = JSON.parse(fixed);
+            if (typeof args === 'object' && args !== null) {
+              calls.push({
+                name: toolName,
+                args,
+                rawText: blockMatch[0],
+              });
+            }
+          } catch {
+            // Still can't parse — skip.
+          }
+        }
+      }
+    }
+  }
+  return calls;
+}
+
+/**
+ * Bare function call (no code block): ToolName({ json: args })
+ * Only used as a last resort if no other format matched.
+ */
+function parseBareFunctionCall(text: string): ParsedToolCall[] {
+  const calls: ParsedToolCall[] = [];
+  // Match: ToolName({ ... }) at the start of a line or after whitespace.
+  // Only accept known tool names.
+  const regex = /(?:^|\n)\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(\{[\s\S]*?\})\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const toolName = match[1];
+    if (!KNOWN_TOOLS.has(toolName) && !KNOWN_TOOLS.has(toolName.toLowerCase())) {
+      continue;
+    }
+    // Find the matching closing brace by counting
+    const fullText = text.substring(match.index + match[0].length - 1);
+    const jsonStr = extractBalancedJson(fullText);
+    if (!jsonStr) continue;
+    try {
+      const args = JSON.parse(jsonStr);
+      if (typeof args === 'object' && args !== null) {
+        calls.push({
+          name: toolName,
+          args,
+          rawText: match[0],
+        });
+      }
+    } catch {
+      const fixed = fixJsonLenient(jsonStr);
+      if (fixed) {
+        try {
+          const args = JSON.parse(fixed);
+          if (typeof args === 'object' && args !== null) {
+            calls.push({
+              name: toolName,
+              args,
+              rawText: match[0],
+            });
+          }
+        } catch { /* skip */ }
+      }
+    }
+  }
+  return calls;
+}
+
+/**
+ * Extract a balanced JSON object from text starting at the first `{`.
+ * Counts braces to find the matching close.
+ */
+function extractBalancedJson(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\') { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.substring(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Fix common JSON issues that models produce:
+ * - Trailing commas before } or ]
+ * - Single quotes instead of double quotes
+ * - Unquoted keys
+ */
+function fixJsonLenient(s: string): string | null {
+  try {
+    // Remove trailing commas
+    let fixed = s.replace(/,(\s*[}\]])/g, '$1');
+    // Replace single quotes with double quotes (careful not to break apostrophes in strings)
+    // This is a simple heuristic — may not work for all cases.
+    fixed = fixed.replace(/'/g, '"');
+    return fixed;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Format 1: <tool_calls><invoke> ───────────────────────────────────────────
@@ -374,11 +541,14 @@ function coerceToolArgs(toolName: string, rawArgs: Record<string, unknown>): Rec
 }
 
 /**
- * Remove XML tool call blocks from text so the user doesn't see raw XML.
+ * Remove tool call blocks from text so the user doesn't see raw XML/code.
  */
 export function stripXmlToolCalls(text: string): string {
   if (!text) return text;
   let cleaned = text;
+  // Strip code blocks that contain known tool calls
+  cleaned = cleaned.replace(/```(?:[a-zA-Z]+)?\s*\n\s*(?:AskUserQuestion|TodoWrite|bash|read|write|edit|glob|grep|list_files|create_todo|ask_user_question|run_command|read_file|write_file|edit_file|find_files|search)[\s\S]*?```/gi, '');
+  // Strip XML tool call blocks
   cleaned = cleaned.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, '');
   cleaned = cleaned.replace(/<ask_user_question>[\s\S]*?<\/ask_user_question>/gi, '');
   cleaned = cleaned.replace(/<function_call>[\s\S]*?<\/function_call>/gi, '');

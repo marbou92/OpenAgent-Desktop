@@ -56,6 +56,7 @@ import { CrashLogger, CrashDetector } from './crash';
 import { AuthStore } from './providers/auth-store-v2';
 import { ProviderClient, setSidecarEndpoint } from './providers/provider-client';
 import { ChatEngine, getExtendedThinkingBoost } from './providers/chat-engine';
+import { stripXmlToolCalls } from './providers/xml-tool-parser';
 import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
@@ -2429,6 +2430,20 @@ function registerIpcHandlers(): void {
       send('chat:stream-warning', {
         warning: `Hit the max-steps limit (${maxStepsLimit}). The result may be incomplete — ask the agent to continue if needed.`,
       });
+    }
+
+    // Phase 9.3: Strip XML/code-block tool calls from the final content so the
+    // user doesn't see raw XML or ```javascript AskUserQuestion({...})``` in
+    // the chat. The tools have already been executed by the XML parser — this
+    // just cleans up the visible text.
+    if (fullContent) {
+      const stripped = stripXmlToolCalls(fullContent);
+      if (stripped !== fullContent) {
+        console.info(`[ChatEngine] Stripped tool call XML/code from ${fullContent.length} → ${stripped.length} chars`);
+        // Send the cleaned content to the renderer as a replacement.
+        send('chat:stream-chunk-replace', { content: stripped });
+        fullContent = stripped;
+      }
     }
 
     return { content: fullContent, steps: stepCount, status };
