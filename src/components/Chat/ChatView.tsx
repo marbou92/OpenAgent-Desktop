@@ -700,19 +700,12 @@ const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
-      {/* ─── Phase 10.7: Composer-connected Todo List (Codex Desktop style) ── */}
-      {/* The todo list sits directly above the composer, connected to it. */}
-      {/* It updates in real-time from the TodoStore (not from message tool calls). */}
+      {/* ─── Phase 10.9: Todo dropdown above composer (DaisyUI style, expands upward) ── */}
       {composerTodos.length > 0 && (
-        <div
-          className="px-4 pt-2 pb-0 border-t"
-          style={{ borderColor: 'var(--color-border-secondary)', background: 'var(--color-bg-primary)' }}
-        >
-          <TodoWriteCard
-            todos={composerTodos}
-            isStreaming={isStreaming}
-          />
-        </div>
+        <TodoWriteCard
+          todos={composerTodos}
+          isStreaming={isStreaming}
+        />
       )}
 
       {/* ─── Composer (with inline agent + model selectors) ────────────── */}
