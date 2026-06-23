@@ -29,10 +29,6 @@ interface UseChatOptions {
   onContextCompacted?: (data: { savedTokens: number; strategy?: string }) => void;
   /** Phase 8.5: fired when the agent calls AskUserQuestion. */
   onAskUser?: (request: { id: string; toolName: string; questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> }) => void;
-  // BUGFIX: previously useChat ignored external messages, so loading a saved
-  // session showed an empty chat. Now we accept an externalMessages array and
-  // sync it into local state whenever it changes (typically when App.tsx loads
-  // a session from disk).
   externalMessages?: ChatMessage[];
 }
 
@@ -79,57 +75,49 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const isStreamingRef = useRef(false);
   const activeToolCallsRef = useRef<ToolCall[]>([]);
 
-  // Keep messagesRef in sync
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // BUGFIX: previously useChat never picked up messages loaded by App.tsx —
-  // calling handleLoadSession set the Zustand store but useChat still showed
-  // an empty list. Now we sync externalMessages into local state when the
-  // array reference changes (App sets it on session load).
+  const lastExternalSyncRef = useRef<ChatMessage[] | null>(null);
+  const skipNextNotifyRef = useRef(false);
+  const lastSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
+    if (isStreamingRef.current) return;
+    const sessionChanged = lastSessionIdRef.current !== sessionId;
+    lastSessionIdRef.current = sessionId;
     if (externalMessages && externalMessages.length > 0) {
-      // Mark any streaming messages as finalized since we are loading from disk.
+      if (!sessionChanged && lastExternalSyncRef.current === externalMessages) return;
+      lastExternalSyncRef.current = externalMessages;
       const sanitized = externalMessages.map(m => ({ ...m, isStreaming: false }));
+      skipNextNotifyRef.current = true;
       setMessages(sanitized);
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
       setActiveToolCalls([]);
       setIsStreaming(false);
       isStreamingRef.current = false;
-    } else if (externalMessages && externalMessages.length === 0 && sessionId === null) {
-      // App cleared the session — clear local messages too.
+    } else if (externalMessages && externalMessages.length === 0) {
+      if (messagesRef.current.length === 0 && !sessionChanged) return;
+      skipNextNotifyRef.current = true;
       setMessages([]);
+      lastExternalSyncRef.current = null;
+      streamingContentRef.current = '';
+      streamingThinkingRef.current = '';
+      setActiveToolCalls([]);
     }
-    // We intentionally depend only on externalMessages, not sessionId, so that
-    // re-mounting the same session does not wipe state. App.tsx passes a fresh
-    // array on each load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalMessages]);
+  }, [externalMessages, sessionId]);
 
-  // Stable callbacks: wrap onTraceEntry / onPermissionRequest in refs so that
-  // the streaming subscription effect does not re-subscribe on every render
-  // of the parent component. Previously, inline arrows in ChatView caused the
-  // subscription to be torn down and re-created on every streaming token,
-  // risking dropped events.
   const onTraceEntryRef = useRef(onTraceEntry);
   const onPermissionRequestRef = useRef(onPermissionRequest);
   const onContextCompactedRef = useRef(onContextCompacted);
   const onAskUserRef = useRef(onAskUser);
-  useEffect(() => {
-    onTraceEntryRef.current = onTraceEntry;
-  }, [onTraceEntry]);
-  useEffect(() => {
-    onPermissionRequestRef.current = onPermissionRequest;
-  }, [onPermissionRequest]);
-  useEffect(() => {
-    onContextCompactedRef.current = onContextCompacted;
-  }, [onContextCompacted]);
-  useEffect(() => {
-    onAskUserRef.current = onAskUser;
-  }, [onAskUser]);
-  // Cleanup listeners on unmount or session change
+  useEffect(() => { onTraceEntryRef.current = onTraceEntry; }, [onTraceEntry]);
+  useEffect(() => { onPermissionRequestRef.current = onPermissionRequest; }, [onPermissionRequest]);
+  useEffect(() => { onContextCompactedRef.current = onContextCompacted; }, [onContextCompacted]);
+  useEffect(() => { onAskUserRef.current = onAskUser; }, [onAskUser]);
+
   useEffect(() => {
     return () => {
       unsubscribeRef.current.forEach(fn => fn());
@@ -137,7 +125,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     };
   }, [sessionId]);
 
-  // Subscribe to stream events when session changes
   useEffect(() => {
     if (!api) return;
 
@@ -145,16 +132,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       if (data.sessionId !== sessionId) return;
       streamingContentRef.current += data.chunk;
       setStreamingContent(streamingContentRef.current);
-
-      // Update the streaming assistant message
       setMessages(prev => {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            content: streamingContentRef.current,
-          };
+          updated[updated.length - 1] = { ...lastMsg, content: streamingContentRef.current };
         }
         return updated;
       });
@@ -162,18 +144,14 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubThinking = api.on.chatStreamThinking((data: { sessionId: string; thinking: string }) => {
       if (data.sessionId !== sessionId) return;
-      streamingThinkingRef.current = data.thinking;
-      setStreamingThinking(data.thinking);
-
-      // Update the streaming assistant message thinking
+      const accumulated = streamingThinkingRef.current + data.thinking;
+      streamingThinkingRef.current = accumulated;
+      setStreamingThinking(accumulated);
       setMessages(prev => {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            thinking: data.thinking,
-          };
+          updated[updated.length - 1] = { ...lastMsg, thinking: accumulated };
         }
         return updated;
       });
@@ -182,28 +160,45 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
       const incomingToolCall = data.toolCall;
+      const splitOffset = streamingContentRef.current.length;
       const newToolCall: ToolCall = {
         id: (incomingToolCall.id as string) || crypto.randomUUID(),
         name: (incomingToolCall.name as string) || 'unknown',
         arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
         status: 'pending',
+        ...({ _splitOffset: splitOffset } as any),
       };
 
       setActiveToolCalls(prev => [...prev, newToolCall]);
+      activeToolCallsRef.current = [...activeToolCallsRef.current, newToolCall];
+
+      setMessages(prev => {
+        const lastMsg = prev[prev.length - 1];
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
+          return prev;
+        }
+        const existing = lastMsg.toolCalls || [];
+        if (existing.some(tc => tc.id === newToolCall.id)) {
+          return prev;
+        }
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...lastMsg, toolCalls: [...existing, newToolCall] };
+        return updated;
+      });
+
+      // Phase 0.6: REMOVED the renderer-side permission check.
+      // Previously fired onPermissionRequest with newToolCall.id which didn't
+      // match main.ts's 'perm-...' IDs, causing the dialog to be unresolvable.
+      // Permissions are handled SOLELY by main.ts via checkPermission →
+      // requestPermission → chat:permission-request with 'perm-...' ID.
     });
 
     const unsubToolResult = api.on.chatStreamToolResult((data: { sessionId: string; toolResult: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
-
-      // Update the tool call with result
       setActiveToolCalls(prev =>
         prev.map(tc => {
           if (tc.id === (data.toolResult as any).id) {
-            return {
-              ...tc,
-              result: (data.toolResult as any).result,
-              status: 'completed' as const,
-            };
+            return { ...tc, result: (data.toolResult as any).result, status: 'completed' as const };
           }
           return tc;
         })
@@ -212,48 +207,48 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubEnd = api.on.chatStreamEnd((data: { sessionId: string; content: string }) => {
       if (data.sessionId !== sessionId) return;
-
-      // Finalize the streaming message
       setMessages(prev => {
-        const updated = [...prev];
-        const lastMsg = updated[updated.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            content: data.content || streamingContentRef.current,
-            isStreaming: false,
-            thinking: streamingThinkingRef.current || lastMsg.thinking,
-          };
+        const lastMsg = prev[prev.length - 1];
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
+          return prev;
         }
+        const existingToolCalls = lastMsg.toolCalls || [];
+        const allToolCalls = [...existingToolCalls];
+        for (const atc of activeToolCallsRef.current) {
+          if (!allToolCalls.some(tc => tc.id === atc.id)) {
+            allToolCalls.push(atc);
+          }
+        }
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...lastMsg,
+          content: data.content || streamingContentRef.current,
+          isStreaming: false,
+          thinking: streamingThinkingRef.current || lastMsg.thinking,
+          toolCalls: allToolCalls,
+        };
         return updated;
       });
-
       setIsStreaming(false);
       isStreamingRef.current = false;
       setStreamingContent('');
       setStreamingThinking('');
       streamingContentRef.current = '';
       streamingThinkingRef.current = '';
+      activeToolCallsRef.current = [];
       setActiveToolCalls([]);
     });
 
     const unsubError = api.on.chatStreamError((data: { sessionId: string; error: string }) => {
       if (data.sessionId !== sessionId) return;
-
       setMessages(prev => {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            content: `Error: ${data.error}`,
-            isStreaming: false,
-            error: data.error,
-          };
+          updated[updated.length - 1] = { ...lastMsg, content: `Error: ${data.error}`, isStreaming: false, error: data.error };
         }
         return updated;
       });
-
       setIsStreaming(false);
       isStreamingRef.current = false;
       setError(data.error);
@@ -264,22 +259,28 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setActiveToolCalls([]);
     });
 
-    const unsubCancelled = api.on.chatStreamCancelled((data: { sessionId: string }) => {
+    const unsubWarning = api.on.chatStreamWarning?.((data: { sessionId: string; warning: string }) => {
       if (data.sessionId !== sessionId) return;
-
       setMessages(prev => {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            content: streamingContentRef.current || lastMsg.content,
-            isStreaming: false,
-          };
+          updated[updated.length - 1] = { ...lastMsg, warning: data.warning };
         }
         return updated;
       });
+    }) ?? (() => {});
 
+    const unsubCancelled = api.on.chatStreamCancelled((data: { sessionId: string }) => {
+      if (data.sessionId !== sessionId) return;
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          updated[updated.length - 1] = { ...lastMsg, content: streamingContentRef.current || lastMsg.content, isStreaming: false };
+        }
+        return updated;
+      });
       setIsStreaming(false);
       isStreamingRef.current = false;
       setStreamingContent('');
@@ -295,71 +296,44 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       }
     });
 
-    // Listen for permission requests from AgentRunner (Build/Plan/Smart modes).
-    // When the agent loop needs user approval for a tool call, main.ts sends
-    // a chat:permission-request event with a requestId. The UI shows the
-    // PermissionDialog and the user's response is sent back via
-    // api.permissions.respond(requestId, response).
     const unsubPermission = api.on.permissionRequest?.((data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
-      onPermissionRequestRef.current?.({
-        id: data.id,
-        toolName: data.toolName,
-        args: data.args,
-      });
+      onPermissionRequestRef.current?.({ id: data.id, toolName: data.toolName, args: data.args });
     }) ?? (() => {});
 
-    // Phase 10.2: AskUserQuestion — inject _askRequestId into tool call args.
     const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<any> }; questions?: Array<any> }) => {
       if (data.sessionId !== sessionId) return;
       const questions = data.questions || data.args?.questions || [];
       onAskUserRef.current?.({ id: data.id, toolName: data.toolName, questions });
-      // Inject _askRequestId into the latest unanswered AskUserQuestion tool call.
-      // Phase 0.3: Must return SAME reference when no change needed (prevent infinite re-render).
       setMessages(prev => {
         const lastMsg = prev[prev.length - 1];
         if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.toolCalls) {
-          return prev; // Same reference — no re-render
+          return prev;
         }
         let found = false;
         const newToolCalls = lastMsg.toolCalls.map(tc => {
-          if (tc.name === 'AskUserQuestion' && !tc.result && !found) {
-            // Skip if _askRequestId already set
-            if (tc.arguments?._askRequestId) {
-              return tc;
-            }
+          if (tc.name === 'AskUserQuestion' && !tc.result && !tc.arguments?._askRequestId && !found) {
             found = true;
             return { ...tc, arguments: { ...tc.arguments, _askRequestId: data.id } };
           }
           return tc;
         });
-        if (!found) {
-          return prev; // No AskUserQuestion found — same reference
-        }
+        if (!found) return prev;
         const updated = [...prev];
         updated[updated.length - 1] = { ...lastMsg, toolCalls: newToolCalls };
         return updated;
       });
     }) ?? (() => {});
 
-    // Phase 8.3: auto-compaction.
     const unsubCompacted = api.on?.contextCompacted?.((data: { sessionId?: string; savedTokens: number; strategy?: string }) => {
       if (data.sessionId && data.sessionId !== sessionId) return;
       onContextCompactedRef.current?.({ savedTokens: data.savedTokens, strategy: data.strategy });
     }) ?? (() => {});
 
     unsubscribeRef.current = [
-      unsubChunk,
-      unsubThinking,
-      unsubToolCall,
-      unsubToolResult,
-      unsubEnd,
-      unsubError,
-      unsubCancelled,
-      unsubTrace,
-      unsubPermission,
-      unsubAskUser,
-      unsubCompacted,
+      unsubChunk, unsubThinking, unsubToolCall, unsubToolResult, unsubEnd,
+      unsubError, unsubWarning, unsubCancelled, unsubTrace, unsubPermission,
+      unsubAskUser, unsubCompacted,
     ];
 
     return () => {
@@ -368,45 +342,30 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     };
   }, [sessionId, permissionMode]);
 
-  // Notify parent when messages change
   useEffect(() => {
+    if (skipNextNotifyRef.current) {
+      skipNextNotifyRef.current = false;
+      return;
+    }
     onMessagesUpdate?.(messages);
   }, [messages, onMessagesUpdate]);
 
   const sendMessage = useCallback(async (content: string, files: AttachedFile[] = [], images: string[] = [], thinkingEffort?: string) => {
-    if (!sessionId || !api) {
-      setError('No active session or API not available');
-      return;
-    }
-
-    if (isStreamingRef.current) {
-      setError('Already streaming a response');
-      return;
-    }
-
+    if (!sessionId || !api) { setError('No active session or API not available'); return; }
+    if (isStreamingRef.current) { setError('Already streaming a response'); return; }
     setError(null);
     streamingContentRef.current = '';
     streamingThinkingRef.current = '';
+    activeToolCallsRef.current = [];
     lastUserMessageRef.current = content;
     lastFilesRef.current = files;
 
-    // Create user message — Phase 4: attach images as base64 data URLs
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content,
-      timestamp: new Date().toISOString(),
-      files: files.length > 0 ? files : undefined,
-      images: images.length > 0 ? images : undefined,
+      id: crypto.randomUUID(), role: 'user', content, timestamp: new Date().toISOString(),
+      files: files.length > 0 ? files : undefined, images: images.length > 0 ? images : undefined,
     };
-
-    // Create assistant placeholder
     const assistantMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: '',
-      timestamp: new Date().toISOString(),
-      isStreaming: true,
+      id: crypto.randomUUID(), role: 'assistant', content: '', timestamp: new Date().toISOString(), isStreaming: true,
     };
 
     setMessages(prev => [...prev, userMessage, assistantMessage]);
@@ -414,146 +373,76 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     isStreamingRef.current = true;
 
     try {
-      // The provider+model are stored on the session (set by ChatView's
-      // provider/model dropdowns). The chat:stream IPC handler reads them
-      // from session.providerId + session.model.
-      // We don't need to pass them explicitly — the main process resolves
-      // them from the session. Just call chat:stream with the message.
       if (!providers.length) {
         setMessages(prev => {
           const updated = [...prev];
           const lastMsg = updated[updated.length - 1];
           if (lastMsg.role === 'assistant') {
-            updated[updated.length - 1] = {
-              ...lastMsg,
-              content: 'No AI provider configured. Please add an API key in **Settings**.',
-              isStreaming: false,
-              error: 'No provider configured',
-            };
+            updated[updated.length - 1] = { ...lastMsg, content: 'No AI provider configured. Please add an API key in **Settings**.', isStreaming: false, error: 'No provider configured' };
           }
           return updated;
         });
-        setIsStreaming(false);
-        isStreamingRef.current = false;
-        setError('No provider configured');
-        return;
+        setIsStreaming(false); isStreamingRef.current = false; setError('No provider configured'); return;
       }
-
-      // Start streaming via the Electron API.
-      // The provider+model are resolved from the session in main.ts.
-      // Phase 4: pass images as base64 data URLs for multi-modal support.
-      // Phase 4.2: pass thinking effort level.
       await api.chat.stream(sessionId, content, {
-        files: files.map(f => f.path),
-        images: images.length > 0 ? images : undefined,
-        thinkingEffort,
+        files: files.map(f => f.path), images: images.length > 0 ? images : undefined, thinkingEffort,
       });
     } catch (err: any) {
       setMessages(prev => {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg.role === 'assistant') {
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            content: `Failed to get response: ${err.message}`,
-            isStreaming: false,
-            error: err.message,
-          };
+          updated[updated.length - 1] = { ...lastMsg, content: `Failed to get response: ${err.message}`, isStreaming: false, error: err.message };
         }
         return updated;
       });
-      setIsStreaming(false);
-      isStreamingRef.current = false;
-      setError(err.message);
+      setIsStreaming(false); isStreamingRef.current = false; setError(err.message);
     }
   }, [sessionId, providers]);
 
   const stopStreaming = useCallback(async () => {
     if (!sessionId || !api) return;
-
-    try {
-      await api.chat.cancel(sessionId);
-    } catch (err: any) {
-      console.error('Failed to cancel streaming:', err);
-    }
-
-    // Immediately update local state
-    setIsStreaming(false);
-    isStreamingRef.current = false;
-
+    try { await api.chat.cancel(sessionId); } catch (err: any) { console.error('Failed to cancel streaming:', err); }
+    setIsStreaming(false); isStreamingRef.current = false;
     setMessages(prev => {
       const updated = [...prev];
       const lastMsg = updated[updated.length - 1];
       if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-        updated[updated.length - 1] = {
-          ...lastMsg,
-          content: streamingContentRef.current || lastMsg.content || '*(cancelled)*',
-          isStreaming: false,
-        };
+        updated[updated.length - 1] = { ...lastMsg, content: streamingContentRef.current || lastMsg.content || '*(cancelled)*', isStreaming: false };
       }
       return updated;
     });
-
-    setStreamingContent('');
-    setStreamingThinking('');
-    streamingContentRef.current = '';
-    streamingThinkingRef.current = '';
+    setStreamingContent(''); setStreamingThinking('');
+    streamingContentRef.current = ''; streamingThinkingRef.current = '';
     setActiveToolCalls([]);
   }, [sessionId]);
 
   const clearMessages = useCallback(() => {
-    setMessages([]);
-    setError(null);
-    setStreamingContent('');
-    setStreamingThinking('');
-    setActiveToolCalls([]);
-    streamingContentRef.current = '';
-    streamingThinkingRef.current = '';
+    setMessages([]); setError(null); setStreamingContent(''); setStreamingThinking(''); setActiveToolCalls([]);
+    streamingContentRef.current = ''; streamingThinkingRef.current = ''; activeToolCallsRef.current = [];
   }, []);
 
-  // Exposed imperative API to load a session's messages from the parent.
-  // Useful when the parent has the messages but didn't pass them via
-  // externalMessages (e.g. for backward compatibility).
   const loadSession = useCallback((loaded: ChatMessage[]) => {
     const sanitized = loaded.map(m => ({ ...m, isStreaming: false }));
     setMessages(sanitized);
-    streamingContentRef.current = '';
-    streamingThinkingRef.current = '';
-    setActiveToolCalls([]);
-    setIsStreaming(false);
-    isStreamingRef.current = false;
+    streamingContentRef.current = ''; streamingThinkingRef.current = '';
+    setActiveToolCalls([]); setIsStreaming(false); isStreamingRef.current = false;
+    activeToolCallsRef.current = [];
   }, []);
 
   const retryLastMessage = useCallback(async () => {
     if (!lastUserMessageRef.current) return;
-
-    // Remove the last assistant message
     setMessages(prev => {
       const updated = [...prev];
-      if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') {
-        updated.pop();
-      }
-      if (updated.length > 0 && updated[updated.length - 1].role === 'user') {
-        updated.pop();
-      }
+      if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') updated.pop();
+      if (updated.length > 0 && updated[updated.length - 1].role === 'user') updated.pop();
       return updated;
     });
-
-    // Re-send
     await sendMessage(lastUserMessageRef.current, lastFilesRef.current);
   }, [sendMessage]);
 
   return {
-    messages,
-    isStreaming,
-    error,
-    streamingContent,
-    streamingThinking,
-    activeToolCalls,
-    sendMessage,
-    stopStreaming,
-    clearMessages,
-    retryLastMessage,
-    loadSession,
+    messages, isStreaming, error, streamingContent, streamingThinking, activeToolCalls,
+    sendMessage, stopStreaming, clearMessages, retryLastMessage, loadSession,
   };
 }
