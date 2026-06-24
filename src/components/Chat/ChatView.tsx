@@ -136,7 +136,8 @@ const ChatView: React.FC<ChatViewProps> = ({
     error,
     streamingContent,
     streamingThinking,
-    activeToolCalls,
+    // Phase 1.3: activeToolCalls removed — no longer rendered separately.
+    // Tool calls are shown inline as ToolUseCard inside the message stream.
     sendMessage,
     stopStreaming,
     retryLastMessage,
@@ -508,57 +509,11 @@ const ChatView: React.FC<ChatViewProps> = ({
               />
             ))}
 
-            {/* Active tool calls (when streaming) */}
-            {activeToolCalls.length > 0 && (
-              <div className="space-y-2">
-                {activeToolCalls.map((tc) => (
-                  <div
-                    key={tc.id}
-                    className="rounded-lg border px-3 py-2 flex items-center gap-2.5"
-                    style={{
-                      background: 'var(--color-bg-secondary)',
-                      borderColor: 'var(--color-border-primary)',
-                    }}
-                  >
-                    {tc.status === 'pending' ? (
-                      <div
-                        className="w-3.5 h-3.5 border-2 rounded-full animate-spin-slow flex-shrink-0"
-                        style={{
-                          borderColor: 'var(--color-accent)',
-                          borderTopColor: 'transparent',
-                        }}
-                      />
-                    ) : (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="var(--color-success)"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="flex-shrink-0"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    )}
-                    <span
-                      className="text-xs font-medium font-mono"
-                      style={{ color: 'var(--color-text-primary)' }}
-                    >
-                      {tc.name}
-                    </span>
-                    <span
-                      className="text-[10px] uppercase tracking-wider"
-                      style={{ color: 'var(--color-text-muted)' }}
-                    >
-                      {tc.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Phase 1.3: Removed the separate "Active tool calls" section.
+                Tool calls are now rendered inline as ToolUseCard inside
+                the message stream (with the inline permission prompt from
+                Phase 1.2), so this duplicate status bar list is no longer
+                needed. */}
 
             <div ref={messagesEndRef} />
           </div>
