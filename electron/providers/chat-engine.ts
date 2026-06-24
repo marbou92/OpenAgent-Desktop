@@ -534,28 +534,24 @@ export class ChatEngine {
               abortSignal: options?.signal,
               // Phase 4.2: pass thinking effort as providerOptions
               providerOptions,
-              onStepFinish: (step: any) => {
-                // Forward tool calls + results from each step.
-                if (step?.toolCalls) {
-                  for (const tc of step.toolCalls) {
-                    options?.onToolCall?.(tc);
-                  }
-                }
-                if (step?.toolResults) {
-                  for (const tr of step.toolResults) {
-                    // Phase 0.8: Detect permission-denial sentinel objects
-                    // returned by execute() handlers. When found, set
-                    // `denied: true` on the forwarded tool result so the
-                    // renderer can render a "Denied" state instead of the
-                    // default "Completed" checkmark.
-                    const extracted = extractPermissionDenied(tr.result);
-                    if (extracted) {
-                      options?.onToolResult?.({ ...tr, result: extracted.message, denied: true });
-                    } else {
-                      options?.onToolResult?.(tr);
-                    }
-                  }
-                }
+              onStepFinish: (_step: any) => {
+                // Phase 0.9: Previously this callback forwarded tool calls
+                // and tool results via onToolCall/onToolResult. But the
+                // fullStream already yields 'tool-call' and 'tool-result'
+                // parts for these same events — so every tool call/result
+                // was forwarded TWICE to the renderer.
+                //
+                // Worse, the AI SDK's step.toolCalls[i] has shape
+                // { toolCallId, toolName, args } but the renderer expects
+                // { id, name, arguments }. The mismatch caused the renderer
+                // to fall back to crypto.randomUUID() for the ID → the
+                // dedup check failed → duplicate entries with random IDs
+                // that no tool result could match → stuck spinners forever.
+                //
+                // The stream chunks (tool-call, tool-result) are already
+                // correctly shaped (chat-engine maps toolCallId→id,
+                // toolName→name, args→arguments before yielding). So we
+                // simply skip forwarding here and let the stream handle it.
               },
             });
 

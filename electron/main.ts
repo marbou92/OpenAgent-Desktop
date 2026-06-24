@@ -1956,12 +1956,16 @@ function registerIpcHandlers(): void {
         tools,
         maxSteps: agent.maxSteps || 50,
         thinkingEffort, // Phase 4.2: pass thinking effort
+        // Phase 0.9: onToolCall/onToolResult are now ONLY used by the
+        // direct agent loop (runDirectAgentLoop). The AI SDK streamText
+        // path forwards tool calls/results via stream chunks instead
+        // (see the switch below), which avoids the duplicate events +
+        // shape mismatch bug that was causing stuck spinners.
         onToolCall: (tc: any) => {
           send('chat:stream-tool-call', { toolCall: tc });
         },
         onToolResult: (tr: any) => {
           send('chat:stream-tool-result', { toolResult: tr });
-          stepCount++;
         },
       }
     )) {
@@ -1982,6 +1986,7 @@ function registerIpcHandlers(): void {
           break;
         case 'tool_result':
           send('chat:stream-tool-result', { toolResult: chunk.toolResult });
+          stepCount++; // Phase 0.9: moved here from onToolResult callback
           break;
         case 'usage':
           // Token usage — could be forwarded to the renderer for display.
