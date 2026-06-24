@@ -31,9 +31,11 @@ interface MessageBubbleProps {
   onAskUserAnswer?: (toolCallId: string, answer: string) => void;
   /** Phase 10: The active ask-user request ID (for matching tool calls). */
   askUserRequestId?: string | null;
+  /** Phase 1.2: Called when the user responds to an inline permission prompt. */
+  onPermissionRespond?: (requestId: string, response: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny') => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy, onAskUserAnswer, askUserRequestId }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy, onAskUserAnswer, askUserRequestId, onPermissionRespond }) => {
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
 
@@ -147,7 +149,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                       {message.toolCalls.map((tc) => {
                         if (tc.name === 'TodoWrite') return null;
                         if (tc.name === 'AskUserQuestion') return null;
-                        return <ToolUseCard key={tc.id} toolCall={tc} />;
+                        return <ToolUseCard key={tc.id} toolCall={tc} onPermissionRespond={onPermissionRespond} />;
                       })}
                     </div>
                   )}
@@ -211,7 +213,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                     {message.toolCalls.map((tc) => {
                       if (tc.name === 'TodoWrite') return null;
                       if (tc.name === 'AskUserQuestion') return null;
-                      return <ToolUseCard key={tc.id} toolCall={tc} />;
+                      return <ToolUseCard key={tc.id} toolCall={tc} onPermissionRespond={onPermissionRespond} />;
                     })}
                   </div>
                 )}

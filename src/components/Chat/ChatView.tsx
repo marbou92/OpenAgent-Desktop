@@ -499,6 +499,12 @@ const ChatView: React.FC<ChatViewProps> = ({
                   }
                   setAskUserRequestId(null);
                 }}
+                onPermissionRespond={(requestId, response) => {
+                  if (api?.permissions?.respond) {
+                    api.permissions.respond(requestId, response);
+                  }
+                  setPermissionRequest(null);
+                }}
               />
             ))}
 
@@ -771,6 +777,11 @@ const ChatView: React.FC<ChatViewProps> = ({
       )}
 
       {/* ─── Permission Dialog ────────────────────────────────────────── */}
+      {/* Phase 1.2: The floating dialog is now a FALLBACK only. Permission
+          prompts are rendered inline in the ToolUseCard (at the position
+          where the tool call was triggered, like AskUserQuestion). The
+          floating dialog only appears if a permission request arrives
+          that doesn't match any tool call in the message stream (edge case). */}
       <PermissionDialog request={permissionRequest} onRespond={handlePermissionRespond} />
 
       {/* ─── Phase 4: Structured Output Panel ──────────────────────────── */}

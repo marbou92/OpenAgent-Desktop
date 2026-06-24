@@ -238,7 +238,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       const applyResult = (list: ToolCall[]): ToolCall[] =>
         list.map(tc =>
           tc.id === resultId
-            ? { ...tc, result: resultValue, status: newStatus as 'denied' | 'completed' }
+            ? { ...tc, result: resultValue, status: newStatus as 'denied' | 'completed', _pendingPermission: undefined }
             : tc
         );
 
@@ -384,7 +384,63 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubPermission = api.on.permissionRequest?.((data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
-      onPermissionRequestRef.current?.({ id: data.id, toolName: data.toolName, args: data.args });
+
+      // Phase 1.2: Attach the permission request to the most recent
+      // pending tool call that matches the tool name. This lets the
+      // ToolUseCard render the approval UI inline — no separate floating
+      // dialog. We match by toolName (the permission request doesn't
+      // include the tool call ID, only the tool name + args).
+      const attachPermission = (list: ToolCall[]): { list: ToolCall[]; attached: boolean } => {
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (list[i].name === data.toolName &&
+              list[i].status === 'pending' &&
+              !list[i]._pendingPermission) {
+            const updated = [...list];
+            updated[i] = {
+              ...updated[i],
+              _pendingPermission: {
+                requestId: data.id,
+                toolName: data.toolName,
+                args: data.args,
+              },
+            };
+            return { list: updated, attached: true };
+          }
+        }
+        return { list, attached: false };
+      };
+
+      const result1 = attachPermission(activeToolCallsRef.current);
+      activeToolCallsRef.current = result1.list;
+      let attachedInline = result1.attached;
+
+      setActiveToolCalls(prev => {
+        const r = attachPermission(prev);
+        return r.list;
+      });
+
+      setMessages(prev => {
+        const lastMsg = prev[prev.length - 1];
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
+          return prev;
+        }
+        const existing = lastMsg.toolCalls || [];
+        const r = attachPermission(existing);
+        if (r.attached) attachedInline = true;
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...lastMsg,
+          toolCalls: r.list,
+        };
+        return updated;
+      });
+
+      // Phase 1.2: Only fire the floating-dialog callback if the permission
+      // was NOT attached inline. This prevents the floating dialog from
+      // appearing on top of the inline approval UI.
+      if (!attachedInline) {
+        onPermissionRequestRef.current?.({ id: data.id, toolName: data.toolName, args: data.args });
+      }
     }) ?? (() => {});
 
     const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<any> }; questions?: Array<any> }) => {

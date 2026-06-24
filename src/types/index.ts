@@ -189,6 +189,14 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
   result?: unknown;
   status: 'pending' | 'completed' | 'failed' | 'denied';
+  /** Phase 1.2: When this tool call is awaiting permission approval,
+   *  this holds the permission request data so ToolUseCard can render
+   *  the approval UI inline (instead of a separate floating dialog). */
+  _pendingPermission?: {
+    requestId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+  };
 }
 
 export interface SessionTemplate {
