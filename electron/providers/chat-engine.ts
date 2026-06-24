@@ -39,19 +39,34 @@ async function ensureAiSdk(): Promise<boolean> {
 }
 
 /**
- * Phase 0.8: Detect the permission-denial sentinel object returned by
+ * Phase 0.8 + Phase 1: Detect the permission-denial sentinel object returned by
  * execute() handlers when a tool call is denied (either by the policy
  * engine or by the user clicking "Deny" / "Always Deny").
  *
  * Returns { message: string } if the result is a denial sentinel, or
  * null if the result is a normal tool output.
+ *
+ * Phase 1: Also checks for stringified JSON (the AI SDK may stringify
+ * the execute() return value in some code paths).
  */
 function extractPermissionDenied(result: unknown): { message: string } | null {
+  // Check if it's the raw sentinel object
   if (result && typeof result === 'object' && !Array.isArray(result)) {
     const obj = result as Record<string, unknown>;
     if (obj.__permissionDenied === true && typeof obj.message === 'string') {
       return { message: obj.message };
     }
+  }
+  // Phase 1: Check if it's a stringified JSON of the sentinel
+  // (the AI SDK may stringify the result in some stream parts)
+  if (typeof result === 'string') {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+          parsed.__permissionDenied === true && typeof parsed.message === 'string') {
+        return { message: parsed.message };
+      }
+    } catch { /* not JSON — ignore */ }
   }
   return null;
 }
@@ -1041,7 +1056,15 @@ Usage notes:
         // and actually call execute(). Without this, the tool call is
         // emitted but execute() never runs.
         parameters: wrapParams(tool.parameters),
-        execute: async (args: Record<string, unknown>) => {
+        execute: async (args: Record<string, unknown>, execOptions?: { toolCallId?: string }) => {
+          // Phase 1: Capture the toolCallId from the AI SDK so we can
+          // track denials by ID as a backup to the sentinel object.
+          const toolCallId = execOptions?.toolCallId;
+          const markDenied = () => {
+            if (toolCallId && (toolDeps as any).deniedToolCallIds instanceof Set) {
+              (toolDeps as any).deniedToolCallIds.add(toolCallId);
+            }
+          };
           // Phase 7.1 + Phase 8.5: AskUserQuestion uses a dedicated
           // ask-user flow (NOT the permission flow) to get the user's
           // selected answer. The UI shows a question card with the
@@ -1099,21 +1122,20 @@ Usage notes:
           // Permission check.
           const permission = permissionChecker.checkPermission(tool.name, args);
           if (permission === 'deny') {
-            // Phase 0.8: Return a sentinel object so the stream interceptor
-            // can set `denied: true` on the tool result sent to the renderer.
-            // The `message` is what the model sees as the tool result.
+            markDenied();
             return { __permissionDenied: true, message: `Permission DENIED for tool "${tool.name}" by the permission policy. Do NOT retry this tool — it has been blocked. Try a different approach or ask the user how to proceed.` };
           }
           if (permission === 'ask') {
             const approved = await permissionChecker.requestPermission(tool.name, args);
             if (!approved) {
+              markDenied();
               return { __permissionDenied: true, message: `The user explicitly DENIED permission for tool "${tool.name}". Do NOT retry this tool — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.` };
             }
           }
 
           // Execute.
           const result = await executeToolFn(
-            { id: crypto.randomUUID(), name: tool.name, arguments: args },
+            { id: toolCallId || crypto.randomUUID(), name: tool.name, arguments: args },
             toolDeps
           );
           return result.content;
@@ -1131,19 +1153,27 @@ Usage notes:
             description: extTool.description,
             // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
             parameters: wrapParams(extTool.parameters || { type: 'object', properties: {} }),
-            execute: async (args: Record<string, unknown>) => {
+            execute: async (args: Record<string, unknown>, execOptions?: { toolCallId?: string }) => {
+              const extToolCallId = execOptions?.toolCallId;
+              const markDenied = () => {
+                if (extToolCallId && (toolDeps as any).deniedToolCallIds instanceof Set) {
+                  (toolDeps as any).deniedToolCallIds.add(extToolCallId);
+                }
+              };
               const permission = permissionChecker.checkPermission(extTool.name, args);
               if (permission === 'deny') {
+                markDenied();
                 return { __permissionDenied: true, message: `Permission DENIED for tool "${extTool.name}" by the permission policy. Do NOT retry this tool — it has been blocked. Try a different approach or ask the user how to proceed.` };
               }
               if (permission === 'ask') {
                 const approved = await permissionChecker.requestPermission(extTool.name, args);
                 if (!approved) {
+                  markDenied();
                   return { __permissionDenied: true, message: `The user explicitly DENIED permission for tool "${extTool.name}". Do NOT retry this tool — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.` };
                 }
               }
               const result = await executeToolFn(
-                { id: crypto.randomUUID(), name: extTool.name, arguments: args },
+                { id: extToolCallId || crypto.randomUUID(), name: extTool.name, arguments: args },
                 toolDeps
               );
               return result.content;
@@ -1179,11 +1209,18 @@ Usage notes:
           description: desc,
           // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
           parameters: wrapParams(skill.parameters || { type: 'object', properties: {}, description: 'Skill parameters (see skill description)' }),
-          execute: async (args: Record<string, unknown>) => {
+          execute: async (args: Record<string, unknown>, execOptions?: { toolCallId?: string }) => {
+            const skillToolCallId = execOptions?.toolCallId;
+            const markDenied = () => {
+              if (skillToolCallId && (toolDeps as any).deniedToolCallIds instanceof Set) {
+                (toolDeps as any).deniedToolCallIds.add(skillToolCallId);
+              }
+            };
             // Skills always require user approval (they can run arbitrary
             // code via index.js, so we never auto-approve).
             const approved = await permissionChecker.requestPermission(toolName, args);
             if (!approved) {
+              markDenied();
               return { __permissionDenied: true, message: `The user explicitly DENIED permission to run skill "${skill.name}". Do NOT retry this skill — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.` };
             }
             try {

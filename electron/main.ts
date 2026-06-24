@@ -1166,28 +1166,10 @@ async function initializeSubsystems(): Promise<void> {
     await agentPresetManager.initialize();
     agentSessionBridge = new AgentSessionBridge(autoModeDetector);
 
-    // Phase 0.8: Load persisted permission overrides from disk so user-saved
-    // "Always Allow" / "Always Deny" rules survive app restarts. Built-in
-    // agents (build/plan/chat/smart) are in-memory only, so without this
-    // the rules would be lost every time the app restarts.
-    try {
-      const overridesPath = path.join(getUserDataPath(), 'permission-overrides.json');
-      const raw = await fs.promises.readFile(overridesPath, 'utf-8');
-      const overrides: Record<string, Record<string, string>> = JSON.parse(raw);
-      for (const [agentId, rules] of Object.entries(overrides)) {
-        const agent = agentRegistry.get(agentId);
-        if (agent && rules) {
-          const newPerms = { ...agent.permissions };
-          for (const [pattern, level] of Object.entries(rules)) {
-            newPerms[pattern] = level as ToolPermissionLevel;
-          }
-          agent.permissions = newPerms;
-          logger.info('Permissions', `Loaded ${Object.keys(rules).length} persisted override(s) for agent '${agentId}'`);
-        }
-      }
-    } catch {
-      // No overrides file yet — that's fine.
-    }
+    // Phase 1: Removed the old permission-overrides.json disk loading.
+    // "Always" rules are now session-scoped with 30-min expiry (in-memory
+    // only), so they don't need to survive app restarts. Each new session
+    // starts fresh.
 
     // Phase 2: Provider Overhaul
     modelIdResolver = getModelIdResolver();
@@ -1606,6 +1588,9 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("session:delete", wrapIPC(async (_event, sessionId: string) => {
     await sessionManager.delete(sessionId);
+    // Phase 1: Clean up session-scoped permission rules when the session
+    // is deleted so memory doesn't leak.
+    sessionPermissionRules.delete(sessionId);
     return { success: true };
   }));
 
@@ -1739,12 +1724,91 @@ function registerIpcHandlers(): void {
 
   const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
 
-  // Phase 0.2: Store tool info alongside each pending permission request
-  // so we can persist 'always_allow'/'always_deny' rules.
-  const pendingPermissionRequestInfo = new Map<string, { agentId: string; toolName: string; args: Record<string, unknown> }>();
+  // Phase 0.2 / Phase 1: Store tool info alongside each pending permission
+  // request. Now includes sessionId so "Always" rules can be scoped to the
+  // session that created them.
+  const pendingPermissionRequestInfo = new Map<string, { agentId: string; toolName: string; args: Record<string, unknown>; sessionId: string }>();
 
   // Phase 0.2: Pending AskUserQuestion requests.
   const pendingAskUserRequests = new Map<string, (answer: string | null) => void>();
+
+  // Phase 1: Session-scoped permission rules with 30-minute expiry.
+  //
+  // "Always Allow" / "Always Deny" no longer means "forever, globally". It
+  // means "for this session, for the next 30 minutes, don't ask again for
+  // this tool pattern." After 30 minutes the rule expires and the dialog
+  // re-appears. Rules are also scoped to the session that created them —
+  // a rule created in session A does not affect session B.
+  //
+  // Structure: sessionId → (pattern → { level, expiresAt })
+  const SESSION_RULE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+  const sessionPermissionRules = new Map<string, Map<string, { level: 'allow' | 'deny'; expiresAt: number }>>();
+
+  function getSessionRules(sessionId: string): Map<string, { level: 'allow' | 'deny'; expiresAt: number }> {
+    let rules = sessionPermissionRules.get(sessionId);
+    if (!rules) {
+      rules = new Map();
+      sessionPermissionRules.set(sessionId, rules);
+    }
+    return rules;
+  }
+
+  /** Check session-scoped rules for a tool. Returns 'allow'/'deny' if a
+   *  non-expired rule matches, or null if no rule matches. */
+  function checkSessionRule(sessionId: string, toolName: string, args: Record<string, unknown>): 'allow' | 'deny' | null {
+    const rules = sessionPermissionRules.get(sessionId);
+    if (!rules || rules.size === 0) return null;
+
+    // Build the tool identifier the same way the evaluator does
+    let toolId = toolName;
+    if (toolName === 'bash' && args.command) {
+      toolId = `bash:${String(args.command).trim()}`;
+    } else if ((toolName === 'edit' || toolName === 'write') && (args.path || args.file_path)) {
+      toolId = `${toolName}:${args.path || args.file_path}`;
+    } else if (toolName === 'read' && args.path) {
+      toolId = `read:${args.path}`;
+    }
+
+    const now = Date.now();
+    let result: 'allow' | 'deny' | null = null;
+
+    for (const [pattern, rule] of rules) {
+      // Expired rule — clean it up and skip
+      if (now > rule.expiresAt) {
+        rules.delete(pattern);
+        continue;
+      }
+      // Check if the pattern matches
+      if (pattern === toolName || pattern === toolId) {
+        result = rule.level;
+      } else if (pattern.includes('*')) {
+        // Simple wildcard match
+        const regex = new RegExp('^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');
+        if (regex.test(toolId) || regex.test(toolName)) {
+          result = rule.level;
+        }
+      } else if (!pattern.includes(':') && toolId.startsWith(pattern + ':')) {
+        // Prefix match: "edit" matches "edit:/foo/bar.ts"
+        result = rule.level;
+      }
+    }
+
+    return result;
+  }
+
+  /** Build the pattern for an "always" rule. */
+  function buildAlwaysPattern(toolName: string, args: Record<string, unknown>): string {
+    if (toolName === 'bash' && args.command) {
+      const cmd = String(args.command).trim().split(/\s+/)[0];
+      return `bash:${cmd} *`;
+    }
+    return toolName;
+  }
+
+  // Phase 1: Track denied tool call IDs per agent run so the UI can show
+  // a "Denied" state even if the sentinel object doesn't survive the AI
+  // SDK's stream pipeline.
+  const deniedToolCallIds = new Set<string>();
 
   ipcMain.handle("permission:respond", wrapIPC(async (_e, requestId: string, response: string) => {
     const resolve = pendingPermissionRequests.get(requestId);
@@ -1753,59 +1817,23 @@ function registerIpcHandlers(): void {
     }
     pendingPermissionRequests.delete(requestId);
 
-    // Phase 0.2 / Phase 0.8: Handle 'always_allow' and 'always_deny' by
-    // persisting rules to the agent AND to disk so they survive app restarts.
-    //
-    // Phase 0.8 fix: the old pattern for edit/write was `${toolName}:${args.path}`
-    // — an EXACT path match. So "Always Allow" on editing /foo/bar.ts only
-    // matched that exact file; editing /foo/baz.ts popped the dialog again.
-    // Now we use just the tool name (`edit` / `write`) so "Always Allow"
-    // means "always allow this tool entirely" — consistent with how
-    // read/glob/grep already work, and with what users expect when they
-    // click "Always Allow".
+    // Phase 1: Handle 'always_allow' and 'always_deny' by storing
+    // session-scoped rules with a 30-minute expiry. No more global
+    // permanent rules — the dialog will re-appear after 30 minutes.
     if (response === 'always_allow' || response === 'always_deny') {
       try {
         const pendingInfo = pendingPermissionRequestInfo.get(requestId);
         if (pendingInfo) {
-          const { agentId, toolName, args } = pendingInfo;
-          const agent = agentRegistry.get(agentId);
-          if (agent) {
-            let pattern = toolName;
-            if (toolName === 'bash' && args.command) {
-              // For bash, always allow/deny by command prefix
-              // (e.g. `bash:git *` — always allow git commands).
-              const cmd = String(args.command).trim().split(/\s+/)[0];
-              pattern = `bash:${cmd} *`;
-            }
-            // For edit/write/read/glob/grep and all other tools: use just
-            // the tool name. "Always Allow" means "always allow this tool".
-            const level = response === 'always_allow' ? 'allow' : 'deny';
-            const newPerms = { ...agent.permissions };
-            newPerms[pattern] = level;
-            agent.permissions = newPerms;
-            logger.info('Permissions', `Persisted rule: ${pattern} → ${level}`);
-
-            // Phase 0.8: Persist to disk so the rule survives app restarts.
-            // Built-in agents (build/plan/chat/smart) are in-memory only,
-            // so without this the rules would be lost on restart.
-            try {
-              const overridesPath = path.join(getUserDataPath(), 'permission-overrides.json');
-              let overrides: Record<string, Record<string, string>> = {};
-              try {
-                const raw = await fs.promises.readFile(overridesPath, 'utf-8');
-                overrides = JSON.parse(raw);
-              } catch { /* file doesn't exist yet */ }
-              if (!overrides[agentId]) overrides[agentId] = {};
-              overrides[agentId][pattern] = level;
-              await fs.promises.writeFile(overridesPath, JSON.stringify(overrides, null, 2), 'utf-8');
-            } catch (persistErr) {
-              logger.warn('Permissions', 'Failed to persist permission rule to disk', persistErr);
-            }
-          }
+          const { toolName, args, sessionId } = pendingInfo;
+          const pattern = buildAlwaysPattern(toolName, args);
+          const level = response === 'always_allow' ? 'allow' : 'deny';
+          const rules = getSessionRules(sessionId);
+          rules.set(pattern, { level, expiresAt: Date.now() + SESSION_RULE_TTL_MS });
+          logger.info('Permissions', `Session rule (30min): ${pattern} → ${level} [session=${sessionId}]`);
         }
         pendingPermissionRequestInfo.delete(requestId);
       } catch (err) {
-        logger.warn('Permissions', 'Failed to persist permission rule', err);
+        logger.warn('Permissions', 'Failed to store session permission rule', err);
       }
     }
 
@@ -1868,18 +1896,42 @@ function registerIpcHandlers(): void {
       sandboxManager,
       workingDirectory: session.workingDirectory || process.cwd(),
       extensionRegistry,
+      // Phase 1: Pass the denied tracker so execute() handlers can report
+      // which tool call IDs were denied. This is used as a backup to the
+      // sentinel object detection to ensure the UI shows "Denied".
+      deniedToolCallIds,
     };
 
     // Permission checker — uses the agent's permission rules.
+    // Phase 1: Now checks (1) the settings permissionMode override,
+    // (2) session-scoped "always" rules (30-min expiry), (3) the agent's
+    // permanent permission rules + policy engine.
     const permissionEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
     permissionEvaluator.setAgentMode(agent.mode);
     if (permissionPolicyEngine) {
       permissionEvaluator.setPolicyEngine(permissionPolicyEngine);
     }
 
+    // Phase 1: Read the permission mode from settings. This is the global
+    // override that takes precedence over everything else.
+    //   auto         → allow everything (full autonomy, no dialogs)
+    //   approve      → ask for everything (every tool call pops a dialog)
+    //   smart_approve → normal evaluation (agent rules + policy engine)
+    //   chat         → deny everything (no tools allowed, conversation only)
+    const settingsPermissionMode = (appConfig as any)?.permissionMode || 'smart_approve';
+
     const permissionChecker = {
       checkPermission(toolName: string, args: Record<string, unknown>): 'allow' | 'ask' | 'deny' {
-        // Phase 0.2: Re-evaluate with LATEST agent permissions so 'always' rules take effect immediately.
+        // (1) Settings override — highest priority
+        if (settingsPermissionMode === 'auto') return 'allow';
+        if (settingsPermissionMode === 'approve') return 'ask';
+        if (settingsPermissionMode === 'chat') return 'deny';
+
+        // (2) Session-scoped "always" rules (30-min expiry)
+        const sessionRule = checkSessionRule(sessionId, toolName, args);
+        if (sessionRule !== null) return sessionRule;
+
+        // (3) Agent's permanent permission rules + policy engine
         const freshEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
         freshEvaluator.setAgentMode(agent.mode);
         if (permissionPolicyEngine) {
@@ -1891,7 +1943,7 @@ function registerIpcHandlers(): void {
         return new Promise((resolve) => {
           const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           pendingPermissionRequests.set(requestId, (level: ToolPermissionLevel) => resolve(level === 'allow'));
-          pendingPermissionRequestInfo.set(requestId, { agentId: agent.id, toolName, args });
+          pendingPermissionRequestInfo.set(requestId, { agentId: agent.id, toolName, args, sessionId });
           send('chat:permission-request', { id: requestId, toolName, args });
         });
       },
@@ -1984,10 +2036,26 @@ function registerIpcHandlers(): void {
         case 'tool_call_end':
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
           break;
-        case 'tool_result':
-          send('chat:stream-tool-result', { toolResult: chunk.toolResult });
+        case 'tool_result': {
+          // Phase 1: Check if this tool call ID was marked as denied.
+          // The deniedToolCallIds set is populated by the execute() handlers
+          // (via a callback) when permission is denied. This is a backup
+          // to the sentinel object detection in chat-engine.ts — if the
+          // sentinel didn't survive the AI SDK's stream pipeline, this
+          // ensures the UI still shows "Denied" instead of "Completed".
+          const tr: any = chunk.toolResult;
+          const trId = tr?.id || tr?.toolCallId;
+          const isDenied = (tr?.denied === true) || (trId && deniedToolCallIds.has(trId));
+          if (isDenied) {
+            send('chat:stream-tool-result', { toolResult: { ...tr, denied: true } });
+          } else {
+            send('chat:stream-tool-result', { toolResult: tr });
+          }
           stepCount++; // Phase 0.9: moved here from onToolResult callback
+          // Clean up the denied tracker for this ID
+          if (trId) deniedToolCallIds.delete(trId);
           break;
+        }
         case 'usage':
           // Token usage — could be forwarded to the renderer for display.
           break;

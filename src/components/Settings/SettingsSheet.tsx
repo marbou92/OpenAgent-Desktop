@@ -435,10 +435,10 @@ const GeneralSettings: React.FC<TabProps> = ({ settings, onChange }) => (
           color: 'var(--color-text-primary)',
         }}
       >
-        <option value="auto">Auto (all approved)</option>
-        <option value="approve">Approve (all denied)</option>
-        <option value="smart_approve">Smart Approve (safe auto-approved)</option>
-        <option value="chat">Chat (no tools)</option>
+        <option value="auto">Auto (approve everything automatically)</option>
+        <option value="approve">Approve (ask for every tool call)</option>
+        <option value="smart_approve">Smart Approve (safe ops auto-approved, dangerous ops ask)</option>
+        <option value="chat">Chat (no tools allowed)</option>
       </select>
     </SettingRow>
 
