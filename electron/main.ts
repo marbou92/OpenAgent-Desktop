@@ -1591,6 +1591,8 @@ function registerIpcHandlers(): void {
     // Phase 1: Clean up session-scoped permission rules when the session
     // is deleted so memory doesn't leak.
     sessionPermissionRules.delete(sessionId);
+    // Phase 1.4: Clean up session todos too.
+    sessionTodos.delete(sessionId);
     return { success: true };
   }));
 
@@ -1601,6 +1603,37 @@ function registerIpcHandlers(): void {
       return { success: true, data: exported };
     })
   );
+
+  // ── Phase 1.4: Todos IPC ───────────────────────────────────────────────────
+  // Per-session todo store (in-memory). Updated when the agent calls TodoWrite
+  // (see the tool_call_end handler in runAgent) and queried by the renderer
+  // via todos:list / todos:summary. Cleared via todos:clear.
+  const sessionTodos = new Map<string, any[]>();
+
+  ipcMain.handle("todos:list", wrapIPC(async (_event, sessionId: string) => {
+    return { success: true, data: sessionTodos.get(sessionId) || [] };
+  }));
+
+  ipcMain.handle("todos:summary", wrapIPC(async (_event, sessionId: string) => {
+    const todos = sessionTodos.get(sessionId) || [];
+    return {
+      success: true,
+      data: {
+        total: todos.length,
+        completed: todos.filter(t => t?.status === 'completed').length,
+        inProgress: todos.filter(t => t?.status === 'in_progress').length,
+        pending: todos.filter(t => t?.status === 'pending').length,
+      },
+    };
+  }));
+
+  ipcMain.handle("todos:clear", wrapIPC(async (_event, sessionId: string) => {
+    sessionTodos.delete(sessionId);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('todos:updated', { sessionId, todos: [] });
+    }
+    return { success: true };
+  }));
 
   // ── Recipe IPC ────────────────────────────────────────────────────────────
 
@@ -2049,9 +2082,32 @@ function registerIpcHandlers(): void {
           break;
         case 'tool_call_start':
         case 'tool_call_delta':
-        case 'tool_call_end':
+        case 'tool_call_end': {
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
+          // Phase 1.4: Detect TodoWrite tool calls and forward the todos
+          // to the renderer via the todos:updated IPC event. The todos
+          // are stashed on toolDeps._todos by chat-engine.ts's execute()
+          // handler. We check here (in tool_call_end) because by now the
+          // execute() has run and the todos are available.
+          const tc = chunk.toolCall;
+          if (tc?.name === 'TodoWrite' && (toolDeps as any)._todos) {
+            const todos = (toolDeps as any)._todos;
+            const isCleared = (toolDeps as any)._todosCleared === true;
+            const finalTodos = isCleared ? [] : todos;
+            // Store in the sessionTodos map so todos:list returns the latest
+            sessionTodos.set(sessionId, finalTodos);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('todos:updated', {
+                sessionId,
+                todos: finalTodos,
+              });
+            }
+            // Clear the stash so we don't re-send on the next tool call
+            (toolDeps as any)._todos = undefined;
+            (toolDeps as any)._todosCleared = undefined;
+          }
           break;
+        }
         case 'tool_result': {
           // Phase 1.1: Triple-layer denial detection.
           //
