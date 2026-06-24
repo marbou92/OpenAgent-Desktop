@@ -220,11 +220,19 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       const resultId = toolResult?.id || toolResult?.toolCallId;
       if (!resultId) return;
 
-      // Phase 0.8: If the tool was denied (by policy or user), set status
-      // to 'denied' so the ToolUseCard renders a "Denied" state instead of
-      // the default "Completed" checkmark.
-      const isDenied = toolResult?.denied === true;
+      // Phase 1.1: Triple-layer denial detection (matching main.ts).
+      // Layer 1: The `denied: true` flag from main.ts.
+      // Layer 2: Content-based detection — check the result text for the
+      //          "DENIED" marker that appears in all our denial messages.
+      // Layer 3: Check for the sentinel object (in case it survived as an
+      //          object instead of being stringified).
       const resultValue = toolResult?.result ?? toolResult?.content;
+      const resultStr = typeof resultValue === 'string' ? resultValue :
+                        (resultValue && typeof resultValue === 'object') ? JSON.stringify(resultValue) : '';
+      const hasDeniedMarker = resultStr.includes('DENIED') || resultStr.includes('Permission denied');
+      const hasSentinel = resultValue && typeof resultValue === 'object' &&
+                          (resultValue as any).__permissionDenied === true;
+      const isDenied = toolResult?.denied === true || hasDeniedMarker || hasSentinel;
       const newStatus = isDenied ? 'denied' : 'completed';
 
       const applyResult = (list: ToolCall[]): ToolCall[] =>

@@ -2017,7 +2017,23 @@ function registerIpcHandlers(): void {
           send('chat:stream-tool-call', { toolCall: tc });
         },
         onToolResult: (tr: any) => {
-          send('chat:stream-tool-result', { toolResult: tr });
+          // Phase 1.1: Same triple-layer denial detection as the stream
+          // chunk handler above. The direct agent loop calls this callback
+          // instead of yielding stream chunks, so we need the same logic here.
+          const trId = tr?.id || tr?.toolCallId;
+          const trContent = typeof tr?.content === 'string' ? tr.content :
+                            typeof tr?.result === 'string' ? tr.result :
+                            JSON.stringify(tr?.result || tr?.content || '');
+          const hasDeniedMarker = trContent.includes('DENIED') || trContent.includes('Permission denied');
+          const isDenied = (tr?.denied === true) ||
+                           (trId && deniedToolCallIds.has(trId)) ||
+                           hasDeniedMarker;
+          if (isDenied) {
+            send('chat:stream-tool-result', { toolResult: { ...tr, denied: true } });
+          } else {
+            send('chat:stream-tool-result', { toolResult: tr });
+          }
+          if (trId) deniedToolCallIds.delete(trId);
         },
       }
     )) {
@@ -2037,22 +2053,37 @@ function registerIpcHandlers(): void {
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
           break;
         case 'tool_result': {
-          // Phase 1: Check if this tool call ID was marked as denied.
-          // The deniedToolCallIds set is populated by the execute() handlers
-          // (via a callback) when permission is denied. This is a backup
-          // to the sentinel object detection in chat-engine.ts — if the
-          // sentinel didn't survive the AI SDK's stream pipeline, this
-          // ensures the UI still shows "Denied" instead of "Completed".
+          // Phase 1.1: Triple-layer denial detection.
+          //
+          // Layer 1: The `denied: true` flag set by chat-engine.ts's
+          //   extractPermissionDenied() in the tool-result stream case.
+          //   This works when the sentinel object survives the AI SDK
+          //   pipeline intact.
+          //
+          // Layer 2: The deniedToolCallIds Set, populated by markDenied()
+          //   in the execute() handlers. This works when the toolCallId
+          //   is passed to execute() by the AI SDK.
+          //
+          // Layer 3 (NEW): Content-based detection. If the tool result
+          //   content contains "DENIED" (the exact marker from our denial
+          //   messages), mark it as denied. This is the most robust layer
+          //   because it doesn't depend on any object structure or ID
+          //   passing — it just checks the text content.
           const tr: any = chunk.toolResult;
           const trId = tr?.id || tr?.toolCallId;
-          const isDenied = (tr?.denied === true) || (trId && deniedToolCallIds.has(trId));
+          const trContent = typeof tr?.content === 'string' ? tr.content :
+                            typeof tr?.result === 'string' ? tr.result :
+                            JSON.stringify(tr?.result || tr?.content || '');
+          const hasDeniedMarker = trContent.includes('DENIED') || trContent.includes('Permission denied');
+          const isDenied = (tr?.denied === true) ||
+                           (trId && deniedToolCallIds.has(trId)) ||
+                           hasDeniedMarker;
           if (isDenied) {
             send('chat:stream-tool-result', { toolResult: { ...tr, denied: true } });
           } else {
             send('chat:stream-tool-result', { toolResult: tr });
           }
-          stepCount++; // Phase 0.9: moved here from onToolResult callback
-          // Clean up the denied tracker for this ID
+          stepCount++;
           if (trId) deniedToolCallIds.delete(trId);
           break;
         }

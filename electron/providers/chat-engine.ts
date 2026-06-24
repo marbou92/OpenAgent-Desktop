@@ -1373,8 +1373,16 @@ Usage notes:
         }
         try {
           const result = await tool.execute(tc.arguments);
-          // Phase 10.2: Handle { error: string } results from denied permissions.
-          if (result && typeof result === 'object' && 'error' in result) {
+          // Phase 1.1: Check for the permission-denial sentinel FIRST,
+          // before the error check. The sentinel { __permissionDenied: true,
+          // message } is what execute() returns when permission is denied.
+          const denied = extractPermissionDenied(result);
+          if (denied) {
+            toolResults.push({ id: tc.id, content: denied.message });
+            options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: denied.message, denied: true });
+            yield { type: 'tool_result', toolResult: { id: tc.id, content: denied.message, denied: true } };
+          } else if (result && typeof result === 'object' && 'error' in result) {
+            // Phase 10.2: Handle { error: string } results from denied permissions.
             const content = (result as any).error || 'Permission denied';
             toolResults.push({ id: tc.id, content });
             options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
