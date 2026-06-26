@@ -159,47 +159,18 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubToolCall = api.on.chatStreamToolCall((data: { sessionId: string; toolCall: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
-      const incoming = data.toolCall;
-      // Phase 0.9: Normalize the tool call shape. The AI SDK stream chunks
-      // use { id, name, arguments }, but onToolCall from onStepFinish uses
-      // { toolCallId, toolName, args }. We accept both and normalize.
-      const id = (incoming.id as string) || (incoming.toolCallId as string);
-      const name = (incoming.name as string) || (incoming.toolName as string) || 'unknown';
-      const args = (incoming.arguments as Record<string, unknown>) || (incoming.args as Record<string, unknown>) || {};
-      if (!id) return; // Can't track a tool call without an ID
-
+      const incomingToolCall = data.toolCall;
       const splitOffset = streamingContentRef.current.length;
-      const normalizedToolCall: ToolCall = {
-        id,
-        name,
-        arguments: args,
+      const newToolCall: ToolCall = {
+        id: (incomingToolCall.id as string) || crypto.randomUUID(),
+        name: (incomingToolCall.name as string) || 'unknown',
+        arguments: (incomingToolCall.arguments as Record<string, unknown>) || {},
         status: 'pending',
         ...({ _splitOffset: splitOffset } as any),
       };
 
-      // Phase 0.9: UPSERT by ID (not blind append). The AI SDK fires
-      // tool_call_start, tool_call_delta, and tool_call_end for the SAME
-      // tool call — each has the same ID but progressively more fields.
-      // Previously we appended all 3 → 3 duplicate entries. Now we update
-      // the existing entry if the ID matches, or create a new one.
-      const upsert = (list: ToolCall[]): ToolCall[] => {
-        const idx = list.findIndex(tc => tc.id === id);
-        if (idx >= 0) {
-          // Merge — later events may have more complete name/arguments
-          const updated = [...list];
-          updated[idx] = {
-            ...updated[idx],
-            ...normalizedToolCall,
-            // Don't overwrite a non-pending status (result may have arrived first)
-            status: updated[idx].status !== 'pending' ? updated[idx].status : 'pending',
-          };
-          return updated;
-        }
-        return [...list, normalizedToolCall];
-      };
-
-      activeToolCallsRef.current = upsert(activeToolCallsRef.current);
-      setActiveToolCalls(prev => upsert(prev));
+      setActiveToolCalls(prev => [...prev, newToolCall]);
+      activeToolCallsRef.current = [...activeToolCallsRef.current, newToolCall];
 
       setMessages(prev => {
         const lastMsg = prev[prev.length - 1];
@@ -207,59 +178,56 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           return prev;
         }
         const existing = lastMsg.toolCalls || [];
+        if (existing.some(tc => tc.id === newToolCall.id)) {
+          return prev;
+        }
         const updated = [...prev];
-        updated[updated.length - 1] = { ...lastMsg, toolCalls: upsert(existing) };
+        updated[updated.length - 1] = { ...lastMsg, toolCalls: [...existing, newToolCall] };
         return updated;
       });
+
+      // Phase 0.6: REMOVED the renderer-side permission check.
+      // Previously fired onPermissionRequest with newToolCall.id which didn't
+      // match main.ts's 'perm-...' IDs, causing the dialog to be unresolvable.
+      // Permissions are handled SOLELY by main.ts via checkPermission →
+      // requestPermission → chat:permission-request with 'perm-...' ID.
     });
 
     const unsubToolResult = api.on.chatStreamToolResult((data: { sessionId: string; toolResult: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
       const toolResult = data.toolResult as any;
-      // Phase 0.9: Normalize the result ID — same shape mismatch as tool calls.
-      const resultId = toolResult?.id || toolResult?.toolCallId;
-      if (!resultId) return;
-
-      // Phase 1.1: Triple-layer denial detection (matching main.ts).
-      // Layer 1: The `denied: true` flag from main.ts.
-      // Layer 2: Content-based detection — check the result text for the
-      //          "DENIED" marker that appears in all our denial messages.
-      // Layer 3: Check for the sentinel object (in case it survived as an
-      //          object instead of being stringified).
+      // Phase 1.1 + 2.2: Detect denied AND deactivated tool results.
+      const isDenied = toolResult?.denied === true;
+      const isDeactivated = toolResult?.deactivated === true;
       const resultValue = toolResult?.result ?? toolResult?.content;
-      const resultStr = typeof resultValue === 'string' ? resultValue :
-                        (resultValue && typeof resultValue === 'object') ? JSON.stringify(resultValue) : '';
+      const resultStr = typeof resultValue === 'string' ? resultValue : '';
+      // Content-based fallback for denied
       const hasDeniedMarker = resultStr.includes('DENIED') || resultStr.includes('Permission denied');
-      const hasSentinel = resultValue && typeof resultValue === 'object' &&
-                          (resultValue as any).__permissionDenied === true;
-      const isDenied = toolResult?.denied === true || hasDeniedMarker || hasSentinel;
-      const newStatus = isDenied ? 'denied' : 'completed';
-
-      const applyResult = (list: ToolCall[]): ToolCall[] =>
-        list.map(tc =>
-          tc.id === resultId
-            ? { ...tc, result: resultValue, status: newStatus as 'denied' | 'completed', _pendingPermission: undefined }
-            : tc
-        );
-
+      // Content-based fallback for deactivated
+      const hasDeactivatedMarker = resultStr.includes('deactivated') || resultStr.includes('is deactivated');
+      const newStatus = isDeactivated || hasDeactivatedMarker ? 'deactivated'
+                      : (isDenied || hasDeniedMarker) ? 'denied'
+                      : 'completed';
       // Update both the state AND the ref — the ref is read by chatStreamEnd
-      // to finalize the message, so without updating it here the denied
-      // status would be lost when the message is finalized.
-      activeToolCallsRef.current = applyResult(activeToolCallsRef.current);
-      setActiveToolCalls(prev => applyResult(prev));
-
-      // Also update the tool call in the message immediately (don't wait
-      // for chatStreamEnd) so the UI updates in real time.
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
-          return prev;
-        }
-        const existing = lastMsg.toolCalls || [];
-        const updated = [...prev];
-        updated[updated.length - 1] = { ...lastMsg, toolCalls: applyResult(existing) };
-        return updated;
-      });
+      // to finalize the message, so without updating it here the status
+      // would be lost when the message is finalized.
+      activeToolCallsRef.current = activeToolCallsRef.current.map(tc =>
+        tc.id === toolResult.id
+          ? { ...tc, result: resultValue, status: newStatus as any }
+          : tc
+      );
+      setActiveToolCalls(prev =>
+        prev.map(tc => {
+          if (tc.id === toolResult.id) {
+            return {
+              ...tc,
+              result: resultValue,
+              status: newStatus as 'deactivated' | 'denied' | 'completed',
+            };
+          }
+          return tc;
+        })
+      );
     });
 
     const unsubEnd = api.on.chatStreamEnd((data: { sessionId: string; content: string }) => {
@@ -282,19 +250,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             allToolCalls[idx] = { ...allToolCalls[idx], ...atc };
           } else {
             allToolCalls.push(atc);
-          }
-        }
-        // Phase 0.9: Safety net — mark any tool calls still in 'pending'
-        // state as 'completed'. This prevents stuck spinners when a tool
-        // result event was missed or never fired (e.g. stream ended
-        // unexpectedly, or the AI SDK omitted a tool-result part).
-        for (let i = 0; i < allToolCalls.length; i++) {
-          if (allToolCalls[i].status === 'pending') {
-            allToolCalls[i] = {
-              ...allToolCalls[i],
-              status: 'completed',
-              result: allToolCalls[i].result ?? '(no result returned)',
-            };
           }
         }
         const updated = [...prev];
@@ -323,11 +278,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          // Phase 0.9: Mark any pending tool calls as 'failed' on error.
-          const toolCalls = (lastMsg.toolCalls || []).map(tc =>
-            tc.status === 'pending' ? { ...tc, status: 'failed' as const, result: tc.result ?? '(interrupted by error)' } : tc
-          );
-          updated[updated.length - 1] = { ...lastMsg, content: `Error: ${data.error}`, isStreaming: false, error: data.error, toolCalls };
+          updated[updated.length - 1] = { ...lastMsg, content: `Error: ${data.error}`, isStreaming: false, error: data.error };
         }
         return updated;
       });
@@ -359,11 +310,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          // Phase 0.9: Mark any pending tool calls as 'completed' on cancel.
-          const toolCalls = (lastMsg.toolCalls || []).map(tc =>
-            tc.status === 'pending' ? { ...tc, status: 'completed' as const, result: tc.result ?? '(cancelled)' } : tc
-          );
-          updated[updated.length - 1] = { ...lastMsg, content: streamingContentRef.current || lastMsg.content, isStreaming: false, toolCalls };
+          updated[updated.length - 1] = { ...lastMsg, content: streamingContentRef.current || lastMsg.content, isStreaming: false };
         }
         return updated;
       });
@@ -384,63 +331,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
     const unsubPermission = api.on.permissionRequest?.((data: { sessionId: string; id: string; toolName: string; args: Record<string, unknown> }) => {
       if (data.sessionId !== sessionId) return;
-
-      // Phase 1.2: Attach the permission request to the most recent
-      // pending tool call that matches the tool name. This lets the
-      // ToolUseCard render the approval UI inline — no separate floating
-      // dialog. We match by toolName (the permission request doesn't
-      // include the tool call ID, only the tool name + args).
-      const attachPermission = (list: ToolCall[]): { list: ToolCall[]; attached: boolean } => {
-        for (let i = list.length - 1; i >= 0; i--) {
-          if (list[i].name === data.toolName &&
-              list[i].status === 'pending' &&
-              !list[i]._pendingPermission) {
-            const updated = [...list];
-            updated[i] = {
-              ...updated[i],
-              _pendingPermission: {
-                requestId: data.id,
-                toolName: data.toolName,
-                args: data.args,
-              },
-            };
-            return { list: updated, attached: true };
-          }
-        }
-        return { list, attached: false };
-      };
-
-      const result1 = attachPermission(activeToolCallsRef.current);
-      activeToolCallsRef.current = result1.list;
-      let attachedInline = result1.attached;
-
-      setActiveToolCalls(prev => {
-        const r = attachPermission(prev);
-        return r.list;
-      });
-
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) {
-          return prev;
-        }
-        const existing = lastMsg.toolCalls || [];
-        const r = attachPermission(existing);
-        if (r.attached) attachedInline = true;
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          ...lastMsg,
-          toolCalls: r.list,
-        };
-        return updated;
-      });
-
-      // Phase 1.2: Only fire the floating-dialog callback if the permission
-      // was NOT attached inline. This prevents the floating dialog from
-      // appearing on top of the inline approval UI.
-      if (!attachedInline) {
-        onPermissionRequestRef.current?.({ id: data.id, toolName: data.toolName, args: data.args });
-      }
+      onPermissionRequestRef.current?.({ id: data.id, toolName: data.toolName, args: data.args });
     }) ?? (() => {});
 
     const unsubAskUser = api.on?.askUser?.((data: { sessionId: string; id: string; toolName: string; args?: { questions?: Array<any> }; questions?: Array<any> }) => {

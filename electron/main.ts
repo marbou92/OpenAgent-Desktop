@@ -2062,9 +2062,26 @@ function registerIpcHandlers(): void {
           break;
         case 'tool_call_start':
         case 'tool_call_delta':
-        case 'tool_call_end':
+        case 'tool_call_end': {
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
+          // Phase 2.2: If the AI calls a tool that's been deactivated
+          // (not in the tools map because the user disabled it), immediately
+          // emit a "deactivated" tool result so the UI shows a grey
+          // "Deactivated" card instead of a green checkmark with
+          // "(no result returned)".
+          const tc = chunk.toolCall;
+          if (tc?.name && chunk.type === 'tool_call_end' && !tools[tc.name]) {
+            const deactivatedMsg = `Tool "${tc.name}" is deactivated. It has been disabled in Settings → Permissions. Do NOT retry this tool.`;
+            send('chat:stream-tool-result', {
+              toolResult: {
+                id: tc.id,
+                content: deactivatedMsg,
+                deactivated: true,
+              },
+            });
+          }
           break;
+        }
         case 'tool_result': {
           // Phase 1.1: Triple-layer denial detection.
           const tr: any = chunk.toolResult;
