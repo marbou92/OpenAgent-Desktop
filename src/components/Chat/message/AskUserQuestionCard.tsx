@@ -38,7 +38,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   onAnswer,
 }) => {
   // Per-question state: which options are selected + whether each is locked.
-  const [perQ, setPerQ] = useState<Array<{ selected: Set<string>; locked: boolean; minimized: boolean }>>([]);
+  // Phase 0.3: added customOpen + customText for the "type your own answer" feature.
+  const [perQ, setPerQ] = useState<Array<{ selected: Set<string>; locked: boolean; minimized: boolean; customOpen: boolean; customText: string }>>([]);
 
   useEffect(() => {
     if (answered) {
@@ -49,11 +50,13 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         selected: new Set(q.multiple ? answeredLabels : (answeredLabels[i] ? [answeredLabels[i]] : [])),
         locked: true,
         minimized: true,
+        customOpen: false,
+        customText: '',
       }));
       setPerQ(init);
     } else {
       // Initialize empty state for each question
-      setPerQ(questions.map(() => ({ selected: new Set<string>(), locked: false, minimized: false })));
+      setPerQ(questions.map(() => ({ selected: new Set<string>(), locked: false, minimized: false, customOpen: false, customText: '' })));
     }
   }, [answered, questions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -73,7 +76,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         // Phase 11: Do NOT send the answer yet — wait until ALL questions
         // are locked. Sending early resolves the tool call prematurely,
         // causing the agent to re-ask the remaining questions.
-        updated[qIndex] = { selected: new Set([label]), locked: true, minimized: true };
+        // Phase 0.3: close any open custom-answer input when a preset is picked.
+        updated[qIndex] = { ...updated[qIndex], selected: new Set([label]), locked: true, minimized: true, customOpen: false, customText: '' };
       }
       // Phase 11: Only send the answer when ALL questions are locked.
       const allLocked = updated.every(q => q.locked);
@@ -97,6 +101,40 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
       if (allLocked) {
         const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
         onAnswer?.(allAnswers.join(', '));
+      }
+      return updated;
+    });
+  };
+
+  // Phase 0.3: Submit a free-text custom answer.
+  // - Single-select: locks the question immediately with the typed text.
+  // - Multi-select: adds the typed text to the selected set and clears the
+  //   input so the user can add more (does NOT lock — the existing Submit
+  //   button finalizes the multi-select question).
+  const handleCustomSubmit = (qIndex: number, multiple: boolean) => {
+    if (perQ[qIndex]?.locked) return;
+    const text = (perQ[qIndex]?.customText || '').trim();
+    if (!text) return;
+    setPerQ(prev => {
+      const updated = [...prev];
+      if (multiple) {
+        const current = new Set(updated[qIndex]?.selected || []);
+        current.add(text);
+        updated[qIndex] = { ...updated[qIndex], selected: current, customText: '' };
+      } else {
+        updated[qIndex] = {
+          ...updated[qIndex],
+          selected: new Set([text]),
+          locked: true,
+          minimized: true,
+          customOpen: false,
+          customText: '',
+        };
+        const allLocked = updated.every(q => q.locked);
+        if (allLocked) {
+          const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
+          onAnswer?.(allAnswers.join(', '));
+        }
       }
       return updated;
     });
@@ -138,7 +176,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
           const header = q.header || `Question ${qIdx + 1}`;
           const options = q.options || [];
           const multiple = q.multiple || false;
-          const qState = perQ[qIdx] || { selected: new Set<string>(), locked: false, minimized: false };
+          const qState = perQ[qIdx] || { selected: new Set<string>(), locked: false, minimized: false, customOpen: false, customText: '' };
           const isAnswered = qState.locked;
           const selectedLabels = Array.from(qState.selected);
 
@@ -295,6 +333,81 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                   );
                 })}
               </div>
+
+              {/* Phase 0.3: Type your own answer */}
+              {!qState.locked && (
+                <div className="mt-2">
+                  {!qState.customOpen ? (
+                    <button
+                      onClick={() => setPerQ(prev => {
+                        const updated = [...prev];
+                        updated[qIdx] = { ...updated[qIdx], customOpen: true };
+                        return updated;
+                      })}
+                      className="flex items-center gap-1.5 text-[11px] transition-colors hover:opacity-80"
+                      style={{ color: 'var(--color-text-muted)' }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>
+                      Type your own answer
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={qState.customText}
+                        onChange={(e) => setPerQ(prev => {
+                          const updated = [...prev];
+                          updated[qIdx] = { ...updated[qIdx], customText: e.target.value };
+                          return updated;
+                        })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCustomSubmit(qIdx, multiple);
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setPerQ(prev => {
+                              const updated = [...prev];
+                              updated[qIdx] = { ...updated[qIdx], customOpen: false, customText: '' };
+                              return updated;
+                            });
+                          }
+                        }}
+                        placeholder={multiple ? 'Type a custom answer and press Enter…' : 'Type your answer and press Enter…'}
+                        autoFocus
+                        className="flex-1 min-w-0 px-3 py-1.5 rounded-lg text-xs outline-none"
+                        style={{
+                          background: 'var(--color-bg-primary)',
+                          border: '1px solid var(--color-border-secondary)',
+                          color: 'var(--color-text-primary)',
+                        }}
+                      />
+                      <button
+                        onClick={() => handleCustomSubmit(qIdx, multiple)}
+                        disabled={!qState.customText.trim()}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{ background: 'var(--color-accent)', color: 'white' }}
+                      >
+                        {multiple ? 'Add' : 'Submit'}
+                      </button>
+                      <button
+                        onClick={() => setPerQ(prev => {
+                          const updated = [...prev];
+                          updated[qIdx] = { ...updated[qIdx], customOpen: false, customText: '' };
+                          return updated;
+                        })}
+                        className="px-2 py-1.5 rounded-lg text-xs transition-colors hover:opacity-80"
+                        style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Submit button for multi-select */}
               {multiple && !qState.locked && (

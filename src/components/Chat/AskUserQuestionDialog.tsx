@@ -33,6 +33,9 @@ interface AskUserQuestionDialogProps {
 
 const AskUserQuestionDialog: React.FC<AskUserQuestionDialogProps> = ({ request, onRespond }) => {
   const [selected, setSelected] = useState<string | null>(null);
+  // Phase 0.3: free-text custom answer state.
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customText, setCustomText] = useState('');
 
   if (!request) return null;
 
@@ -65,12 +68,30 @@ const AskUserQuestionDialog: React.FC<AskUserQuestionDialogProps> = ({ request, 
   const handlePick = (label: string) => {
     onRespond(request.id, label);
     setSelected(null);
+    setCustomOpen(false);
+    setCustomText('');
   };
 
   const handleDismiss = () => {
     onRespond(request.id, null);
     setSelected(null);
+    setCustomOpen(false);
+    setCustomText('');
   };
+
+  // Phase 0.3: Submit a free-text custom answer.
+  const handleCustomSubmit = () => {
+    const text = customText.trim();
+    if (!text) return;
+    onRespond(request.id, text);
+    setSelected(null);
+    setCustomOpen(false);
+    setCustomText('');
+  };
+
+  // The answer button is enabled if either a preset is selected or a non-empty
+  // custom answer is typed.
+  const canAnswer = customOpen ? !!customText.trim() : !!selected;
 
   return (
     <ModalShell>
@@ -150,6 +171,56 @@ const AskUserQuestionDialog: React.FC<AskUserQuestionDialogProps> = ({ request, 
         })}
       </div>
 
+      {/* Phase 0.3: Type your own answer */}
+      {!customOpen ? (
+        <button
+          onClick={() => { setCustomOpen(true); setSelected(null); }}
+          className="flex items-center gap-1.5 text-[11px] mb-4 transition-colors hover:opacity-80"
+          style={{ color: 'var(--color-text-muted)' }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+          Type your own answer
+        </button>
+      ) : (
+        <div className="mb-4">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleCustomSubmit();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setCustomOpen(false);
+                  setCustomText('');
+                }
+              }}
+              placeholder="Type your answer and press Enter…"
+              autoFocus
+              className="flex-1 min-w-0 px-3 py-2 rounded-lg text-xs outline-none"
+              style={{
+                background: 'var(--color-bg-primary)',
+                border: '1px solid var(--color-border-secondary)',
+                color: 'var(--color-text-primary)',
+              }}
+            />
+            <button
+              onClick={() => { setCustomOpen(false); setCustomText(''); }}
+              className="px-3 py-2 rounded-lg text-xs transition-colors hover:opacity-80"
+              style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="flex items-center justify-end gap-2">
         <button
@@ -160,8 +231,11 @@ const AskUserQuestionDialog: React.FC<AskUserQuestionDialogProps> = ({ request, 
           Dismiss
         </button>
         <button
-          onClick={() => selected && handlePick(selected)}
-          disabled={!selected}
+          onClick={() => {
+            if (customOpen) handleCustomSubmit();
+            else if (selected) handlePick(selected);
+          }}
+          disabled={!canAnswer}
           className="px-4 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: 'var(--color-accent)', color: 'white' }}
         >
