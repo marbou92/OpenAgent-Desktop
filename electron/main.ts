@@ -56,6 +56,7 @@ import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
 import { getModelsDevClient } from './providers/models-dev-client';
+import { getPiDevClient } from './providers/pi-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
 import { GithubCopilotAuth } from './providers/github-copilot-auth';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
@@ -104,6 +105,8 @@ interface AppConfig {
   opencodePort: number;
   opencodeHostname: string;
   opencodeAutoStart: boolean;
+  // Phase 8.1: Catalog source switching (models.dev / pi.dev / merged)
+  catalogSource: 'models.dev' | 'pi.dev' | 'merged';
   autoStartSandbox: boolean;
   maxConcurrentSessions: number;
   autoSave: boolean;
@@ -265,6 +268,7 @@ let providerClient: ProviderClient;
 let chatEngine: ChatEngine;
 let opencodeConfig: OpencodeConfig;
 let modelsDevClient: ReturnType<typeof getModelsDevClient>;
+let piDevClient: ReturnType<typeof getPiDevClient>;
 let catalogReady = false; // Phase 4.4: set to true when the catalog refresh completes
 let copilotAuth: GithubCopilotAuth;
 
@@ -324,6 +328,7 @@ function loadConfig(): AppConfig {
     opencodePort: 3000,
     opencodeHostname: "127.0.0.1",
     opencodeAutoStart: true,
+    catalogSource: "models.dev",
     autoStartSandbox: true,
     maxConcurrentSessions: 5,
     autoSave: true,
@@ -983,6 +988,11 @@ async function initializeSubsystems(): Promise<void> {
   modelsDevClient = getModelsDevClient();
   modelsDevClient.loadCache();
 
+  // Phase 8.1: pi.dev is a bundled static catalog (no network fetch).
+  // Instantiated eagerly so the catalog summary/counts are always available
+  // to the Settings UI, even before models.dev finishes its background refresh.
+  piDevClient = getPiDevClient();
+
   // Phase 4.3: Send catalog progress events to the renderer so the splash
   // screen can show a progress bar. The refresh is still non-blocking —
   // the app works with cached/embedded data while the refresh runs.
@@ -1314,6 +1324,38 @@ function registerIpcHandlers(): void {
     // Null-guard: subsystems may not be initialized yet (handlers are
     // registered before initializeSubsystems completes). Return the hardcoded
     // builtin list as a fallback so the UI doesn't hang.
+    const source = (appConfig as AppConfig).catalogSource ?? 'models.dev';
+
+    if (source === 'pi.dev') {
+      // pi.dev only — bundled static catalog.
+      if (!piDevClient) return { success: true, data: getOpencodeRegistry().listAll() };
+      return { success: true, data: piDevClient.getProviders() };
+    }
+
+    if (source === 'merged') {
+      // Both catalogs combined. models.dev entries win on provider/model
+      // conflicts; pi.dev providers not present in models.dev are appended.
+      if (!modelsDevClient) {
+        return { success: true, data: piDevClient ? piDevClient.getProviders() : getOpencodeRegistry().listAll() };
+      }
+      const base = modelsDevClient.getMergedProviders();
+      if (!piDevClient) return { success: true, data: base };
+      const byId = new Map<string, any>(base.map((p: any) => [p.id, { ...p, models: { ...(p.models || {}) } }]));
+      for (const piProvider of piDevClient.getProviders()) {
+        const existing = byId.get(piProvider.id);
+        if (existing) {
+          // Merge pi.dev models in; models.dev wins on id collisions.
+          for (const [modelId, mc] of Object.entries(piProvider.models || {})) {
+            if (!existing.models[modelId]) existing.models[modelId] = mc as any;
+          }
+        } else {
+          byId.set(piProvider.id, piProvider);
+        }
+      }
+      return { success: true, data: Array.from(byId.values()) };
+    }
+
+    // Default: models.dev only.
     if (!modelsDevClient) {
       return { success: true, data: getOpencodeRegistry().listAll() };
     }
@@ -1339,6 +1381,58 @@ function registerIpcHandlers(): void {
   ipcMain.handle("provider:get-catalog-info", wrapIPC(async () => {
     if (!modelsDevClient) return { success: true, data: { fetchedAt: null, providerCount: 0, modelCount: 0 } };
     return { success: true, data: { fetchedAt: modelsDevClient.getFetchedAt(), providerCount: modelsDevClient.getCachedProviderIds().length, modelCount: modelsDevClient.getTotalModelCount() } };
+  }));
+
+  // ── Phase 8.1: Catalog source switching (models.dev / pi.dev / merged) ───────
+  // These handlers back the CatalogSourceSelector banner in Settings → Providers.
+  // Without them, the renderer's getCatalogSummary() call rejects, summary stays
+  // null, and the selector renders an invisible stub (the "not showing" bug).
+
+  const VALID_SOURCES = ['models.dev', 'pi.dev', 'merged'] as const;
+  type CatalogSource = typeof VALID_SOURCES[number];
+
+  ipcMain.handle("provider:get-catalog-source", wrapIPC(async () => {
+    const current: CatalogSource = (appConfig as AppConfig).catalogSource ?? 'models.dev';
+    return { success: true, data: current };
+  }));
+
+  ipcMain.handle("provider:set-catalog-source", wrapIPC(async (_event, source: string) => {
+    if (!VALID_SOURCES.includes(source as CatalogSource)) {
+      return { success: false, error: `Invalid catalog source: ${source}` };
+    }
+    const next = source as CatalogSource;
+    if ((appConfig as AppConfig).catalogSource !== next) {
+      (appConfig as AppConfig).catalogSource = next;
+      saveConfig(appConfig);
+      logger.info('Catalog', `Source switched to "${next}"`);
+      // Notify the renderer(s) so they re-fetch provider:list-providers.
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('provider:catalog-source-changed', { source: next });
+      }
+    }
+    return { success: true, data: { source: next } };
+  }));
+
+  ipcMain.handle("provider:get-catalog-summary", wrapIPC(async () => {
+    // Always return a populated object (null-guarded) so the UI can render
+    // even before the models.dev background refresh completes.
+    const current: CatalogSource = (appConfig as AppConfig).catalogSource ?? 'models.dev';
+    return {
+      success: true,
+      data: {
+        current,
+        modelsDev: {
+          providers: modelsDevClient?.getCachedProviderIds().length ?? 0,
+          models: modelsDevClient?.getTotalModelCount() ?? 0,
+          fetchedAt: modelsDevClient?.getFetchedAt() ?? null,
+        },
+        piDev: {
+          providers: piDevClient?.getCachedProviderIds().length ?? 0,
+          models: piDevClient?.getTotalModelCount() ?? 0,
+          fetchedAt: piDevClient?.getFetchedAt() ?? null,
+        },
+      },
+    };
   }));
 
   // Phase 4.4: Let the renderer check if the catalog is already ready.
@@ -3238,6 +3332,7 @@ if (!gotTheLock) {
         opencodePort: 3000,
         opencodeHostname: "127.0.0.1",
         opencodeAutoStart: true,
+        catalogSource: "models.dev",
         autoStartSandbox: true,
         maxConcurrentSessions: 5,
         autoSave: true,
