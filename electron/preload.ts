@@ -591,6 +591,10 @@ const electronAPI = {
     minimize: (): Promise<void> => ipcRenderer.invoke("window:minimize"),
 
     maximize: (): Promise<void> => ipcRenderer.invoke("window:maximize"),
+
+    // Phase 2.1: Persist config updates to the main process.
+    updateConfig: (updates: Record<string, unknown>): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke("app:updateConfig", updates),
   },
 
   // ── Event Listeners ────────────────────────────────────────────────────────

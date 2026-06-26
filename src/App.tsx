@@ -147,8 +147,15 @@ export const useAppStore = create<AppStore>((set, _get) => ({
 
   // Settings
   settings: DEFAULT_SETTINGS,
-  updateSettings: (updates) =>
-    set((state) => ({ settings: { ...state.settings, ...updates } })),
+  updateSettings: (updates) => {
+    set((state) => ({ settings: { ...state.settings, ...updates } }));
+    // Phase 2.1: Persist to main process so appConfig is updated and
+    // tool filtering / bash safety actually take effect.
+    const api = (window as any).openagent;
+    if (api?.app?.updateConfig) {
+      api.app.updateConfig(updates);
+    }
+  },
 
   // UI
   toasts: [],
