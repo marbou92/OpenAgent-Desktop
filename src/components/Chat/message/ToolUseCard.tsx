@@ -10,9 +10,11 @@ interface ToolUseCardProps {
   toolCall: ToolCall;
   onCopy?: (code: string, id: string) => void;
   copied?: string | null;
+  /** Phase 1.2: Called when the user responds to an inline permission prompt. */
+  onPermissionRespond?: (requestId: string, response: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny') => void;
 }
 
-const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
+const ToolUseCard = memo(function ToolUseCard({ toolCall, onPermissionRespond }: ToolUseCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   // Check for AskUserQuestion tool — case-insensitive, handles multiple naming conventions
@@ -23,6 +25,7 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
   const isDenied = toolCall.status === 'denied';
   const isDeactivated = toolCall.status === 'deactivated';
   const isSuccess = toolCall.status === 'completed';
+  const hasPendingPermission = !!toolCall._pendingPermission;
 
   // ─── AskUserQuestion special card ──────────────────────────────
   if (isAskUserQuestion) {
@@ -61,6 +64,125 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall }: ToolUseCardProps) {
               )}
             </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Build a human-readable preview of the tool args ───────────
+  const permArgs = toolCall._pendingPermission?.args || toolCall.arguments || {};
+  let preview = '';
+  let toolLabel = toolCall.name;
+  if (toolCall.name === 'bash' && permArgs.command) {
+    toolLabel = 'Run command';
+    preview = String(permArgs.command);
+  } else if ((toolCall.name === 'edit' || toolCall.name === 'write') && permArgs.path) {
+    toolLabel = `${toolCall.name === 'edit' ? 'Edit' : 'Write'} file`;
+    preview = String(permArgs.path);
+  } else if (toolCall.name === 'read' && permArgs.path) {
+    toolLabel = 'Read file';
+    preview = String(permArgs.path);
+  } else if (toolCall.name === 'glob' && permArgs.pattern) {
+    toolLabel = 'Search files';
+    preview = String(permArgs.pattern);
+  } else if (toolCall.name === 'grep' && permArgs.pattern) {
+    toolLabel = 'Search content';
+    preview = String(permArgs.pattern);
+  } else {
+    preview = JSON.stringify(permArgs, null, 2);
+  }
+
+  // ─── Inline permission approval card ──────────────────────────
+  // When _pendingPermission is set, render the approval UI inline instead
+  // of the normal tool card. This keeps the prompt at the position where
+  // the tool call was triggered (like AskUserQuestion), and avoids a
+  // separate floating dialog.
+  if (hasPendingPermission && onPermissionRespond) {
+    const requestId = toolCall._pendingPermission!.requestId;
+    return (
+      <div
+        className="rounded-2xl overflow-hidden my-1.5"
+        style={{
+          border: '1px solid rgba(214,122,82,0.3)',
+          background: 'rgba(214,122,82,0.05)',
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center gap-2.5 px-3 py-2.5 border-b"
+          style={{ borderColor: 'rgba(214,122,82,0.2)', background: 'rgba(214,122,82,0.08)' }}
+        >
+          <div
+            className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(214,122,82,0.15)' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+              Permission Required
+            </span>
+            <span className="text-[11px] ml-2" style={{ color: 'var(--color-text-muted)' }}>
+              {toolLabel}
+            </span>
+          </div>
+          <span className="text-[10px] font-semibold uppercase tracking-wide flex-shrink-0" style={{ color: 'var(--color-accent)' }}>
+            Waiting
+          </span>
+        </div>
+
+        {/* Preview of what the tool wants to do */}
+        <div className="px-3 py-2">
+          <pre
+            className="text-xs font-mono whitespace-pre-wrap break-all rounded-lg p-2 max-h-28 overflow-auto"
+            style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-secondary)' }}
+          >
+            {preview}
+          </pre>
+        </div>
+
+        {/* Buttons */}
+        <div className="px-3 pb-3 flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => onPermissionRespond(requestId, 'allow_once')}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all"
+            style={{
+              background: 'rgba(34,197,94,0.1)',
+              color: '#22c55e',
+              border: '1px solid rgba(34,197,94,0.2)',
+            }}
+          >
+            Allow Once
+          </button>
+          <button
+            onClick={() => onPermissionRespond(requestId, 'always_allow')}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all"
+            style={{ background: '#22c55e', color: 'white' }}
+          >
+            Always Allow
+          </button>
+          <button
+            onClick={() => onPermissionRespond(requestId, 'deny_once')}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all"
+            style={{
+              background: 'rgba(239,68,68,0.1)',
+              color: '#ef4444',
+              border: '1px solid rgba(239,68,68,0.2)',
+            }}
+          >
+            Deny
+          </button>
+          <button
+            onClick={() => onPermissionRespond(requestId, 'always_deny')}
+            className="text-[10px] px-2 py-1 rounded transition-colors ml-auto"
+            style={{ color: 'var(--color-text-muted)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-muted)'; }}
+          >
+            Always deny
+          </button>
         </div>
       </div>
     );
