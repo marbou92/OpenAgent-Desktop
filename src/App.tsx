@@ -358,6 +358,37 @@ const App: React.FC = () => {
         }
       }
 
+      // Phase 0.2: Hydrate the settings store from the persisted app config
+      // so General / Session / Security / Skills / Advanced settings survive
+      // restarts. The write path (updateSettings → app:updateConfig → saveConfig)
+      // already worked; this completes the read-back path. Appearance settings
+      // are handled separately by ThemeProvider via localStorage.
+      if (api?.app?.getConfig) {
+        try {
+          const persisted = await api.app.getConfig() as Record<string, unknown>;
+          const updates: Record<string, unknown> = {};
+          // Known settings keys — derived from DEFAULT_SETTINGS so the list
+          // stays in sync with the AppSettings type automatically.
+          for (const key of Object.keys(DEFAULT_SETTINGS)) {
+            if (key in persisted && persisted[key] !== undefined) {
+              updates[key] = persisted[key];
+            }
+          }
+          // Untyped UI-only settings persisted alongside appConfig (written
+          // via onUpdateSettings with `as any`). Carry them back too.
+          for (const key of ['messageDensity', 'messageWidth', 'composerWidth', 'showTimestamps']) {
+            if (key in persisted && persisted[key] !== undefined) {
+              updates[key] = persisted[key];
+            }
+          }
+          if (Object.keys(updates).length > 0) {
+            updateSettings(updates as Partial<AppSettings>);
+          }
+        } catch (err) {
+          console.error('Failed to load persisted settings:', err);
+        }
+      }
+
       if (api?.providers?.listAuth) {
         try {
           const [authEntries, providerDefs] = await Promise.all([

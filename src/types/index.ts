@@ -1008,6 +1008,10 @@ declare global {
       };
       app: {
         getVersion: () => Promise<string>;
+        /** Phase 0.2: Read the persisted app config (for settings hydration). */
+        getConfig: () => Promise<Record<string, unknown>>;
+        /** Persist config updates to the main process. */
+        updateConfig: (updates: Record<string, unknown>) => Promise<{ success: boolean }>;
         quit: () => Promise<void>;
         minimize: () => Promise<void>;
         maximize: () => Promise<void>;

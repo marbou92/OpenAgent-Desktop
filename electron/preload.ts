@@ -586,6 +586,11 @@ const electronAPI = {
   app: {
     getVersion: (): Promise<string> => ipcRenderer.invoke("app:getVersion"),
 
+    // Phase 0.2: Read the persisted app config back so the renderer can
+    // hydrate the settings store on startup (settings survive restarts).
+    getConfig: (): Promise<Record<string, unknown>> =>
+      ipcRenderer.invoke("app:getConfig"),
+
     quit: (): Promise<void> => ipcRenderer.invoke("app:quit"),
 
     minimize: (): Promise<void> => ipcRenderer.invoke("window:minimize"),
