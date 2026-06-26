@@ -23,6 +23,7 @@ export interface SessionMessage {
   timestamp: string;
   metadata?: Record<string, unknown>;
   toolCalls?: SessionToolCall[];
+  thinking?: string;
 }
 
 export interface SessionToolCall {
@@ -30,7 +31,7 @@ export interface SessionToolCall {
   name: string;
   arguments: Record<string, unknown>;
   result?: unknown;
-  status: "pending" | "completed" | "failed";
+  status: "pending" | "completed" | "failed" | "denied" | "deactivated";
 }
 
 export interface Session {

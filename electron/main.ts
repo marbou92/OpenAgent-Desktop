@@ -1907,7 +1907,7 @@ function registerIpcHandlers(): void {
     signal?: AbortSignal;
     images?: string[]; // Phase 4: base64 data URLs for multi-modal
     thinkingEffort?: string; // Phase 4.2: thinking effort level
-  }): Promise<{ content: string; steps: number; status: string }> {
+  }): Promise<{ content: string; steps: number; status: string; toolCalls?: any[]; thinking?: string }> {
     const { sessionId, message, session, send, images, thinkingEffort } = opts;
 
     // Resolve the agent for this session.
@@ -2012,14 +2012,29 @@ function registerIpcHandlers(): void {
     }
     const fullSystemPrompt = systemPrompt + modeRestriction;
 
+    // Phase 2.6: Tell the AI which tools are deactivated so it doesn't
+    // try to call them (no workaround, no "deactivated" cards).
+    const disabledTools = Object.keys(allTools).filter(name => toolEnabledMap[name] === false);
+    const activeToolsNote = disabledTools.length > 0
+      ? `\n\nThe following tools are DEACTIVATED and must NOT be used: ${disabledTools.join(', ')}. Do not attempt to call them.`
+      : '';
+    const finalSystemPrompt = fullSystemPrompt + activeToolsNote;
+
     // Build messages array from session history.
     // Phase 4: attach images to the latest user message for multi-modal.
+    // Phase 2.6: Strip tool calls + tool results for deactivated tools
+    // from history so the AI doesn't see them and try to retry.
     const messages = [
-      ...(session.messages || []).map((m: any) => ({
-        role: m.role,
-        content: m.content || '',
-        images: (m as any).images,
-      })),
+      ...(session.messages || []).map((m: any) => {
+        const filtered: any = { role: m.role, content: m.content || '', images: (m as any).images };
+        // Keep toolCalls but strip any that reference disabled tools
+        if (m.toolCalls && Array.isArray(m.toolCalls)) {
+          filtered.toolCalls = m.toolCalls.filter((tc: any) => toolEnabledMap[tc.name] !== false);
+          if (filtered.toolCalls.length === 0) delete filtered.toolCalls;
+        }
+        if (m.thinking) filtered.thinking = m.thinking;
+        return filtered;
+      }),
       { role: 'user' as const, content: message, images },
     ];
 
@@ -2028,12 +2043,14 @@ function registerIpcHandlers(): void {
     let fullContent = '';
     let stepCount = 0;
     let status = 'completed';
+    const collectedToolCalls: any[] = [];   // Phase 2.6: collect for persistence
+    let collectedThinking = '';              // Phase 2.6: collect for persistence
 
     for await (const chunk of chatEngine.chatStream(
       {
         model: `${providerId}/${modelId}`,
         messages,
-        systemPrompt: fullSystemPrompt,
+        systemPrompt: finalSystemPrompt,
         temperature: agent.temperature,
       },
       {
@@ -2058,18 +2075,33 @@ function registerIpcHandlers(): void {
           }
           break;
         case 'thinking':
-          if (chunk.content) send('chat:stream-thinking', { thinking: chunk.content });
+          if (chunk.content) {
+            collectedThinking += chunk.content;
+            send('chat:stream-thinking', { thinking: chunk.content });
+          }
           break;
         case 'tool_call_start':
         case 'tool_call_delta':
         case 'tool_call_end': {
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
+          // Phase 2.6: Collect for persistence (upsert by ID)
+          const tc = chunk.toolCall;
+          if (tc?.id && chunk.type === 'tool_call_end') {
+            const idx = collectedToolCalls.findIndex(c => c.id === tc.id);
+            const entry = {
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments || {},
+              status: 'pending' as const,
+            };
+            if (idx >= 0) collectedToolCalls[idx] = { ...collectedToolCalls[idx], ...entry };
+            else collectedToolCalls.push(entry);
+          }
           // Phase 2.2: If the AI calls a tool that's been deactivated
           // (not in the tools map because the user disabled it), immediately
           // emit a "deactivated" tool result so the UI shows a grey
           // "Deactivated" card instead of a green checkmark with
           // "(no result returned)".
-          const tc = chunk.toolCall;
           if (tc?.name && chunk.type === 'tool_call_end' && !tools[tc.name]) {
             const deactivatedMsg = `Tool "${tc.name}" is deactivated. It has been disabled in Settings → Permissions. Do NOT retry this tool.`;
             send('chat:stream-tool-result', {
@@ -2100,6 +2132,23 @@ function registerIpcHandlers(): void {
           }
           stepCount++;
           if (trId) deniedToolCallIds.delete(trId);
+
+          // Phase 2.6: Update collected tool call with its result
+          if (trId) {
+            const tcIdx = collectedToolCalls.findIndex(c => c.id === trId);
+            if (tcIdx >= 0) {
+              const isDeniedFlag = tr?.denied === true;
+              const isDeactivatedFlag = tr?.deactivated === true;
+              const trContentStr = typeof trContent === 'string' ? trContent : '';
+              const hasDenied = isDeniedFlag || trContentStr.includes('DENIED') || trContentStr.includes('Permission denied');
+              const hasDeact = isDeactivatedFlag || trContentStr.includes('deactivated') || trContentStr.includes('not found');
+              collectedToolCalls[tcIdx] = {
+                ...collectedToolCalls[tcIdx],
+                result: trContent,
+                status: hasDeact ? 'deactivated' : hasDenied ? 'denied' : 'completed',
+              };
+            }
+          }
 
           // Phase 1.5: Forward TodoWrite todos to the renderer.
           if (trId && (toolDeps as any)._todos) {
@@ -2138,7 +2187,7 @@ function registerIpcHandlers(): void {
       return { content: '', steps: stepCount, status: 'error' };
     }
 
-    return { content: fullContent, steps: stepCount, status };
+    return { content: fullContent, steps: stepCount, status, toolCalls: collectedToolCalls, thinking: collectedThinking };
   }
 
   ipcMain.handle("acp:status", wrapIPC(async () => {
@@ -2293,7 +2342,12 @@ function registerIpcHandlers(): void {
               const thinkingEffort = (options?.thinkingEffort as string) || undefined;
               const agentResult = await runAgent({ sessionId, message, session, send, images, thinkingEffort });
               await sessionManager.addMessage(sessionId, { role: 'user', content: message });
-              await sessionManager.addMessage(sessionId, { role: 'assistant', content: agentResult.content });
+              await sessionManager.addMessage(sessionId, {
+                role: 'assistant',
+                content: agentResult.content,
+                toolCalls: agentResult.toolCalls,
+                thinking: agentResult.thinking,
+              });
               send('chat:stream-end', { content: agentResult.content });
             } catch (err: any) {
               // Phase 2.5: surface a useful error message. err.message can
