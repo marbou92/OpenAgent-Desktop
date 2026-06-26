@@ -204,7 +204,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       // Content-based fallback for denied
       const hasDeniedMarker = resultStr.includes('DENIED') || resultStr.includes('Permission denied');
       // Content-based fallback for deactivated
-      const hasDeactivatedMarker = resultStr.includes('deactivated') || resultStr.includes('is deactivated');
+      const hasDeactivatedMarker = resultStr.includes('deactivated') || resultStr.includes('is deactivated') || resultStr.includes('not found');
       const newStatus = isDeactivated || hasDeactivatedMarker ? 'deactivated'
                       : (isDenied || hasDeniedMarker) ? 'denied'
                       : 'completed';
@@ -250,6 +250,27 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             allToolCalls[idx] = { ...allToolCalls[idx], ...atc };
           } else {
             allToolCalls.push(atc);
+          }
+        }
+        // Phase 2.4: Safety net — mark any tool calls still in 'pending'
+        // state as 'completed'. This prevents stuck spinners when a tool
+        // result event was missed or never fired (e.g. stream ended
+        // unexpectedly, or the AI SDK omitted a tool-result part).
+        for (let i = 0; i < allToolCalls.length; i++) {
+          if (allToolCalls[i].status === 'pending') {
+            const r = allToolCalls[i].result;
+            const rStr = typeof r === 'string' ? r : '';
+            // If the result text says "not found" or "deactivated", mark
+            // as deactivated instead of completed.
+            if (rStr.includes('not found') || rStr.includes('deactivated')) {
+              allToolCalls[i] = { ...allToolCalls[i], status: 'deactivated' as const };
+            } else {
+              allToolCalls[i] = {
+                ...allToolCalls[i],
+                status: 'completed' as const,
+                result: r ?? '(no result returned)',
+              };
+            }
           }
         }
         const updated = [...prev];

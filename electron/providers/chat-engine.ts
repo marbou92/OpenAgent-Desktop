@@ -39,34 +39,19 @@ async function ensureAiSdk(): Promise<boolean> {
 }
 
 /**
- * Phase 0.8 + Phase 1: Detect the permission-denial sentinel object returned by
+ * Phase 0.8: Detect the permission-denial sentinel object returned by
  * execute() handlers when a tool call is denied (either by the policy
  * engine or by the user clicking "Deny" / "Always Deny").
  *
  * Returns { message: string } if the result is a denial sentinel, or
  * null if the result is a normal tool output.
- *
- * Phase 1: Also checks for stringified JSON (the AI SDK may stringify
- * the execute() return value in some code paths).
  */
 function extractPermissionDenied(result: unknown): { message: string } | null {
-  // Check if it's the raw sentinel object
   if (result && typeof result === 'object' && !Array.isArray(result)) {
     const obj = result as Record<string, unknown>;
     if (obj.__permissionDenied === true && typeof obj.message === 'string') {
       return { message: obj.message };
     }
-  }
-  // Phase 1: Check if it's a stringified JSON of the sentinel
-  // (the AI SDK may stringify the result in some stream parts)
-  if (typeof result === 'string') {
-    try {
-      const parsed = JSON.parse(result);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
-          parsed.__permissionDenied === true && typeof parsed.message === 'string') {
-        return { message: parsed.message };
-      }
-    } catch { /* not JSON — ignore */ }
   }
   return null;
 }
@@ -549,24 +534,28 @@ export class ChatEngine {
               abortSignal: options?.signal,
               // Phase 4.2: pass thinking effort as providerOptions
               providerOptions,
-              onStepFinish: (_step: any) => {
-                // Phase 0.9: Previously this callback forwarded tool calls
-                // and tool results via onToolCall/onToolResult. But the
-                // fullStream already yields 'tool-call' and 'tool-result'
-                // parts for these same events — so every tool call/result
-                // was forwarded TWICE to the renderer.
-                //
-                // Worse, the AI SDK's step.toolCalls[i] has shape
-                // { toolCallId, toolName, args } but the renderer expects
-                // { id, name, arguments }. The mismatch caused the renderer
-                // to fall back to crypto.randomUUID() for the ID → the
-                // dedup check failed → duplicate entries with random IDs
-                // that no tool result could match → stuck spinners forever.
-                //
-                // The stream chunks (tool-call, tool-result) are already
-                // correctly shaped (chat-engine maps toolCallId→id,
-                // toolName→name, args→arguments before yielding). So we
-                // simply skip forwarding here and let the stream handle it.
+              onStepFinish: (step: any) => {
+                // Forward tool calls + results from each step.
+                if (step?.toolCalls) {
+                  for (const tc of step.toolCalls) {
+                    options?.onToolCall?.(tc);
+                  }
+                }
+                if (step?.toolResults) {
+                  for (const tr of step.toolResults) {
+                    // Phase 0.8: Detect permission-denial sentinel objects
+                    // returned by execute() handlers. When found, set
+                    // `denied: true` on the forwarded tool result so the
+                    // renderer can render a "Denied" state instead of the
+                    // default "Completed" checkmark.
+                    const extracted = extractPermissionDenied(tr.result);
+                    if (extracted) {
+                      options?.onToolResult?.({ ...tr, result: extracted.message, denied: true });
+                    } else {
+                      options?.onToolResult?.(tr);
+                    }
+                  }
+                }
               },
             });
 
@@ -1056,15 +1045,7 @@ Usage notes:
         // and actually call execute(). Without this, the tool call is
         // emitted but execute() never runs.
         parameters: wrapParams(tool.parameters),
-        execute: async (args: Record<string, unknown>, execOptions?: { toolCallId?: string }) => {
-          // Phase 1: Capture the toolCallId from the AI SDK so we can
-          // track denials by ID as a backup to the sentinel object.
-          const toolCallId = execOptions?.toolCallId;
-          const markDenied = () => {
-            if (toolCallId && (toolDeps as any).deniedToolCallIds instanceof Set) {
-              (toolDeps as any).deniedToolCallIds.add(toolCallId);
-            }
-          };
+        execute: async (args: Record<string, unknown>) => {
           // Phase 7.1 + Phase 8.5: AskUserQuestion uses a dedicated
           // ask-user flow (NOT the permission flow) to get the user's
           // selected answer. The UI shows a question card with the
@@ -1122,20 +1103,21 @@ Usage notes:
           // Permission check.
           const permission = permissionChecker.checkPermission(tool.name, args);
           if (permission === 'deny') {
-            markDenied();
+            // Phase 0.8: Return a sentinel object so the stream interceptor
+            // can set `denied: true` on the tool result sent to the renderer.
+            // The `message` is what the model sees as the tool result.
             return { __permissionDenied: true, message: `Permission DENIED for tool "${tool.name}" by the permission policy. Do NOT retry this tool — it has been blocked. Try a different approach or ask the user how to proceed.` };
           }
           if (permission === 'ask') {
             const approved = await permissionChecker.requestPermission(tool.name, args);
             if (!approved) {
-              markDenied();
               return { __permissionDenied: true, message: `The user explicitly DENIED permission for tool "${tool.name}". Do NOT retry this tool — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.` };
             }
           }
 
           // Execute.
           const result = await executeToolFn(
-            { id: toolCallId || crypto.randomUUID(), name: tool.name, arguments: args },
+            { id: crypto.randomUUID(), name: tool.name, arguments: args },
             toolDeps
           );
           return result.content;
@@ -1153,27 +1135,19 @@ Usage notes:
             description: extTool.description,
             // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
             parameters: wrapParams(extTool.parameters || { type: 'object', properties: {} }),
-            execute: async (args: Record<string, unknown>, execOptions?: { toolCallId?: string }) => {
-              const extToolCallId = execOptions?.toolCallId;
-              const markDenied = () => {
-                if (extToolCallId && (toolDeps as any).deniedToolCallIds instanceof Set) {
-                  (toolDeps as any).deniedToolCallIds.add(extToolCallId);
-                }
-              };
+            execute: async (args: Record<string, unknown>) => {
               const permission = permissionChecker.checkPermission(extTool.name, args);
               if (permission === 'deny') {
-                markDenied();
                 return { __permissionDenied: true, message: `Permission DENIED for tool "${extTool.name}" by the permission policy. Do NOT retry this tool — it has been blocked. Try a different approach or ask the user how to proceed.` };
               }
               if (permission === 'ask') {
                 const approved = await permissionChecker.requestPermission(extTool.name, args);
                 if (!approved) {
-                  markDenied();
                   return { __permissionDenied: true, message: `The user explicitly DENIED permission for tool "${extTool.name}". Do NOT retry this tool — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.` };
                 }
               }
               const result = await executeToolFn(
-                { id: extToolCallId || crypto.randomUUID(), name: extTool.name, arguments: args },
+                { id: crypto.randomUUID(), name: extTool.name, arguments: args },
                 toolDeps
               );
               return result.content;
@@ -1209,18 +1183,11 @@ Usage notes:
           description: desc,
           // Phase 9: wrap with jsonSchema() for AI SDK v4 compatibility.
           parameters: wrapParams(skill.parameters || { type: 'object', properties: {}, description: 'Skill parameters (see skill description)' }),
-          execute: async (args: Record<string, unknown>, execOptions?: { toolCallId?: string }) => {
-            const skillToolCallId = execOptions?.toolCallId;
-            const markDenied = () => {
-              if (skillToolCallId && (toolDeps as any).deniedToolCallIds instanceof Set) {
-                (toolDeps as any).deniedToolCallIds.add(skillToolCallId);
-              }
-            };
+          execute: async (args: Record<string, unknown>) => {
             // Skills always require user approval (they can run arbitrary
             // code via index.js, so we never auto-approve).
             const approved = await permissionChecker.requestPermission(toolName, args);
             if (!approved) {
-              markDenied();
               return { __permissionDenied: true, message: `The user explicitly DENIED permission to run skill "${skill.name}". Do NOT retry this skill — the user has rejected it. Try a different approach, ask the user for guidance, or stop if no alternative exists.` };
             }
             try {
@@ -1367,22 +1334,20 @@ Usage notes:
       for (const tc of pendingToolCalls) {
         const tool = directTools.find(t => t.name === tc.name);
         if (!tool || typeof tool.execute !== 'function') {
-          console.warn(`[DirectAgentLoop] Tool '${tc.name}' not found`);
-          toolResults.push({ id: tc.id, content: `Tool '${tc.name}' not found.` });
+          // Phase 2.4: Tool not found = it's deactivated/disabled. Emit
+          // with `deactivated: true` so the renderer shows a grey
+          // "Deactivated" card instead of "pending" forever.
+          console.warn(`[DirectAgentLoop] Tool '${tc.name}' not found (deactivated)`);
+          const deactivatedMsg = `Tool '${tc.name}' is deactivated. It has been disabled in Settings → Permissions. Do NOT retry this tool.`;
+          toolResults.push({ id: tc.id, content: deactivatedMsg });
+          options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: deactivatedMsg, deactivated: true });
+          yield { type: 'tool_result', toolResult: { id: tc.id, content: deactivatedMsg, denied: false, deactivated: true } };
           continue;
         }
         try {
           const result = await tool.execute(tc.arguments);
-          // Phase 1.1: Check for the permission-denial sentinel FIRST,
-          // before the error check. The sentinel { __permissionDenied: true,
-          // message } is what execute() returns when permission is denied.
-          const denied = extractPermissionDenied(result);
-          if (denied) {
-            toolResults.push({ id: tc.id, content: denied.message });
-            options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: denied.message, denied: true });
-            yield { type: 'tool_result', toolResult: { id: tc.id, content: denied.message, denied: true } };
-          } else if (result && typeof result === 'object' && 'error' in result) {
-            // Phase 10.2: Handle { error: string } results from denied permissions.
+          // Phase 10.2: Handle { error: string } results from denied permissions.
+          if (result && typeof result === 'object' && 'error' in result) {
             const content = (result as any).error || 'Permission denied';
             toolResults.push({ id: tc.id, content });
             options?.onToolResult?.({ toolCallId: tc.id, toolName: tc.name, args: tc.arguments, result: content });
