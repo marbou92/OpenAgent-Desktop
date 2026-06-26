@@ -2182,11 +2182,16 @@ function registerIpcHandlers(): void {
           const tc = chunk.toolCall;
           if (tc?.id && chunk.type === 'tool_call_end') {
             const idx = collectedToolCalls.findIndex(c => c.id === tc.id);
+            // Phase 0.6: persist _splitOffset = current content length so the
+            // AskUserQuestion card renders at the correct position after a
+            // session reload (previously this was only injected at stream time
+            // in useChat.ts and was lost on reload → all cards bunched at top).
             const entry = {
               id: tc.id,
               name: tc.name,
               arguments: tc.arguments || {},
               status: 'pending' as const,
+              _splitOffset: fullContent.length,
             };
             if (idx >= 0) collectedToolCalls[idx] = { ...collectedToolCalls[idx], ...entry };
             else collectedToolCalls.push(entry);
@@ -2328,6 +2333,9 @@ function registerIpcHandlers(): void {
         const agentMode = agentSessionBridge.getCurrentMode(sessionId);
 
         let responseContent: string;
+        // Phase 0.6: collected in the agent-mode branch, persisted below.
+        let chatSendToolCalls: any[] | undefined;
+        let chatSendThinking: string | undefined;
 
         if (agentMode === AgentMode.chat) {
           // Chat mode: direct LLM call via AI SDK, no agentic loop, no tools.
@@ -2354,6 +2362,12 @@ function registerIpcHandlers(): void {
           };
           const agentResult = await runAgent({ sessionId, message, session, send });
           responseContent = agentResult.content;
+          // Phase 0.6: capture toolCalls + thinking from the agent result so
+          // the non-streaming chat:send path persists them too (previously
+          // only the chat:stream path saved toolCalls, so sessions started
+          // via chat:send lost all tool-call cards on reload).
+          chatSendToolCalls = agentResult.toolCalls;
+          chatSendThinking = agentResult.thinking;
         }
 
         // Save the response to the session
@@ -2364,6 +2378,10 @@ function registerIpcHandlers(): void {
         await sessionManager.addMessage(sessionId, {
           role: "assistant",
           content: responseContent,
+          // Phase 0.6: persist toolCalls + thinking so tool cards (AskUserQuestion,
+          // ToolUseCard, etc.) and thinking blocks survive a session reload.
+          toolCalls: chatSendToolCalls,
+          thinking: chatSendThinking,
         });
 
         // Trace the assistant response

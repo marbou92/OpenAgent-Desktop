@@ -47,16 +47,33 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   // or the side-effect can tear down the component mid-commit). Now onAnswer
   // fires from a useEffect that watches perQ, and submittedRef ensures it
   // only fires ONCE per question set.
+  // Phase 0.6: also guard with `answered` — if the card is loading from a
+  // persisted session (the tool already has a result), NEVER re-fire onAnswer.
+  // Previously the effect re-fired on reload (submittedRef starts false, all
+  // questions locked from the init effect) → re-sent the answer to a dead
+  // requestId, and combined with an unstable `questions` ref → render loop →
+  // app freeze on restart.
   const submittedRef = useRef(false);
   const onAnswerRef = useRef(onAnswer);
   onAnswerRef.current = onAnswer;
+
+  // Phase 0.6: Stabilize the `questions` reference so the init effect below
+  // doesn't re-run every render (the parent can pass a new array reference
+  // each render even when the content is identical, which caused a setPerQ →
+  // re-render → init effect → setPerQ → ... infinite loop = freeze).
+  const questionsKey = JSON.stringify(questions);
+  const stableQuestions = useRef<AskUserItem[]>(Array.isArray(questions) ? questions : []);
+  const stableQuestionsKey = useRef<string>(questionsKey);
+  if (questionsKey !== stableQuestionsKey.current) {
+    stableQuestions.current = Array.isArray(questions) ? questions : [];
+    stableQuestionsKey.current = questionsKey;
+  }
 
   useEffect(() => {
     if (answered) {
       // Initialize from answered prop (comma-separated for multi)
       const answeredLabels = answered.split(',').map(s => s.trim()).filter(Boolean);
-      const answeredSet = new Set(answeredLabels);
-      const init = questions.map((q, i) => ({
+      const init = stableQuestions.current.map((q, i) => ({
         selected: new Set(q.multiple ? answeredLabels : (answeredLabels[i] ? [answeredLabels[i]] : [])),
         locked: true,
         minimized: true,
@@ -64,16 +81,22 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         customText: '',
       }));
       setPerQ(init);
+      // Phase 0.6: mark as submitted so the onAnswer effect never re-fires
+      // for an already-answered (persisted) card.
+      submittedRef.current = true;
     } else {
       // Initialize empty state for each question
-      setPerQ(questions.map(() => ({ selected: new Set<string>(), locked: false, minimized: false, customOpen: false, customText: '' })));
+      setPerQ(stableQuestions.current.map(() => ({ selected: new Set<string>(), locked: false, minimized: false, customOpen: false, customText: '' })));
     }
-  }, [answered, questions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [answered, questionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 0.4: Fire onAnswer from a useEffect (NOT inside the state updater).
   // This decouples the IPC side-effect from React's state update, fixing the
   // intermittent race where the answer was lost or the stream stalled.
+  // Phase 0.6: also bail when `answered` is set — the card is restoring from
+  // a persisted session and the answer was already sent/recorded.
   useEffect(() => {
+    if (answered) return;
     if (submittedRef.current) return;
     if (perQ.length === 0) return;
     const allLocked = perQ.every(q => q.locked);
@@ -83,9 +106,10 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
       .filter(s => s.length > 0);
     submittedRef.current = true;
     onAnswerRef.current?.(allAnswers.join(', '));
-  }, [perQ]);
+  }, [perQ, answered]);
 
   if (!questions || questions.length === 0) return null;
+  const qs = stableQuestions.current;
 
   const handleToggle = (qIndex: number, label: string, multiple: boolean) => {
     if (perQ[qIndex]?.locked) return;
@@ -206,7 +230,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
 
       {/* Questions */}
       <div className="p-4 space-y-4">
-        {questions.map((q, qIdx) => {
+        {qs.map((q, qIdx) => {
           const header = q.header || `Question ${qIdx + 1}`;
           const options = q.options || [];
           const multiple = q.multiple || false;

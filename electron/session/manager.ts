@@ -32,6 +32,9 @@ export interface SessionToolCall {
   arguments: Record<string, unknown>;
   result?: unknown;
   status: "pending" | "completed" | "failed" | "denied" | "deactivated";
+  /** Phase 0.6: content offset where this tool call was triggered, so the
+   *  AskUserQuestion card renders at the correct position after reload. */
+  _splitOffset?: number;
 }
 
 export interface Session {
