@@ -8,7 +8,7 @@
  *   - Minimize per-question when answered
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface AskUserOption {
   label: string;
@@ -41,6 +41,16 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   // Phase 0.3: added customOpen + customText for the "type your own answer" feature.
   const [perQ, setPerQ] = useState<Array<{ selected: Set<string>; locked: boolean; minimized: boolean; customOpen: boolean; customText: string }>>([]);
 
+  // Phase 0.4: Guard against double-submission. The onAnswer side-effect used
+  // to live inside the setPerQ updater (a React anti-pattern that caused
+  // intermittent "stops mid answer" — the updater can run twice in StrictMode
+  // or the side-effect can tear down the component mid-commit). Now onAnswer
+  // fires from a useEffect that watches perQ, and submittedRef ensures it
+  // only fires ONCE per question set.
+  const submittedRef = useRef(false);
+  const onAnswerRef = useRef(onAnswer);
+  onAnswerRef.current = onAnswer;
+
   useEffect(() => {
     if (answered) {
       // Initialize from answered prop (comma-separated for multi)
@@ -60,6 +70,21 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
     }
   }, [answered, questions]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Phase 0.4: Fire onAnswer from a useEffect (NOT inside the state updater).
+  // This decouples the IPC side-effect from React's state update, fixing the
+  // intermittent race where the answer was lost or the stream stalled.
+  useEffect(() => {
+    if (submittedRef.current) return;
+    if (perQ.length === 0) return;
+    const allLocked = perQ.every(q => q.locked);
+    if (!allLocked) return;
+    const allAnswers = perQ
+      .map(q => Array.from(q.selected).join(', '))
+      .filter(s => s.length > 0);
+    submittedRef.current = true;
+    onAnswerRef.current?.(allAnswers.join(', '));
+  }, [perQ]);
+
   if (!questions || questions.length === 0) return null;
 
   const handleToggle = (qIndex: number, label: string, multiple: boolean) => {
@@ -77,13 +102,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         // are locked. Sending early resolves the tool call prematurely,
         // causing the agent to re-ask the remaining questions.
         // Phase 0.3: close any open custom-answer input when a preset is picked.
+        // Phase 0.4: onAnswer is now fired by the useEffect above, NOT here.
         updated[qIndex] = { ...updated[qIndex], selected: new Set([label]), locked: true, minimized: true, customOpen: false, customText: '' };
-      }
-      // Phase 11: Only send the answer when ALL questions are locked.
-      const allLocked = updated.every(q => q.locked);
-      if (allLocked) {
-        const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
-        onAnswer?.(allAnswers.join(', '));
       }
       return updated;
     });
@@ -96,12 +116,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
     setPerQ(prev => {
       const updated = [...prev];
       updated[qIndex] = { ...updated[qIndex], locked: true, minimized: true };
-      // Phase 11: Only send when ALL questions are locked.
-      const allLocked = updated.every(q => q.locked);
-      if (allLocked) {
-        const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
-        onAnswer?.(allAnswers.join(', '));
-      }
+      // Phase 11 + Phase 0.4: onAnswer is now fired by the useEffect above.
       return updated;
     });
   };
@@ -130,11 +145,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
           customOpen: false,
           customText: '',
         };
-        const allLocked = updated.every(q => q.locked);
-        if (allLocked) {
-          const allAnswers = updated.map(q => Array.from(q.selected).join(', ')).filter(s => s.length > 0);
-          onAnswer?.(allAnswers.join(', '));
-        }
+        // Phase 0.4: onAnswer is now fired by the useEffect above.
       }
       return updated;
     });

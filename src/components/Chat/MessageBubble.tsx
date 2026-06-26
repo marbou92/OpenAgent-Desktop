@@ -173,7 +173,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
 
             const beforeHtml = sanitizeHtml(renderMarkdown(beforeContent));
             const afterHtml = sanitizeHtml(renderMarkdown(afterContent));
-            const requestId = askToolCalls[0].arguments._askRequestId as string | undefined;
 
             return (
               <>
@@ -182,20 +181,27 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                   <div className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: beforeHtml }} />
                 )}
 
-                {/* AskUserQuestion card at the triggered position */}
-                {askToolCalls.map((tc) => (
-                  <AskUserQuestionCard
-                    key={tc.id}
-                    questions={tc.arguments.questions as any[]}
-                    toolCallId={tc.id}
-                    answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
-                    onAnswer={(answer) => {
-                      if (requestId && onAskUserAnswer) {
-                        onAskUserAnswer(requestId, answer);
-                      }
-                    }}
-                  />
-                ))}
+                {/* AskUserQuestion card at the triggered position.
+                    Phase 0.4: each card uses its OWN _askRequestId (previously
+                    all cards sent their answer to askToolCalls[0]'s requestId,
+                    breaking multi-tool-call messages — the 2nd request's promise
+                    never resolved and the stream stalled). */}
+                {askToolCalls.map((tc) => {
+                  const tcRequestId = (tc.arguments as any)?._askRequestId as string | undefined;
+                  return (
+                    <AskUserQuestionCard
+                      key={tc.id}
+                      questions={tc.arguments.questions as any[]}
+                      toolCallId={tc.id}
+                      answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
+                      onAnswer={(answer) => {
+                        if (tcRequestId && onAskUserAnswer) {
+                          onAskUserAnswer(tcRequestId, answer);
+                        }
+                      }}
+                    />
+                  );
+                })}
 
                 {/* Content AFTER the tool call */}
                 {afterContent && (
