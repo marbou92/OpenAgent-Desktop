@@ -56,7 +56,6 @@ import { calculateCost, formatCost } from './providers/cost-calculator';
 import { getEmbeddingsStore } from './providers/embeddings-store';
 import { OpencodeConfig } from './providers/opencode-config';
 import { getModelsDevClient } from './providers/models-dev-client';
-import { getPiDevClient } from './providers/pi-dev-client';
 import { getOpencodeRegistry } from './providers/opencode-registry';
 import { GithubCopilotAuth } from './providers/github-copilot-auth';
 // ─── Phase 1-8: New Subsystem Imports ────────────────────────────────────────
@@ -266,8 +265,6 @@ let providerClient: ProviderClient;
 let chatEngine: ChatEngine;
 let opencodeConfig: OpencodeConfig;
 let modelsDevClient: ReturnType<typeof getModelsDevClient>;
-let piDevClient: ReturnType<typeof getPiDevClient>;
-let catalogSource: 'models.dev' | 'pi.dev' | 'merged' = 'models.dev';
 let catalogReady = false; // Phase 4.4: set to true when the catalog refresh completes
 let copilotAuth: GithubCopilotAuth;
 
@@ -887,42 +884,6 @@ function setupAutoUpdater(): void {
 
 // ─── Subsystem Initialization ─────────────────────────────────────────────────
 
-/**
- * Phase 8.1: Return the provider list for the currently selected catalog source.
- *
- *   'models.dev' → models.dev merged providers (original behavior)
- *   'pi.dev'     → pi.dev providers, with builtin auth metadata overlaid for
- *                  providers that exist in both catalogs
- *   'merged'     → models.dev providers + pi.dev-only providers; on conflicts,
- *                  models.dev wins
- */
-function getMergedProvidersForCurrentSource() {
-  const modelsDevProviders = modelsDevClient
-    ? modelsDevClient.getMergedProviders()
-    : getOpencodeRegistry().listAll();
-
-  if (catalogSource === 'models.dev' || !piDevClient) {
-    return modelsDevProviders;
-  }
-
-  const piDevProviders = piDevClient.getProviders();
-
-  if (catalogSource === 'pi.dev') {
-    // Overlay auth metadata from builtins onto pi.dev providers
-    const builtinMap = new Map(modelsDevProviders.map(p => [p.id, p]));
-    return piDevProviders.map(p => {
-      const builtin = builtinMap.get(p.id);
-      if (!builtin) return p;
-      return { ...p, authMethods: builtin.authMethods, env: builtin.env, api: builtin.api };
-    });
-  }
-
-  // 'merged' — models.dev wins, add pi.dev-only providers
-  const seen = new Set(modelsDevProviders.map(p => p.id));
-  const extras = piDevProviders.filter(p => !seen.has(p.id));
-  return [...modelsDevProviders, ...extras];
-}
-
 async function initializeSubsystems(): Promise<void> {
   const userDataPath = getUserDataPath();
 
@@ -1021,20 +982,6 @@ async function initializeSubsystems(): Promise<void> {
 
   modelsDevClient = getModelsDevClient();
   modelsDevClient.loadCache();
-
-  // Phase 8.1: Initialize the pi.dev client (static bundled catalog)
-  piDevClient = getPiDevClient();
-
-  // Phase 8.1: Load the persisted catalog source choice
-  try {
-    const catalogSourcePath = path.join(getUserDataPath(), 'catalog-source.json');
-    const raw = await fs.promises.readFile(catalogSourcePath, 'utf-8');
-    const data = JSON.parse(raw);
-    if (data.source === 'models.dev' || data.source === 'pi.dev' || data.source === 'merged') {
-      catalogSource = data.source;
-    }
-  } catch { /* use default 'models.dev' */ }
-  logger.info('Catalog', `Catalog source: ${catalogSource}`);
 
   // Phase 4.3: Send catalog progress events to the renderer so the splash
   // screen can show a progress bar. The refresh is still non-blocking —
@@ -1364,49 +1311,13 @@ function registerIpcHandlers(): void {
 
   // Catalog
   ipcMain.handle("provider:list-providers", wrapIPC(async () => {
-    // Phase 8.1: Honor the catalog source setting.
-    if (!modelsDevClient && !piDevClient) {
+    // Null-guard: subsystems may not be initialized yet (handlers are
+    // registered before initializeSubsystems completes). Return the hardcoded
+    // builtin list as a fallback so the UI doesn't hang.
+    if (!modelsDevClient) {
       return { success: true, data: getOpencodeRegistry().listAll() };
     }
-    return { success: true, data: getMergedProvidersForCurrentSource() };
-  }));
-
-  // Phase 8.1: Catalog source switching
-  ipcMain.handle("provider:get-catalog-source", wrapIPC(async () => {
-    return { success: true, data: catalogSource };
-  }));
-
-  ipcMain.handle("provider:set-catalog-source", wrapIPC(async (_event, source: string) => {
-    if (source !== 'models.dev' && source !== 'pi.dev' && source !== 'merged') {
-      return { success: false, error: `Invalid catalog source: ${source}` };
-    }
-    catalogSource = source as any;
-    // Persist
-    try {
-      const catalogSourcePath = path.join(getUserDataPath(), 'catalog-source.json');
-      await fs.promises.writeFile(catalogSourcePath, JSON.stringify({ source }, null, 2), 'utf-8');
-    } catch (err) {
-      logger.warn('Catalog', 'Failed to persist catalog source', err);
-    }
-    // Notify the renderer
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('provider:catalog-source-changed', { source });
-    }
-    logger.info('Catalog', `Switched to: ${source}`);
-    return { success: true };
-  }));
-
-  ipcMain.handle("provider:get-catalog-info", wrapIPC(async () => {
-    return {
-      success: true,
-      data: {
-        source: catalogSource,
-        modelsDevProviders: modelsDevClient?.getCachedProviderIds().length || 0,
-        modelsDevModels: modelsDevClient?.getTotalModelCount() || 0,
-        piDevProviders: piDevClient?.getCachedProviderIds().length || 0,
-        piDevModels: piDevClient?.getTotalModelCount() || 0,
-      },
-    };
+    return { success: true, data: modelsDevClient.getMergedProviders() };
   }));
 
   ipcMain.handle("provider:list-auth", wrapIPC(async () => {
