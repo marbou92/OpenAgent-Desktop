@@ -153,6 +153,29 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
 
   const allAnswered = perQ.length > 0 && perQ.every(q => q.locked);
 
+  // Phase 0.5: Let the user go back and edit an already-answered question.
+  // Unlocks the question, un-minimizes it, and resets submittedRef so the
+  // useEffect above will re-fire onAnswer when the user re-answers.
+  // - For pre-submission edits (not all questions locked yet): no IPC was
+  //   sent, so this just lets the user change their mind. submittedRef is
+  //   still false, so the guard is a no-op, but resetting it is harmless.
+  // - For post-submission edits (all locked, answer already sent): resetting
+  //   submittedRef lets the effect re-fire and send the updated answer.
+  const handleEdit = (qIndex: number) => {
+    submittedRef.current = false;
+    setPerQ(prev => {
+      const updated = [...prev];
+      updated[qIndex] = {
+        ...updated[qIndex],
+        locked: false,
+        minimized: false,
+        customOpen: false,
+        customText: '',
+      };
+      return updated;
+    });
+  };
+
   return (
     <div
       className="rounded-xl border my-3 overflow-hidden"
@@ -194,39 +217,67 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
           // ─── Minimized view for this question ─────────────────────────
           if (qState.minimized && isAnswered) {
             return (
-              <button
+              <div
                 key={qIdx}
-                onClick={() => setPerQ(prev => {
-                  const updated = [...prev];
-                  updated[qIdx] = { ...updated[qIdx], minimized: false };
-                  return updated;
-                })}
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all"
                 style={{
                   background: 'var(--color-bg-primary)',
                   border: '1px solid var(--color-border-secondary)',
-                  cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-primary)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border-secondary)'; }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-success, #10b981)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                <span className="text-[9px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
-                  {header}
-                </span>
-                <span className="text-xs flex-shrink-0 truncate max-w-[180px]" style={{ color: 'var(--color-text-muted)' }}>
-                  {q.question.length > 35 ? q.question.substring(0, 35) + '…' : q.question}
-                </span>
-                <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</span>
-                <span className="text-xs font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--color-success, #10b981)' }}>
-                  {selectedLabels.join(', ')}
-                </span>
-                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" style={{ transform: 'rotate(90deg)' }}>
-                  <path d="M3 5L6 8L9 5" />
-                </svg>
-              </button>
+                <button
+                  onClick={() => setPerQ(prev => {
+                    const updated = [...prev];
+                    updated[qIdx] = { ...updated[qIdx], minimized: false };
+                    return updated;
+                  })}
+                  className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-success, #10b981)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span className="text-[9px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                    {header}
+                  </span>
+                  <span className="text-xs flex-shrink-0 truncate max-w-[180px]" style={{ color: 'var(--color-text-muted)' }}>
+                    {q.question.length > 35 ? q.question.substring(0, 35) + '…' : q.question}
+                  </span>
+                  <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</span>
+                  <span className="text-xs font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--color-success, #10b981)' }}>
+                    {selectedLabels.join(', ')}
+                  </span>
+                </button>
+                {/* Phase 0.5: Edit button — unlock this question to change the answer */}
+                <button
+                  onClick={() => handleEdit(qIdx)}
+                  title="Edit this answer"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-colors flex-shrink-0"
+                  style={{ color: 'var(--color-text-muted)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-muted)'; }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                  Edit
+                </button>
+                <button
+                  onClick={() => setPerQ(prev => {
+                    const updated = [...prev];
+                    updated[qIdx] = { ...updated[qIdx], minimized: false };
+                    return updated;
+                  })}
+                  title="Expand"
+                  className="flex-shrink-0"
+                  style={{ color: 'var(--color-text-muted)' }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'rotate(90deg)' }}>
+                    <path d="M3 5L6 8L9 5" />
+                  </svg>
+                </button>
+              </div>
             );
           }
 
@@ -247,20 +298,36 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                   </span>
                 )}
                 {isAnswered && (
-                  <button
-                    onClick={() => setPerQ(prev => {
-                      const updated = [...prev];
-                      updated[qIdx] = { ...updated[qIdx], minimized: true };
-                      return updated;
-                    })}
-                    className="ml-auto text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
-                    style={{ color: 'var(--color-text-muted)' }}
-                  >
-                    <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 7L6 4L9 7" />
-                    </svg>
-                    Minimize
-                  </button>
+                  <div className="ml-auto flex items-center gap-1">
+                    {/* Phase 0.5: Edit button — unlock this question to change the answer */}
+                    <button
+                      onClick={() => handleEdit(qIdx)}
+                      className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
+                      style={{ color: 'var(--color-text-muted)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-muted)'; }}
+                    >
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setPerQ(prev => {
+                        const updated = [...prev];
+                        updated[qIdx] = { ...updated[qIdx], minimized: true };
+                        return updated;
+                      })}
+                      className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
+                      style={{ color: 'var(--color-text-muted)' }}
+                    >
+                      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 7L6 4L9 7" />
+                      </svg>
+                      Minimize
+                    </button>
+                  </div>
                 )}
               </div>
 

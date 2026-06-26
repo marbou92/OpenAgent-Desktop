@@ -157,36 +157,56 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
               );
             }
 
-            // Split content at the first AskUserQuestion's _splitOffset.
-            const splitOffset = (askToolCalls[0] as any)._splitOffset as number | undefined;
+            // Phase 0.5: Interleave content segments and AskUserQuestion cards
+            // by their _splitOffset so each card renders at the position where
+            // it was actually triggered. Previously only askToolCalls[0]'s
+            // offset was used and ALL cards were bunched between before/after —
+            // so the 2nd+ cards appeared right after the 1st instead of at
+            // their real position in the message.
             const rawContent = message.content || '';
-            let beforeContent = rawContent;
-            let afterContent = '';
 
-            if (splitOffset !== undefined && splitOffset > 0 && splitOffset < rawContent.length) {
-              beforeContent = rawContent.substring(0, splitOffset);
-              afterContent = rawContent.substring(splitOffset);
-            } else if (splitOffset !== undefined && splitOffset === 0) {
-              beforeContent = '';
-              afterContent = rawContent;
+            // Sort ask tool calls by their split offset (ascending). Cards
+            // without an offset are placed at the end.
+            const sortedAsk = [...askToolCalls].sort((a, b) => {
+              const oa = (a as any)._splitOffset as number | undefined;
+              const ob = (b as any)._splitOffset as number | undefined;
+              if (oa === undefined) return 1;
+              if (ob === undefined) return -1;
+              return oa - ob;
+            });
+
+            // Build interleaved segments: [content0, card0, content1, card1, ..., contentN]
+            const segments: Array<{ type: 'content'; text: string } | { type: 'card'; tc: typeof askToolCalls[number] }> = [];
+            let cursor = 0;
+            for (const tc of sortedAsk) {
+              const offset = (tc as any)._splitOffset as number | undefined;
+              const clamped = offset === undefined ? rawContent.length : Math.max(0, Math.min(offset, rawContent.length));
+              if (clamped > cursor) {
+                segments.push({ type: 'content', text: rawContent.substring(cursor, clamped) });
+              }
+              segments.push({ type: 'card', tc });
+              cursor = clamped;
             }
-
-            const beforeHtml = sanitizeHtml(renderMarkdown(beforeContent));
-            const afterHtml = sanitizeHtml(renderMarkdown(afterContent));
+            // Trailing content after the last card.
+            if (cursor < rawContent.length) {
+              segments.push({ type: 'content', text: rawContent.substring(cursor) });
+            }
 
             return (
               <>
-                {/* Content BEFORE the tool call */}
-                {beforeContent && (
-                  <div className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: beforeHtml }} />
-                )}
-
-                {/* AskUserQuestion card at the triggered position.
-                    Phase 0.4: each card uses its OWN _askRequestId (previously
-                    all cards sent their answer to askToolCalls[0]'s requestId,
-                    breaking multi-tool-call messages — the 2nd request's promise
-                    never resolved and the stream stalled). */}
-                {askToolCalls.map((tc) => {
+                {segments.map((seg, i) => {
+                  if (seg.type === 'content') {
+                    if (!seg.text) return null;
+                    const html = sanitizeHtml(renderMarkdown(seg.text));
+                    // Attach contentRef to the first content segment so the
+                    // copy-code-handlers effect can wire up <pre> blocks.
+                    const ref = i === 0 ? contentRef : undefined;
+                    return (
+                      <div key={`seg-${i}`} ref={ref} className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: html }} />
+                    );
+                  }
+                  // Card segment
+                  const tc = seg.tc;
                   const tcRequestId = (tc.arguments as any)?._askRequestId as string | undefined;
                   return (
                     <AskUserQuestionCard
@@ -202,11 +222,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                     />
                   );
                 })}
-
-                {/* Content AFTER the tool call */}
-                {afterContent && (
-                  <div className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: afterHtml }} />
-                )}
 
                 {/* Streaming cursor */}
                 {message.isStreaming && (
