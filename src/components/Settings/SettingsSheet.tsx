@@ -424,23 +424,7 @@ const GeneralSettings: React.FC<TabProps> = ({ settings, onChange }) => (
       />
     </SettingRow>
 
-    <SettingRow label="Permission Mode" description="How tool permissions are handled">
-      <select
-        value={settings.permissionMode}
-        onChange={(e) => onChange('permissionMode', e.target.value)}
-        className="w-full px-3 py-2 rounded-lg text-sm outline-none border transition-colors cursor-pointer"
-        style={{
-          background: 'var(--color-bg-secondary)',
-          borderColor: 'var(--color-border-primary)',
-          color: 'var(--color-text-primary)',
-        }}
-      >
-        <option value="auto">Auto (approve everything automatically)</option>
-        <option value="approve">Approve (ask for every tool call)</option>
-        <option value="smart_approve">Smart Approve (safe ops auto-approved, dangerous ops ask)</option>
-        <option value="chat">Chat (no tools allowed)</option>
-      </select>
-    </SettingRow>
+    {/* Phase 2: Permission Mode moved to the Permissions tab in SettingsView */}
 
     <SettingRow label="Language" description="Display language">
       <select

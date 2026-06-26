@@ -111,6 +111,9 @@ interface AppConfig {
   permissionMode: string;
   sandboxMode: 'path' | 'vm';
   debugMode: boolean;
+  // Phase 2: Permissions
+  toolEnabled?: Record<string, boolean>;
+  bashSafety?: { enabled: boolean; blocklist: any[]; allowlist: any[] };
   skillsPath: string;
   enableBuiltinSkills: boolean;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
@@ -1166,10 +1169,28 @@ async function initializeSubsystems(): Promise<void> {
     await agentPresetManager.initialize();
     agentSessionBridge = new AgentSessionBridge(autoModeDetector);
 
-    // Phase 1: Removed the old permission-overrides.json disk loading.
-    // "Always" rules are now session-scoped with 30-min expiry (in-memory
-    // only), so they don't need to survive app restarts. Each new session
-    // starts fresh.
+    // Phase 0.8: Load persisted permission overrides from disk so user-saved
+    // "Always Allow" / "Always Deny" rules survive app restarts. Built-in
+    // agents (build/plan/chat/smart) are in-memory only, so without this
+    // the rules would be lost every time the app restarts.
+    try {
+      const overridesPath = path.join(getUserDataPath(), 'permission-overrides.json');
+      const raw = await fs.promises.readFile(overridesPath, 'utf-8');
+      const overrides: Record<string, Record<string, string>> = JSON.parse(raw);
+      for (const [agentId, rules] of Object.entries(overrides)) {
+        const agent = agentRegistry.get(agentId);
+        if (agent && rules) {
+          const newPerms = { ...agent.permissions };
+          for (const [pattern, level] of Object.entries(rules)) {
+            newPerms[pattern] = level as ToolPermissionLevel;
+          }
+          agent.permissions = newPerms;
+          logger.info('Permissions', `Loaded ${Object.keys(rules).length} persisted override(s) for agent '${agentId}'`);
+        }
+      }
+    } catch {
+      // No overrides file yet — that's fine.
+    }
 
     // Phase 2: Provider Overhaul
     modelIdResolver = getModelIdResolver();
@@ -1588,11 +1609,34 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("session:delete", wrapIPC(async (_event, sessionId: string) => {
     await sessionManager.delete(sessionId);
-    // Phase 1: Clean up session-scoped permission rules when the session
-    // is deleted so memory doesn't leak.
+    // Phase 1: Clean up session-scoped permission rules + todos.
     sessionPermissionRules.delete(sessionId);
-    // Phase 1.4: Clean up session todos too.
     sessionTodos.delete(sessionId);
+    return { success: true };
+  }));
+
+  // ── Phase 1.4: Todos IPC ───────────────────────────────────────────────────
+  const sessionTodos = new Map<string, any[]>();
+
+  ipcMain.handle("todos:list", wrapIPC(async (_event, sid: string) => {
+    return { success: true, data: sessionTodos.get(sid) || [] };
+  }));
+
+  ipcMain.handle("todos:summary", wrapIPC(async (_event, sid: string) => {
+    const todos = sessionTodos.get(sid) || [];
+    return { success: true, data: {
+      total: todos.length,
+      completed: todos.filter(t => t?.status === 'completed').length,
+      inProgress: todos.filter(t => t?.status === 'in_progress').length,
+      pending: todos.filter(t => t?.status === 'pending').length,
+    }};
+  }));
+
+  ipcMain.handle("todos:clear", wrapIPC(async (_event, sid: string) => {
+    sessionTodos.delete(sid);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('todos:updated', { sessionId: sid, todos: [] });
+    }
     return { success: true };
   }));
 
@@ -1603,37 +1647,6 @@ function registerIpcHandlers(): void {
       return { success: true, data: exported };
     })
   );
-
-  // ── Phase 1.4: Todos IPC ───────────────────────────────────────────────────
-  // Per-session todo store (in-memory). Updated when the agent calls TodoWrite
-  // (see the tool_call_end handler in runAgent) and queried by the renderer
-  // via todos:list / todos:summary. Cleared via todos:clear.
-  const sessionTodos = new Map<string, any[]>();
-
-  ipcMain.handle("todos:list", wrapIPC(async (_event, sessionId: string) => {
-    return { success: true, data: sessionTodos.get(sessionId) || [] };
-  }));
-
-  ipcMain.handle("todos:summary", wrapIPC(async (_event, sessionId: string) => {
-    const todos = sessionTodos.get(sessionId) || [];
-    return {
-      success: true,
-      data: {
-        total: todos.length,
-        completed: todos.filter(t => t?.status === 'completed').length,
-        inProgress: todos.filter(t => t?.status === 'in_progress').length,
-        pending: todos.filter(t => t?.status === 'pending').length,
-      },
-    };
-  }));
-
-  ipcMain.handle("todos:clear", wrapIPC(async (_event, sessionId: string) => {
-    sessionTodos.delete(sessionId);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('todos:updated', { sessionId, todos: [] });
-    }
-    return { success: true };
-  }));
 
   // ── Recipe IPC ────────────────────────────────────────────────────────────
 
@@ -1757,79 +1770,43 @@ function registerIpcHandlers(): void {
 
   const pendingPermissionRequests = new Map<string, (level: ToolPermissionLevel) => void>();
 
-  // Phase 0.2 / Phase 1: Store tool info alongside each pending permission
-  // request. Now includes sessionId so "Always" rules can be scoped to the
-  // session that created them.
+  // Phase 1: Store tool info with sessionId so "always" rules can be session-scoped.
   const pendingPermissionRequestInfo = new Map<string, { agentId: string; toolName: string; args: Record<string, unknown>; sessionId: string }>();
 
   // Phase 0.2: Pending AskUserQuestion requests.
   const pendingAskUserRequests = new Map<string, (answer: string | null) => void>();
 
   // Phase 1: Session-scoped permission rules with 30-minute expiry.
-  //
-  // "Always Allow" / "Always Deny" no longer means "forever, globally". It
-  // means "for this session, for the next 30 minutes, don't ask again for
-  // this tool pattern." After 30 minutes the rule expires and the dialog
-  // re-appears. Rules are also scoped to the session that created them —
-  // a rule created in session A does not affect session B.
-  //
-  // Structure: sessionId → (pattern → { level, expiresAt })
   const SESSION_RULE_TTL_MS = 30 * 60 * 1000; // 30 minutes
   const sessionPermissionRules = new Map<string, Map<string, { level: 'allow' | 'deny'; expiresAt: number }>>();
 
   function getSessionRules(sessionId: string): Map<string, { level: 'allow' | 'deny'; expiresAt: number }> {
     let rules = sessionPermissionRules.get(sessionId);
-    if (!rules) {
-      rules = new Map();
-      sessionPermissionRules.set(sessionId, rules);
-    }
+    if (!rules) { rules = new Map(); sessionPermissionRules.set(sessionId, rules); }
     return rules;
   }
 
-  /** Check session-scoped rules for a tool. Returns 'allow'/'deny' if a
-   *  non-expired rule matches, or null if no rule matches. */
   function checkSessionRule(sessionId: string, toolName: string, args: Record<string, unknown>): 'allow' | 'deny' | null {
     const rules = sessionPermissionRules.get(sessionId);
     if (!rules || rules.size === 0) return null;
-
-    // Build the tool identifier the same way the evaluator does
     let toolId = toolName;
-    if (toolName === 'bash' && args.command) {
-      toolId = `bash:${String(args.command).trim()}`;
-    } else if ((toolName === 'edit' || toolName === 'write') && (args.path || args.file_path)) {
-      toolId = `${toolName}:${args.path || args.file_path}`;
-    } else if (toolName === 'read' && args.path) {
-      toolId = `read:${args.path}`;
-    }
+    if (toolName === 'bash' && args.command) toolId = `bash:${String(args.command).trim()}`;
+    else if ((toolName === 'edit' || toolName === 'write') && (args.path || args.file_path)) toolId = `${toolName}:${args.path || args.file_path}`;
+    else if (toolName === 'read' && args.path) toolId = `read:${args.path}`;
 
     const now = Date.now();
     let result: 'allow' | 'deny' | null = null;
-
     for (const [pattern, rule] of rules) {
-      // Expired rule — clean it up and skip
-      if (now > rule.expiresAt) {
-        rules.delete(pattern);
-        continue;
-      }
-      // Check if the pattern matches
-      if (pattern === toolName || pattern === toolId) {
-        result = rule.level;
-      } else if (pattern.includes('*')) {
-        // Simple wildcard match
+      if (now > rule.expiresAt) { rules.delete(pattern); continue; }
+      if (pattern === toolName || pattern === toolId) result = rule.level;
+      else if (pattern.includes('*')) {
         const regex = new RegExp('^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');
-        if (regex.test(toolId) || regex.test(toolName)) {
-          result = rule.level;
-        }
-      } else if (!pattern.includes(':') && toolId.startsWith(pattern + ':')) {
-        // Prefix match: "edit" matches "edit:/foo/bar.ts"
-        result = rule.level;
-      }
+        if (regex.test(toolId) || regex.test(toolName)) result = rule.level;
+      } else if (!pattern.includes(':') && toolId.startsWith(pattern + ':')) result = rule.level;
     }
-
     return result;
   }
 
-  /** Build the pattern for an "always" rule. */
   function buildAlwaysPattern(toolName: string, args: Record<string, unknown>): string {
     if (toolName === 'bash' && args.command) {
       const cmd = String(args.command).trim().split(/\s+/)[0];
@@ -1838,10 +1815,33 @@ function registerIpcHandlers(): void {
     return toolName;
   }
 
-  // Phase 1: Track denied tool call IDs per agent run so the UI can show
-  // a "Denied" state even if the sentinel object doesn't survive the AI
-  // SDK's stream pipeline.
+  // Phase 1: Track denied tool call IDs so the UI can show "Denied" state.
   const deniedToolCallIds = new Set<string>();
+
+  // Phase 2: Bash safety evaluator. Checks bash/cmd commands against
+  // blocklist (auto-deny) and allowlist (auto-allow).
+  function checkBashSafety(command: string): { decision: 'allow' | 'deny' | null; matchedRule?: string } {
+    const bashSafety = (appConfig as any)?.bashSafety;
+    if (!bashSafety || !bashSafety.enabled) return { decision: null };
+
+    const cmd = String(command || '').toLowerCase().trim();
+
+    // Check blocklist first (deny takes precedence)
+    for (const rule of bashSafety.blocklist || []) {
+      if (rule.enabled && cmd.includes(rule.pattern.toLowerCase())) {
+        return { decision: 'deny', matchedRule: rule.pattern };
+      }
+    }
+
+    // Check allowlist
+    for (const rule of bashSafety.allowlist || []) {
+      if (rule.enabled && cmd.includes(rule.pattern.toLowerCase())) {
+        return { decision: 'allow', matchedRule: rule.pattern };
+      }
+    }
+
+    return { decision: null };
+  }
 
   ipcMain.handle("permission:respond", wrapIPC(async (_e, requestId: string, response: string) => {
     const resolve = pendingPermissionRequests.get(requestId);
@@ -1850,9 +1850,7 @@ function registerIpcHandlers(): void {
     }
     pendingPermissionRequests.delete(requestId);
 
-    // Phase 1: Handle 'always_allow' and 'always_deny' by storing
-    // session-scoped rules with a 30-minute expiry. No more global
-    // permanent rules — the dialog will re-appear after 30 minutes.
+    // Phase 1: Session-scoped "always" rules with 30-min expiry.
     if (response === 'always_allow' || response === 'always_deny') {
       try {
         const pendingInfo = pendingPermissionRequestInfo.get(requestId);
@@ -1930,27 +1928,18 @@ function registerIpcHandlers(): void {
       workingDirectory: session.workingDirectory || process.cwd(),
       extensionRegistry,
       // Phase 1: Pass the denied tracker so execute() handlers can report
-      // which tool call IDs were denied. This is used as a backup to the
-      // sentinel object detection to ensure the UI shows "Denied".
+      // which tool call IDs were denied.
       deniedToolCallIds,
     };
 
-    // Permission checker — uses the agent's permission rules.
-    // Phase 1: Now checks (1) the settings permissionMode override,
-    // (2) session-scoped "always" rules (30-min expiry), (3) the agent's
-    // permanent permission rules + policy engine.
+    // Permission checker — Phase 1+2: settings mode → session rules → bash safety → agent rules
     const permissionEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
     permissionEvaluator.setAgentMode(agent.mode);
     if (permissionPolicyEngine) {
       permissionEvaluator.setPolicyEngine(permissionPolicyEngine);
     }
 
-    // Phase 1: Read the permission mode from settings. This is the global
-    // override that takes precedence over everything else.
-    //   auto         → allow everything (full autonomy, no dialogs)
-    //   approve      → ask for everything (every tool call pops a dialog)
-    //   smart_approve → normal evaluation (agent rules + policy engine)
-    //   chat         → deny everything (no tools allowed, conversation only)
+    // Phase 1: Read the permission mode from settings.
     const settingsPermissionMode = (appConfig as any)?.permissionMode || 'smart_approve';
 
     const permissionChecker = {
@@ -1964,7 +1953,14 @@ function registerIpcHandlers(): void {
         const sessionRule = checkSessionRule(sessionId, toolName, args);
         if (sessionRule !== null) return sessionRule;
 
-        // (3) Agent's permanent permission rules + policy engine
+        // (3) Phase 2: Bash safety (blocklist → deny, allowlist → allow)
+        if (toolName === 'bash' && args.command) {
+          const safety = checkBashSafety(String(args.command));
+          if (safety.decision === 'deny') return 'deny';
+          if (safety.decision === 'allow') return 'allow';
+        }
+
+        // (4) Agent's permanent permission rules + policy engine
         const freshEvaluator = new (require('./permissions/evaluator').PermissionEvaluator)(agent.permissions);
         freshEvaluator.setAgentMode(agent.mode);
         if (permissionPolicyEngine) {
@@ -1992,9 +1988,13 @@ function registerIpcHandlers(): void {
     // Build AI SDK tool definitions with execute() handlers.
     const allTools = chatEngine.buildTools(toolDeps, permissionChecker, executeToolCall);
 
-    // Phase 0.2: REMOVED filterToolsByMode — it had a bug that removed bash+edit
-    // in BUILD mode. Permission is handled at execution time via checkPermission().
-    const tools = allTools;
+    // Phase 2: Filter out disabled tools. The user can disable tools in
+    // Settings → Permissions. Disabled tools are completely hidden from
+    // the AI (not in the tools object passed to streamText).
+    const toolEnabledMap = (appConfig as any)?.toolEnabled || {};
+    const tools = Object.fromEntries(
+      Object.entries(allTools).filter(([name]) => toolEnabledMap[name] !== false)
+    );
 
     // Build the system prompt.
     const systemPrompt = agent.prompt
@@ -2041,49 +2041,12 @@ function registerIpcHandlers(): void {
         tools,
         maxSteps: agent.maxSteps || 50,
         thinkingEffort, // Phase 4.2: pass thinking effort
-        // Phase 0.9: onToolCall/onToolResult are now ONLY used by the
-        // direct agent loop (runDirectAgentLoop). The AI SDK streamText
-        // path forwards tool calls/results via stream chunks instead
-        // (see the switch below), which avoids the duplicate events +
-        // shape mismatch bug that was causing stuck spinners.
         onToolCall: (tc: any) => {
           send('chat:stream-tool-call', { toolCall: tc });
         },
         onToolResult: (tr: any) => {
-          // Phase 1.1: Same triple-layer denial detection as the stream
-          // chunk handler above. The direct agent loop calls this callback
-          // instead of yielding stream chunks, so we need the same logic here.
-          const trId = tr?.id || tr?.toolCallId;
-          const trContent = typeof tr?.content === 'string' ? tr.content :
-                            typeof tr?.result === 'string' ? tr.result :
-                            JSON.stringify(tr?.result || tr?.content || '');
-          const hasDeniedMarker = trContent.includes('DENIED') || trContent.includes('Permission denied');
-          const isDenied = (tr?.denied === true) ||
-                           (trId && deniedToolCallIds.has(trId)) ||
-                           hasDeniedMarker;
-          if (isDenied) {
-            send('chat:stream-tool-result', { toolResult: { ...tr, denied: true } });
-          } else {
-            send('chat:stream-tool-result', { toolResult: tr });
-          }
-          if (trId) deniedToolCallIds.delete(trId);
-
-          // Phase 1.5: Forward TodoWrite todos to the renderer (same as
-          // the tool_result stream case above).
-          if (trId && (toolDeps as any)._todos) {
-            const todos = (toolDeps as any)._todos;
-            const isCleared = (toolDeps as any)._todosCleared === true;
-            const finalTodos = isCleared ? [] : todos;
-            sessionTodos.set(sessionId, finalTodos);
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('todos:updated', {
-                sessionId,
-                todos: finalTodos,
-              });
-            }
-            (toolDeps as any)._todos = undefined;
-            (toolDeps as any)._todosCleared = undefined;
-          }
+          send('chat:stream-tool-result', { toolResult: tr });
+          stepCount++;
         },
       }
     )) {
@@ -2104,21 +2067,6 @@ function registerIpcHandlers(): void {
           break;
         case 'tool_result': {
           // Phase 1.1: Triple-layer denial detection.
-          //
-          // Layer 1: The `denied: true` flag set by chat-engine.ts's
-          //   extractPermissionDenied() in the tool-result stream case.
-          //   This works when the sentinel object survives the AI SDK
-          //   pipeline intact.
-          //
-          // Layer 2: The deniedToolCallIds Set, populated by markDenied()
-          //   in the execute() handlers. This works when the toolCallId
-          //   is passed to execute() by the AI SDK.
-          //
-          // Layer 3 (NEW): Content-based detection. If the tool result
-          //   content contains "DENIED" (the exact marker from our denial
-          //   messages), mark it as denied. This is the most robust layer
-          //   because it doesn't depend on any object structure or ID
-          //   passing — it just checks the text content.
           const tr: any = chunk.toolResult;
           const trId = tr?.id || tr?.toolCallId;
           const trContent = typeof tr?.content === 'string' ? tr.content :
@@ -2136,26 +2084,15 @@ function registerIpcHandlers(): void {
           stepCount++;
           if (trId) deniedToolCallIds.delete(trId);
 
-          // Phase 1.5: Detect TodoWrite tool calls and forward the todos
-          // to the renderer via the todos:updated IPC event. The todos
-          // are stashed on toolDeps._todos by chat-engine.ts's execute()
-          // handler. We check HERE (in tool_result) because execute()
-          // has now run and _todos is populated.
-          // (Previously this was in tool_call_end, but that fires BEFORE
-          //  execute() runs — so _todos was always undefined there.)
-          if (tr?.id && (toolDeps as any)._todos) {
+          // Phase 1.5: Forward TodoWrite todos to the renderer.
+          if (trId && (toolDeps as any)._todos) {
             const todos = (toolDeps as any)._todos;
             const isCleared = (toolDeps as any)._todosCleared === true;
             const finalTodos = isCleared ? [] : todos;
-            // Store in the sessionTodos map so todos:list returns the latest
             sessionTodos.set(sessionId, finalTodos);
             if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('todos:updated', {
-                sessionId,
-                todos: finalTodos,
-              });
+              mainWindow.webContents.send('todos:updated', { sessionId, todos: finalTodos });
             }
-            // Clear the stash so we don't re-send on the next tool call
             (toolDeps as any)._todos = undefined;
             (toolDeps as any)._todosCleared = undefined;
           }

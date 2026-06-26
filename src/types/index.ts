@@ -189,14 +189,6 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
   result?: unknown;
   status: 'pending' | 'completed' | 'failed' | 'denied';
-  /** Phase 1.2: When this tool call is awaiting permission approval,
-   *  this holds the permission request data so ToolUseCard can render
-   *  the approval UI inline (instead of a separate floating dialog). */
-  _pendingPermission?: {
-    requestId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-  };
 }
 
 export interface SessionTemplate {
@@ -635,6 +627,12 @@ export interface AppSettings {
   sandboxMode: 'path' | 'vm';
   debugMode: boolean;
 
+  // ─── Phase 2: Permissions ─────────────────────────────────────
+  /** Map of toolName → enabled. Missing = enabled (default). */
+  toolEnabled?: Record<string, boolean>;
+  /** Bash/cmd safety configuration. */
+  bashSafety?: BashSafetyConfig;
+
   // ─── Skills ───────────────────────────────────────────────────
   skillsPath: string;
   enableBuiltinSkills: boolean;
@@ -644,6 +642,27 @@ export interface AppSettings {
   traceEnabled: boolean;
   crashLogRetention: number;
   developerMode: boolean;
+}
+
+/** Phase 2: Bash/cmd safety configuration. */
+export interface BashSafetyConfig {
+  /** Enable/disable the safety layer entirely. */
+  enabled: boolean;
+  /** Patterns that are ALWAYS denied (auto-block). */
+  blocklist: BashSafetyRule[];
+  /** Patterns that are ALWAYS allowed (auto-approve). */
+  allowlist: BashSafetyRule[];
+}
+
+export interface BashSafetyRule {
+  /** The pattern to match (substring match on the command string). */
+  pattern: string;
+  /** Human-readable description of what this rule blocks/allows. */
+  description: string;
+  /** Whether this rule is active. */
+  enabled: boolean;
+  /** Category for grouping in the UI. */
+  category: 'destructive' | 'system' | 'network' | 'package' | 'injection' | 'custom';
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -669,6 +688,70 @@ export const DEFAULT_SETTINGS: AppSettings = {
   permissionMode: 'smart_approve',
   sandboxMode: 'path',
   debugMode: false,
+  // Phase 2: Permissions
+  toolEnabled: {},
+  bashSafety: {
+    enabled: true,
+    blocklist: [
+      // Destructive
+      { pattern: 'rm -rf', description: 'Recursive force delete (Linux/Mac)', enabled: true, category: 'destructive' },
+      { pattern: 'rm -fr', description: 'Recursive force delete (alt syntax)', enabled: true, category: 'destructive' },
+      { pattern: 'del /s', description: 'Recursive delete (Windows)', enabled: true, category: 'destructive' },
+      { pattern: 'del /f', description: 'Force delete (Windows)', enabled: true, category: 'destructive' },
+      { pattern: 'rmdir /s', description: 'Recursive directory delete (Windows)', enabled: true, category: 'destructive' },
+      { pattern: 'format', description: 'Disk format', enabled: true, category: 'destructive' },
+      { pattern: 'shred', description: 'Secure file deletion', enabled: true, category: 'destructive' },
+      { pattern: 'mkfs', description: 'Filesystem creation (wipes disk)', enabled: true, category: 'destructive' },
+      // System
+      { pattern: 'sudo', description: 'Run as superuser', enabled: true, category: 'system' },
+      { pattern: 'su ', description: 'Switch user', enabled: true, category: 'system' },
+      { pattern: 'shutdown', description: 'System shutdown', enabled: true, category: 'system' },
+      { pattern: 'reboot', description: 'System reboot', enabled: true, category: 'system' },
+      { pattern: 'halt', description: 'System halt', enabled: true, category: 'system' },
+      { pattern: 'kill -9', description: 'Force kill process', enabled: true, category: 'system' },
+      { pattern: 'taskkill /f', description: 'Force kill process (Windows)', enabled: true, category: 'system' },
+      // Network exfiltration
+      { pattern: 'curl ', description: 'HTTP client (data exfil risk)', enabled: true, category: 'network' },
+      { pattern: 'wget ', description: 'File download (data exfil risk)', enabled: true, category: 'network' },
+      { pattern: 'scp ', description: 'Secure copy over SSH', enabled: true, category: 'network' },
+      { pattern: 'rsync ', description: 'Remote sync', enabled: true, category: 'network' },
+      { pattern: 'nc ', description: 'Netcat (network tool)', enabled: true, category: 'network' },
+      // Package managers
+      { pattern: 'npm install', description: 'Install npm packages', enabled: true, category: 'package' },
+      { pattern: 'npm i ', description: 'Install npm packages (short)', enabled: true, category: 'package' },
+      { pattern: 'pip install', description: 'Install pip packages', enabled: true, category: 'package' },
+      { pattern: 'apt install', description: 'Install apt packages', enabled: true, category: 'package' },
+      { pattern: 'apt-get install', description: 'Install apt packages (alt)', enabled: true, category: 'package' },
+      { pattern: 'brew install', description: 'Install homebrew packages', enabled: true, category: 'package' },
+      { pattern: 'choco install', description: 'Install chocolatey packages', enabled: true, category: 'package' },
+      // Shell injection
+      { pattern: '; rm', description: 'Shell injection: command chaining + rm', enabled: true, category: 'injection' },
+      { pattern: '| rm', description: 'Shell injection: pipe + rm', enabled: true, category: 'injection' },
+      { pattern: '&& rm', description: 'Shell injection: AND + rm', enabled: true, category: 'injection' },
+      { pattern: '`rm', description: 'Shell injection: backtick + rm', enabled: true, category: 'injection' },
+      { pattern: '$(rm', description: 'Shell injection: command substitution + rm', enabled: true, category: 'injection' },
+    ],
+    allowlist: [
+      { pattern: 'ls', description: 'List directory contents', enabled: true, category: 'custom' },
+      { pattern: 'dir', description: 'List directory (Windows)', enabled: true, category: 'custom' },
+      { pattern: 'cat ', description: 'Read file contents', enabled: true, category: 'custom' },
+      { pattern: 'head ', description: 'Read file head', enabled: true, category: 'custom' },
+      { pattern: 'tail ', description: 'Read file tail', enabled: true, category: 'custom' },
+      { pattern: 'wc ', description: 'Count lines/words', enabled: true, category: 'custom' },
+      { pattern: 'git status', description: 'Git status', enabled: true, category: 'custom' },
+      { pattern: 'git diff', description: 'Git diff', enabled: true, category: 'custom' },
+      { pattern: 'git log', description: 'Git log', enabled: true, category: 'custom' },
+      { pattern: 'git branch', description: 'Git branch', enabled: true, category: 'custom' },
+      { pattern: 'node --version', description: 'Check Node version', enabled: true, category: 'custom' },
+      { pattern: 'npm --version', description: 'Check npm version', enabled: true, category: 'custom' },
+      { pattern: 'python --version', description: 'Check Python version', enabled: true, category: 'custom' },
+      { pattern: 'echo ', description: 'Print text', enabled: true, category: 'custom' },
+      { pattern: 'pwd', description: 'Print working directory', enabled: true, category: 'custom' },
+      { pattern: 'find ', description: 'Find files', enabled: true, category: 'custom' },
+      { pattern: 'grep ', description: 'Search text', enabled: true, category: 'custom' },
+      { pattern: 'tree', description: 'Directory tree', enabled: true, category: 'custom' },
+    ],
+  },
   // Skills
   skillsPath: '~/.claude/skills',
   enableBuiltinSkills: true,
