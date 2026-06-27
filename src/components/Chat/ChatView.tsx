@@ -51,6 +51,8 @@ import { useFileDrop } from '../../hooks/useFileDrop';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import ChatEmptyState from './ChatEmptyState';
+// Phase 1.4: Modern layout new-session view (centered logo + composer).
+import V2NewSessionView from '../Layout/V2/V2NewSessionView';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
@@ -317,6 +319,32 @@ const ChatView: React.FC<ChatViewProps> = ({
 
   const hasConnectedProvider = providers.length > 0 && providers.some((p) => p.configured);
   const hasMessages = messages.length > 0;
+
+  // Phase 1.4: Modern layout — when the chat is empty, render the V2 new-session
+  // view (centered logo + composer on deep bg) instead of the legacy empty state.
+  // The V2NewSessionView's onSend wraps the same sendMessage from useChat, so all
+  // streaming/persistence/trace logic is reused.
+  const isModernEmpty = settings.layoutStyle === 'modern' && !hasMessages;
+
+  const handleV2Send = useCallback((content: string) => {
+    handleSend(content);
+  }, [handleSend]);
+
+  if (isModernEmpty) {
+    return (
+      <V2NewSessionView
+        onSend={handleV2Send}
+        onStop={stopStreaming}
+        isStreaming={isStreaming}
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        selectedModel={selectedModel}
+        onProviderChange={handleProviderChange}
+        onModelChange={handleModelChange}
+        onImagesAttached={(images) => setAttachedImages(images)}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
