@@ -21,7 +21,8 @@
 
 import React from 'react';
 import V2Composer from './V2Composer';
-import { AttachedFile, ProviderInfo } from '../../../types';
+import { AttachedFile, ProviderInfo, AgentMode, AgentDefinition } from '../../../types';
+import { ThinkingEffort } from '../../Chat/ThinkingEffortSelector';
 
 interface V2NewSessionViewProps {
   onSend: (content: string, files?: AttachedFile[]) => void;
@@ -33,6 +34,15 @@ interface V2NewSessionViewProps {
   onProviderChange: (providerId: string) => void;
   onModelChange: (model: string) => void;
   onImagesAttached?: (images: string[]) => void;
+  // Phase 1.8: thinking effort + agent mode
+  thinkingEffort?: ThinkingEffort;
+  onThinkingEffortChange?: (effort: ThinkingEffort) => void;
+  modelSupportsReasoning?: boolean;
+  showThinkingEffort?: boolean;
+  activeMode?: AgentMode;
+  onModeChange?: (mode: AgentMode) => void;
+  customAgents?: AgentDefinition[];
+  showAgentMode?: boolean;
 }
 
 const V2NewSessionView: React.FC<V2NewSessionViewProps> = ({
@@ -45,6 +55,14 @@ const V2NewSessionView: React.FC<V2NewSessionViewProps> = ({
   onProviderChange,
   onModelChange,
   onImagesAttached,
+  thinkingEffort,
+  onThinkingEffortChange,
+  modelSupportsReasoning,
+  showThinkingEffort,
+  activeMode,
+  onModeChange,
+  customAgents,
+  showAgentMode,
 }) => {
   return (
     <div
@@ -105,6 +123,14 @@ const V2NewSessionView: React.FC<V2NewSessionViewProps> = ({
             onModelChange={onModelChange}
             onImagesAttached={onImagesAttached}
             autoFocus
+            thinkingEffort={thinkingEffort}
+            onThinkingEffortChange={onThinkingEffortChange}
+            modelSupportsReasoning={modelSupportsReasoning}
+            showThinkingEffort={showThinkingEffort}
+            activeMode={activeMode}
+            onModeChange={onModeChange}
+            customAgents={customAgents}
+            showAgentMode={showAgentMode}
           />
         </div>
       </div>

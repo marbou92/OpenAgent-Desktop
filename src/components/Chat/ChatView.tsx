@@ -342,6 +342,13 @@ const ChatView: React.FC<ChatViewProps> = ({
         onProviderChange={handleProviderChange}
         onModelChange={handleModelChange}
         onImagesAttached={(images) => setAttachedImages(images)}
+        thinkingEffort={thinkingEffort}
+        onThinkingEffortChange={setThinkingEffort}
+        modelSupportsReasoning={modelSupportsReasoning}
+        showThinkingEffort={settings.showThinkingEffort}
+        activeMode={activeMode}
+        onModeChange={setActiveMode}
+        showAgentMode={settings.showAgentMode}
       />
     );
   }
@@ -383,6 +390,13 @@ const ChatView: React.FC<ChatViewProps> = ({
         v2TracePanelOpen={tracePanelOpen}
         onToggleTracePanel={onToggleTracePanel ?? (() => {})}
         addToast={addToast}
+        thinkingEffort={thinkingEffort}
+        onThinkingEffortChange={setThinkingEffort}
+        modelSupportsReasoning={modelSupportsReasoning}
+        showThinkingEffort={settings.showThinkingEffort}
+        activeMode={activeMode}
+        onModeChange={setActiveMode}
+        showAgentMode={settings.showAgentMode}
       />
     );
   }

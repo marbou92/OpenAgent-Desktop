@@ -98,8 +98,8 @@
   --v2-grey-800: #27272a;
   --v2-grey-900: #18181b;
   --v2-grey-1000: #09090b;
-  --v2-grey-1100: #050507;
-  --v2-grey-1200: #000000;
+  --v2-grey-1100: #161618;  /* Phase 1.8: lightened from #050507 — pure black was too dark */
+  --v2-grey-1200: #0c0c0e;  /* Phase 1.8: lightened from #000000 — pure black was too dark */
 
   /* ── Blue accent ramp ── */
   --v2-blue-400: #60a5fa;
@@ -120,7 +120,9 @@
   --v2-alpha-dark-12: rgba(0, 0, 0, 0.12);
   --v2-alpha-dark-20: rgba(0, 0, 0, 0.20);
 
-  /* ── Semantic tokens (dark defaults) ── */
+  /* ── Semantic tokens (dark defaults) ──
+     Phase 1.8: accent tokens now reference the active palette's --color-accent
+     (set dynamically by ThemeProvider) so palettes apply to the Modern layout. */
   --v2-background-bg-base: var(--v2-grey-1100);
   --v2-background-bg-deep: var(--v2-grey-1200);
   --v2-background-bg-layer-01: var(--v2-grey-1000);
@@ -129,22 +131,22 @@
   --v2-background-bg-layer-04: var(--v2-grey-700);
   --v2-background-bg-contrast: var(--v2-grey-700);
   --v2-background-bg-inverse: var(--v2-grey-1100);
-  --v2-background-bg-accent: var(--v2-blue-600);
+  --v2-background-bg-accent: var(--color-accent, var(--v2-blue-600));
 
   --v2-text-text-base: var(--v2-grey-50);
   --v2-text-text-muted: var(--v2-grey-500);
   --v2-text-text-faint: var(--v2-grey-600);
   --v2-text-text-inverse: var(--v2-grey-50);
-  --v2-text-text-accent: var(--v2-blue-400);
+  --v2-text-text-accent: var(--color-accent, var(--v2-blue-400));
 
   --v2-icon-icon-base: var(--v2-grey-400);
   --v2-icon-icon-muted: var(--v2-grey-600);
-  --v2-icon-icon-accent: var(--v2-blue-400);
+  --v2-icon-icon-accent: var(--color-accent, var(--v2-blue-400));
 
   --v2-border-border-muted: var(--v2-alpha-light-8);
   --v2-border-border-base: var(--v2-alpha-light-10);
   --v2-border-border-strong: var(--v2-alpha-light-20);
-  --v2-border-border-focus: var(--v2-blue-500);
+  --v2-border-border-focus: var(--color-accent, var(--v2-blue-500));
 
   --v2-overlay-simple-overlay-hover: var(--v2-alpha-light-6);
   --v2-overlay-simple-overlay-pressed: var(--v2-alpha-light-10);
@@ -194,22 +196,22 @@
   --v2-background-bg-layer-04: var(--v2-grey-400);
   --v2-background-bg-contrast: var(--v2-grey-1000);
   --v2-background-bg-inverse: var(--v2-grey-1100);
-  --v2-background-bg-accent: var(--v2-blue-600);
+  --v2-background-bg-accent: var(--color-accent, var(--v2-blue-600));
 
   --v2-text-text-base: var(--v2-grey-1100);
   --v2-text-text-muted: var(--v2-grey-700);
   --v2-text-text-faint: var(--v2-grey-600);
   --v2-text-text-inverse: var(--v2-grey-50);
-  --v2-text-text-accent: var(--v2-blue-600);
+  --v2-text-text-accent: var(--color-accent, var(--v2-blue-600));
 
   --v2-icon-icon-base: var(--v2-grey-800);
   --v2-icon-icon-muted: var(--v2-grey-600);
-  --v2-icon-icon-accent: var(--v2-blue-600);
+  --v2-icon-icon-accent: var(--color-accent, var(--v2-blue-600));
 
   --v2-border-border-muted: var(--v2-alpha-dark-8);
   --v2-border-border-base: var(--v2-alpha-dark-10);
   --v2-border-border-strong: var(--v2-alpha-dark-20);
-  --v2-border-border-focus: var(--v2-blue-500);
+  --v2-border-border-focus: var(--color-accent, var(--v2-blue-500));
 
   --v2-overlay-simple-overlay-hover: var(--v2-alpha-dark-4);
   --v2-overlay-simple-overlay-pressed: var(--v2-alpha-dark-8);

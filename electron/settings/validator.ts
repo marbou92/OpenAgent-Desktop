@@ -70,6 +70,14 @@ export const SETTINGS_SCHEMA: Record<string, SettingConstraint> = {
     type: 'boolean', required: true,
     description: 'Whether the first-launch layout chooser popup has been shown', default: false, category: 'General', since: '1.0.0',
   },
+  showThinkingEffort: {
+    type: 'boolean', required: true,
+    description: 'Show the thinking effort selector in the Modern composer', default: true, category: 'General', since: '1.8.0',
+  },
+  showAgentMode: {
+    type: 'boolean', required: true,
+    description: 'Show the Build/Plan mode selector in the Modern composer', default: true, category: 'General', since: '1.8.0',
+  },
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: {

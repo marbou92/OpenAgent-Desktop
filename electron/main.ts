@@ -110,6 +110,9 @@ interface AppConfig {
   layoutStyle: 'classic' | 'modern';
   // Phase 1.1: Whether the first-launch layout chooser has been shown.
   layoutChoiceShown: boolean;
+  // Phase 1.8: Show thinking effort + agent mode selectors in Modern composer.
+  showThinkingEffort: boolean;
+  showAgentMode: boolean;
   autoStartSandbox: boolean;
   maxConcurrentSessions: number;
   autoSave: boolean;
@@ -334,6 +337,8 @@ function loadConfig(): AppConfig {
     catalogSource: "models.dev",
     layoutStyle: "classic",
     layoutChoiceShown: false,
+    showThinkingEffort: true,
+    showAgentMode: true,
     autoStartSandbox: true,
     maxConcurrentSessions: 5,
     autoSave: true,
@@ -3428,6 +3433,8 @@ if (!gotTheLock) {
         catalogSource: "models.dev",
         layoutStyle: "classic",
         layoutChoiceShown: false,
+        showThinkingEffort: true,
+        showAgentMode: true,
         autoStartSandbox: true,
         maxConcurrentSessions: 5,
         autoSave: true,

@@ -23,9 +23,10 @@
  */
 
 import React, { useRef, useEffect, useCallback } from 'react';
-import { ChatMessage, ProviderInfo, Toast, AttachedFile } from '../../../types';
+import { ChatMessage, ProviderInfo, Toast, AttachedFile, AgentMode, AgentDefinition } from '../../../types';
 import MessageBubble from '../../Chat/MessageBubble';
 import V2Composer from './V2Composer';
+import { ThinkingEffort } from '../../Chat/ThinkingEffortSelector';
 
 const api = (window as any).openagent;
 
@@ -54,6 +55,15 @@ interface V2ChatViewProps {
   v2TracePanelOpen: boolean;
   onToggleTracePanel: () => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
+  // Phase 1.8: thinking effort + agent mode
+  thinkingEffort?: ThinkingEffort;
+  onThinkingEffortChange?: (effort: ThinkingEffort) => void;
+  modelSupportsReasoning?: boolean;
+  showThinkingEffort?: boolean;
+  activeMode?: AgentMode;
+  onModeChange?: (mode: AgentMode) => void;
+  customAgents?: AgentDefinition[];
+  showAgentMode?: boolean;
 }
 
 const V2ChatView: React.FC<V2ChatViewProps> = ({
@@ -77,6 +87,15 @@ const V2ChatView: React.FC<V2ChatViewProps> = ({
   onAskUserAnswer,
   v2TracePanelOpen,
   onToggleTracePanel,
+  // Phase 1.8: thinking effort + agent mode
+  thinkingEffort,
+  onThinkingEffortChange,
+  modelSupportsReasoning,
+  showThinkingEffort,
+  activeMode,
+  onModeChange,
+  customAgents,
+  showAgentMode,
 }) => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -361,6 +380,14 @@ const V2ChatView: React.FC<V2ChatViewProps> = ({
             onProviderChange={onProviderChange}
             onModelChange={onModelChange}
             onImagesAttached={onImagesAttached}
+            thinkingEffort={thinkingEffort}
+            onThinkingEffortChange={onThinkingEffortChange}
+            modelSupportsReasoning={modelSupportsReasoning}
+            showThinkingEffort={showThinkingEffort}
+            activeMode={activeMode}
+            onModeChange={onModeChange}
+            customAgents={customAgents}
+            showAgentMode={showAgentMode}
           />
         </div>
       </div>

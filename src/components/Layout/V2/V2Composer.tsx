@@ -18,8 +18,11 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { AttachedFile, ProviderInfo } from '../../../types';
+import { AttachedFile, ProviderInfo, AgentMode, AgentDefinition } from '../../../types';
 import ModelSelector from '../../Chat/ModelSelector';
+// Phase 1.8: add thinking effort + agent mode selectors to the composer.
+import ThinkingEffortSelector, { ThinkingEffort } from '../../Chat/ThinkingEffortSelector';
+import AgentSelector from '../../Chat/AgentSelector';
 
 interface V2ComposerProps {
   onSend: (content: string, files?: AttachedFile[]) => void;
@@ -33,6 +36,15 @@ interface V2ComposerProps {
   onImagesAttached?: (images: string[]) => void;
   /** Optional autofocus (true for new-session view). */
   autoFocus?: boolean;
+  // Phase 1.8: thinking effort + agent mode selectors
+  thinkingEffort?: ThinkingEffort;
+  onThinkingEffortChange?: (effort: ThinkingEffort) => void;
+  modelSupportsReasoning?: boolean;
+  showThinkingEffort?: boolean;
+  activeMode?: AgentMode;
+  onModeChange?: (mode: AgentMode) => void;
+  customAgents?: AgentDefinition[];
+  showAgentMode?: boolean;
 }
 
 const V2Composer: React.FC<V2ComposerProps> = ({
@@ -46,6 +58,15 @@ const V2Composer: React.FC<V2ComposerProps> = ({
   onModelChange,
   onImagesAttached,
   autoFocus = false,
+  // Phase 1.8: thinking effort + agent mode
+  thinkingEffort = 'medium',
+  onThinkingEffortChange,
+  modelSupportsReasoning = false,
+  showThinkingEffort = true,
+  activeMode = 'build',
+  onModeChange,
+  customAgents,
+  showAgentMode = true,
 }) => {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -158,6 +179,24 @@ const V2Composer: React.FC<V2ComposerProps> = ({
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
         </button>
+
+        {/* Phase 1.8: Agent mode selector (Build/Plan) — gated by showAgentMode */}
+        {showAgentMode && onModeChange && (
+          <AgentSelector
+            activeMode={activeMode}
+            onModeChange={onModeChange}
+            customAgents={customAgents}
+          />
+        )}
+
+        {/* Phase 1.8: Thinking effort selector — gated by showThinkingEffort */}
+        {showThinkingEffort && onThinkingEffortChange && modelSupportsReasoning && (
+          <ThinkingEffortSelector
+            effort={thinkingEffort}
+            onChange={onThinkingEffortChange}
+            modelSupportsReasoning={modelSupportsReasoning}
+          />
+        )}
 
         {/* Model selector (reuses existing component) */}
         <div className="flex-1 min-w-0">

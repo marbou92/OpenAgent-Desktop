@@ -628,6 +628,10 @@ export interface AppSettings {
   layoutStyle: 'classic' | 'modern';
   /** Phase 1.1 — whether the first-launch layout chooser has been shown. */
   layoutChoiceShown: boolean;
+  /** Phase 1.8 — show the thinking effort selector in the Modern composer. */
+  showThinkingEffort: boolean;
+  /** Phase 1.8 — show the Build/Plan mode selector in the Modern composer. */
+  showAgentMode: boolean;
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: number;
@@ -694,6 +698,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   catalogSource: 'models.dev',
   layoutStyle: 'classic',
   layoutChoiceShown: false,
+  showThinkingEffort: true,
+  showAgentMode: true,
   // Session
   maxConcurrentSessions: 5,
   autoSave: true,
