@@ -49,10 +49,12 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   // only fires ONCE per question set.
   // Phase 0.6: also guard with `answered` — if the card is loading from a
   // persisted session (the tool already has a result), NEVER re-fire onAnswer.
-  // Previously the effect re-fired on reload (submittedRef starts false, all
-  // questions locked from the init effect) → re-sent the answer to a dead
-  // requestId, and combined with an unstable `questions` ref → render loop →
-  // app freeze on restart.
+  // Phase 0.7: `submitted` is a STATE (not just a ref) so the UI can hide the
+  // Edit button after submission. handleEdit no longer resets it — the backend
+  // can't accept a second answer for the same tool call (the promise is
+  // one-shot), so re-firing onAnswer after editing was sending a dead IPC that
+  // froze the app.
+  const [submitted, setSubmitted] = useState(false);
   const submittedRef = useRef(false);
   const onAnswerRef = useRef(onAnswer);
   onAnswerRef.current = onAnswer;
@@ -81,9 +83,11 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
         customText: '',
       }));
       setPerQ(init);
-      // Phase 0.6: mark as submitted so the onAnswer effect never re-fires
-      // for an already-answered (persisted) card.
+      // Phase 0.6 + 0.7: mark as submitted so the onAnswer effect never
+      // re-fires for an already-answered (persisted) card, and so the Edit
+      // button is hidden.
       submittedRef.current = true;
+      setSubmitted(true);
     } else {
       // Initialize empty state for each question
       setPerQ(stableQuestions.current.map(() => ({ selected: new Set<string>(), locked: false, minimized: false, customOpen: false, customText: '' })));
@@ -95,9 +99,14 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   // intermittent race where the answer was lost or the stream stalled.
   // Phase 0.6: also bail when `answered` is set — the card is restoring from
   // a persisted session and the answer was already sent/recorded.
+  // Phase 0.7: bail when `submitted` is true — once the answer has been sent
+  // (or restored from disk), NEVER re-fire, even if the user edits and
+  // re-locks a question. The backend's pendingAskUserRequests promise is
+  // one-shot; a second IPC call hits a dead requestId and freezes the app.
   useEffect(() => {
     if (answered) return;
     if (submittedRef.current) return;
+    if (submitted) return;
     if (perQ.length === 0) return;
     const allLocked = perQ.every(q => q.locked);
     if (!allLocked) return;
@@ -105,8 +114,9 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
       .map(q => Array.from(q.selected).join(', '))
       .filter(s => s.length > 0);
     submittedRef.current = true;
+    setSubmitted(true);
     onAnswerRef.current?.(allAnswers.join(', '));
-  }, [perQ, answered]);
+  }, [perQ, answered, submitted]);
 
   if (!questions || questions.length === 0) return null;
   const qs = stableQuestions.current;
@@ -177,16 +187,14 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
 
   const allAnswered = perQ.length > 0 && perQ.every(q => q.locked);
 
-  // Phase 0.5: Let the user go back and edit an already-answered question.
-  // Unlocks the question, un-minimizes it, and resets submittedRef so the
-  // useEffect above will re-fire onAnswer when the user re-answers.
-  // - For pre-submission edits (not all questions locked yet): no IPC was
-  //   sent, so this just lets the user change their mind. submittedRef is
-  //   still false, so the guard is a no-op, but resetting it is harmless.
-  // - For post-submission edits (all locked, answer already sent): resetting
-  //   submittedRef lets the effect re-fire and send the updated answer.
+  // Phase 0.5: Let the user go back and edit an already-answered question
+  // BEFORE the whole set is submitted. Unlocks the question + un-minimizes it.
+  // Phase 0.7: does NOT reset submitted/submittedRef — once the answer has been
+  // sent to the backend, it cannot be re-sent (the requestId is one-shot).
+  // The Edit button is hidden once `submitted` is true, so this only runs for
+  // pre-submission edits (changing Q1 while still answering Q2). In that case
+  // submitted is already false, so this just unlocks the question locally.
   const handleEdit = (qIndex: number) => {
-    submittedRef.current = false;
     setPerQ(prev => {
       const updated = [...prev];
       updated[qIndex] = {
@@ -272,7 +280,10 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                     {selectedLabels.join(', ')}
                   </span>
                 </button>
-                {/* Phase 0.5: Edit button — unlock this question to change the answer */}
+                {/* Phase 0.5: Edit button — unlock this question to change the answer.
+                    Phase 0.7: hidden once submitted (post-submission editing can't
+                    re-send to the backend). */}
+                {!submitted && (
                 <button
                   onClick={() => handleEdit(qIdx)}
                   title="Edit this answer"
@@ -287,6 +298,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                   </svg>
                   Edit
                 </button>
+                )}
                 <button
                   onClick={() => setPerQ(prev => {
                     const updated = [...prev];
@@ -323,7 +335,10 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                 )}
                 {isAnswered && (
                   <div className="ml-auto flex items-center gap-1">
-                    {/* Phase 0.5: Edit button — unlock this question to change the answer */}
+                    {/* Phase 0.5: Edit button — unlock this question to change the answer.
+                        Phase 0.7: hidden once submitted (post-submission editing can't
+                        re-send to the backend). */}
+                    {!submitted && (
                     <button
                       onClick={() => handleEdit(qIdx)}
                       className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
@@ -337,6 +352,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
                       </svg>
                       Edit
                     </button>
+                    )}
                     <button
                       onClick={() => setPerQ(prev => {
                         const updated = [...prev];
