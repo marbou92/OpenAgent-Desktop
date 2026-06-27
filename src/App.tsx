@@ -522,6 +522,21 @@ const App: React.FC = () => {
       if (api?.trace?.start) {
         await api.trace.start(sessionId);
       }
+      // Phase 0.9: load persisted trace entries so the trace sidebar shows the
+      // full tool-execution history from previous turns in this session.
+      // ToolUseCards are no longer persisted in the chat (they're stripped on
+      // save), so the trace sidebar is the permanent record of what ran.
+      if (api?.trace?.get) {
+        try {
+          const result: any = await api.trace.get(sessionId);
+          const entries: TraceEntry[] = (result?.data ?? result) || [];
+          for (const entry of entries) {
+            useAppStore.getState().addTraceEntry(entry);
+          }
+        } catch {
+          // Non-critical — trace panel just starts empty.
+        }
+      }
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to load session', message: err.message });
     }

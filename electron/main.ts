@@ -2172,6 +2172,14 @@ function registerIpcHandlers(): void {
           if (chunk.content) {
             collectedThinking += chunk.content;
             send('chat:stream-thinking', { thinking: chunk.content });
+            // Phase 0.9: trace thinking so the trace sidebar captures the
+            // agent's reasoning (the trace is the permanent record now that
+            // ToolUseCards are stripped from the persisted chat).
+            traceCollector.addEntry(sessionId, {
+              type: 'thinking',
+              content: chunk.content,
+              metadata: { source: 'agent' },
+            }).catch(() => {});
           }
           break;
         case 'tool_call_start':
@@ -2195,6 +2203,20 @@ function registerIpcHandlers(): void {
             };
             if (idx >= 0) collectedToolCalls[idx] = { ...collectedToolCalls[idx], ...entry };
             else collectedToolCalls.push(entry);
+            // Phase 0.9: trace the tool call so the trace sidebar has a
+            // permanent record (ToolUseCards are no longer persisted in chat).
+            const tcArgs = tc.arguments || {};
+            const tcName = String(tc.name || 'unknown');
+            const tcPreview = tcName === 'bash' && tcArgs.command
+              ? `$ ${String(tcArgs.command).slice(0, 200)}`
+              : Object.keys(tcArgs).length > 0
+                ? `${tcName}(${Object.keys(tcArgs).join(', ')})`
+                : tcName;
+            traceCollector.addEntry(sessionId, {
+              type: 'tool_call',
+              content: tcPreview,
+              metadata: { toolName: tcName, toolCallId: tc.id, args: tcArgs },
+            }).catch(() => {});
           }
           // Phase 2.2: If the AI calls a tool that's been deactivated
           // (not in the tools map because the user disabled it), immediately
@@ -2247,6 +2269,22 @@ function registerIpcHandlers(): void {
                 status: hasDeact ? 'deactivated' : hasDenied ? 'denied' : 'completed',
               };
             }
+          }
+
+          // Phase 0.9: trace the tool result so the trace sidebar shows the
+          // outcome of every tool call (success / denied / deactivated).
+          {
+            const isDeniedFlag = tr?.denied === true;
+            const isDeactivatedFlag = tr?.deactivated === true;
+            const status = isDeactivatedFlag ? 'deactivated' : isDeniedFlag ? 'denied' : 'completed';
+            const trPreview = typeof trContent === 'string'
+              ? (trContent.length > 300 ? trContent.slice(0, 300) + '…' : trContent)
+              : '(non-string result)';
+            traceCollector.addEntry(sessionId, {
+              type: 'tool_result',
+              content: trPreview,
+              metadata: { toolCallId: trId, status },
+            }).catch(() => {});
           }
 
           // Phase 1.5: Forward TodoWrite todos to the renderer.

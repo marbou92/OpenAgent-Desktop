@@ -92,8 +92,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     const current = msgs ?? messagesRef.current;
     if (!sessionId) return;
     if (!current || current.length === 0) return;
-    // Strip non-serializable / runtime-only fields that the backend doesn't
-    // need and that could break JSON round-tripping.
+    // Phase 0.9: strip generic ToolUseCards from the persisted chat — they
+    // should NOT come back when the user leaves and returns to the session.
+    // The trace sidebar is now the permanent record of tool executions.
+    // Keep AskUserQuestion (interactive, answered state matters) + TodoWrite
+    // (its card is part of the task narrative).
+    const KEEP_IN_CHAT = new Set(['AskUserQuestion', 'TodoWrite']);
     const serializable = current.map(m => ({
       id: m.id,
       role: m.role,
@@ -101,14 +105,16 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       timestamp: m.timestamp,
       isStreaming: false,
       thinking: m.thinking,
-      toolCalls: (m.toolCalls || []).map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments,
-        result: tc.result,
-        status: tc.status,
-        _splitOffset: (tc as any)._splitOffset,
-      })),
+      toolCalls: (m.toolCalls || [])
+        .filter(tc => KEEP_IN_CHAT.has(tc.name))
+        .map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments,
+          result: tc.result,
+          status: tc.status,
+          _splitOffset: (tc as any)._splitOffset,
+        })),
     }));
     try {
       api?.sessions?.save?.(sessionId, { messages: serializable } as any);
