@@ -53,6 +53,8 @@ import ChatInput from './ChatInput';
 import ChatEmptyState from './ChatEmptyState';
 // Phase 1.4: Modern layout new-session view (centered logo + composer).
 import V2NewSessionView from '../Layout/V2/V2NewSessionView';
+// Phase 1.5: Modern layout active chat view (floating card + timeline + docked composer).
+import V2ChatView from '../Layout/V2/V2ChatView';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
@@ -320,17 +322,22 @@ const ChatView: React.FC<ChatViewProps> = ({
   const hasConnectedProvider = providers.length > 0 && providers.some((p) => p.configured);
   const hasMessages = messages.length > 0;
 
-  // Phase 1.4: Modern layout — when the chat is empty, render the V2 new-session
-  // view (centered logo + composer on deep bg) instead of the legacy empty state.
-  // The V2NewSessionView's onSend wraps the same sendMessage from useChat, so all
-  // streaming/persistence/trace logic is reused.
-  const isModernEmpty = settings.layoutStyle === 'modern' && !hasMessages;
+  // Phase 1.4 + 1.5: Modern layout — render V2 views instead of the legacy
+  // chat layout. When the chat is empty → V2NewSessionView (centered logo +
+  // composer). When the chat has messages → V2ChatView (floating card with
+  // timeline + docked composer). Both reuse the same useChat sendMessage so
+  // all streaming/persistence/trace logic is preserved.
+  const isModern = settings.layoutStyle === 'modern';
 
   const handleV2Send = useCallback((content: string) => {
     handleSend(content);
   }, [handleSend]);
 
-  if (isModernEmpty) {
+  const handleV2Copy = useCallback((content: string) => {
+    navigator.clipboard.writeText(content);
+  }, []);
+
+  if (isModern && !hasMessages) {
     return (
       <V2NewSessionView
         onSend={handleV2Send}
@@ -342,6 +349,47 @@ const ChatView: React.FC<ChatViewProps> = ({
         onProviderChange={handleProviderChange}
         onModelChange={handleModelChange}
         onImagesAttached={(images) => setAttachedImages(images)}
+      />
+    );
+  }
+
+  if (isModern && hasMessages) {
+    return (
+      <V2ChatView
+        sessionId={sessionId}
+        session={session}
+        messages={messages}
+        isStreaming={isStreaming}
+        error={error}
+        streamingContent={streamingContent}
+        streamingThinking={streamingThinking}
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        selectedModel={selectedModel}
+        onProviderChange={handleProviderChange}
+        onModelChange={handleModelChange}
+        onSend={handleV2Send}
+        onStop={stopStreaming}
+        onRetry={retryLastMessage}
+        onCopyMessage={handleV2Copy}
+        onImagesAttached={(images) => setAttachedImages(images)}
+        askUserRequestId={askUserRequestId}
+        onAskUserAnswer={(requestId, answer) => {
+          if (api?.permissions?.respondToQuestion) {
+            api.permissions.respondToQuestion(requestId, answer);
+          }
+          setAskUserRequestId(null);
+        }}
+        permissionRequest={permissionRequest}
+        onPermissionRespond={(requestId, response) => {
+          if (api?.permissions?.respond) {
+            api.permissions.respond(requestId, response as any);
+          }
+          setPermissionRequest(null);
+        }}
+        v2TracePanelOpen={tracePanelOpen}
+        onToggleTracePanel={onToggleTracePanel ?? (() => {})}
+        addToast={addToast}
       />
     );
   }
