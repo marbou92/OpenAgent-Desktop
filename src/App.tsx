@@ -43,6 +43,8 @@ import { getAPI } from './utils/api';
 import LayoutChooserDialog from './components/Layout/LayoutChooserDialog';
 // Phase 1.2: Modern layout shell.
 import V2AppShell from './components/Layout/V2/V2AppShell';
+// Phase 1.3: Modern home view.
+import V2HomeView from './components/Layout/V2/V2HomeView';
 
 const api = getAPI();
 
@@ -755,6 +757,20 @@ const App: React.FC = () => {
           </div>
         );
       case 'sessions':
+        // Phase 1.3: Modern layout renders the V2 home view (floating card
+        // with Projects + Sessions columns). Classic keeps the legacy view.
+        if (settings.layoutStyle === 'modern') {
+          return (
+            <V2HomeView
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              onLoadSession={handleLoadSession}
+              onNewSession={handleNewSession}
+              onOpenSettings={() => setCurrentView('settings')}
+              addToast={addToast}
+            />
+          );
+        }
         return (
           <div className="flex flex-col h-full">
             <ViewHeader title="Sessions" />
