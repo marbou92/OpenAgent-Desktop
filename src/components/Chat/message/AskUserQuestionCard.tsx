@@ -72,6 +72,12 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   }
 
   useEffect(() => {
+    // Phase 0.8: skip re-init entirely once submitted. Without this, when the
+    // tool result arrives and `answered` flips, the init effect would wipe
+    // perQ with fresh Set refs → the onAnswer effect would see a new perQ
+    // reference and re-run. The guards catch it, but the synchronous
+    // setState oscillation can freeze the app on large question sets.
+    if (submittedRef.current) return;
     if (answered) {
       // Initialize from answered prop (comma-separated for multi)
       const answeredLabels = answered.split(',').map(s => s.trim()).filter(Boolean);
@@ -103,10 +109,13 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   // (or restored from disk), NEVER re-fire, even if the user edits and
   // re-locks a question. The backend's pendingAskUserRequests promise is
   // one-shot; a second IPC call hits a dead requestId and freezes the app.
+  // Phase 0.8: `submitted` is intentionally NOT in the dep array — including
+  // it caused the effect to re-run when setSubmitted(true) flipped the state,
+  // which (combined with the init effect's setPerQ) could oscillate and freeze.
+  // submittedRef is synchronous and stable, so it's a sufficient guard.
   useEffect(() => {
     if (answered) return;
     if (submittedRef.current) return;
-    if (submitted) return;
     if (perQ.length === 0) return;
     const allLocked = perQ.every(q => q.locked);
     if (!allLocked) return;
@@ -116,7 +125,8 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
     submittedRef.current = true;
     setSubmitted(true);
     onAnswerRef.current?.(allAnswers.join(', '));
-  }, [perQ, answered, submitted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perQ, answered]);
 
   if (!questions || questions.length === 0) return null;
   const qs = stableQuestions.current;

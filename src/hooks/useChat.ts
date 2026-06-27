@@ -79,6 +79,44 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     messagesRef.current = messages;
   }, [messages]);
 
+  // Phase 0.8: Persist the full in-memory message list (with toolCalls,
+  // result, _splitOffset, _askRequestId) to the backend session so tool cards
+  // (AskUserQuestion, ToolUseCard, thinking blocks) survive a reload. The
+  // backend's own addMessage at stream-end saves collectedToolCalls which can
+  // lack the result for AskUserQuestion (the result arrives via a separate
+  // tool_result chunk that may not have updated collectedToolCalls before
+  // addMessage ran). This is the source of truth: the renderer's messages array
+  // has everything, so we write it back.
+  const persistMessagesRef = useRef<(msgs?: ChatMessage[]) => void>(() => {});
+  persistMessagesRef.current = (msgs?: ChatMessage[]) => {
+    const current = msgs ?? messagesRef.current;
+    if (!sessionId) return;
+    if (!current || current.length === 0) return;
+    // Strip non-serializable / runtime-only fields that the backend doesn't
+    // need and that could break JSON round-tripping.
+    const serializable = current.map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp,
+      isStreaming: false,
+      thinking: m.thinking,
+      toolCalls: (m.toolCalls || []).map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+        result: tc.result,
+        status: tc.status,
+        _splitOffset: (tc as any)._splitOffset,
+      })),
+    }));
+    try {
+      api?.sessions?.save?.(sessionId, { messages: serializable } as any);
+    } catch {
+      // Non-critical — the backend's own addMessage is a fallback.
+    }
+  };
+
   const lastExternalSyncRef = useRef<ChatMessage[] | null>(null);
   const skipNextNotifyRef = useRef(false);
   const lastSessionIdRef = useRef<string | null>(sessionId);
@@ -247,6 +285,13 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const existing = lastMsg.toolCalls || [];
         const updated = [...prev];
         updated[updated.length - 1] = { ...lastMsg, toolCalls: applyResult(existing) };
+        // Phase 0.8: if this result is for an AskUserQuestion, persist
+        // immediately so the answered card survives even if the user leaves
+        // the chat before the stream fully ends.
+        const tc = existing.find(t => t.id === resultId);
+        if (tc && tc.name === 'AskUserQuestion') {
+          persistMessagesRef.current(updated);
+        }
         return updated;
       });
     });
@@ -302,6 +347,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           thinking: streamingThinkingRef.current || lastMsg.thinking,
           toolCalls: allToolCalls,
         };
+        // Phase 0.8: persist the finalized message list (with toolCalls +
+        // result + _splitOffset) so tool cards survive a reload.
+        persistMessagesRef.current(updated);
         return updated;
       });
       setIsStreaming(false);
@@ -326,6 +374,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           );
           updated[updated.length - 1] = { ...lastMsg, content: `Error: ${data.error}`, isStreaming: false, error: data.error, toolCalls };
         }
+        // Phase 0.8: persist even on error so partial tool calls are saved.
+        persistMessagesRef.current(updated);
         return updated;
       });
       setIsStreaming(false);
