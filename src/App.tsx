@@ -41,6 +41,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { getAPI } from './utils/api';
 // Phase 1.1: first-launch layout chooser popup.
 import LayoutChooserDialog from './components/Layout/LayoutChooserDialog';
+// Phase 1.2: Modern layout shell.
+import V2AppShell from './components/Layout/V2/V2AppShell';
 
 const api = getAPI();
 
@@ -52,6 +54,14 @@ interface AppStore {
   sidebarCollapsed: boolean;
   setCurrentView: (view: ViewType) => void;
   toggleSidebar: () => void;
+
+  // Phase 1.2: V2 tab strip — session IDs that are open as tabs.
+  openTabs: string[];
+  openTab: (sessionId: string) => void;
+  closeTab: (sessionId: string) => void;
+  // Phase 1.2: V2 slide-in trace panel (separate from the classic tracePanelOpen).
+  v2TracePanelOpen: boolean;
+  toggleV2TracePanel: () => void;
 
   // Session
   currentSessionId: string | null;
@@ -110,6 +120,17 @@ export const useAppStore = create<AppStore>((set, _get) => ({
   sidebarCollapsed: false,
   setCurrentView: (view) => set({ currentView: view }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+
+  // Phase 1.2: V2 tab strip
+  openTabs: [],
+  openTab: (sessionId) => set((state) => ({
+    openTabs: state.openTabs.includes(sessionId) ? state.openTabs : [...state.openTabs, sessionId],
+  })),
+  closeTab: (sessionId) => set((state) => ({
+    openTabs: state.openTabs.filter(id => id !== sessionId),
+  })),
+  v2TracePanelOpen: false,
+  toggleV2TracePanel: () => set((state) => ({ v2TracePanelOpen: !state.v2TracePanelOpen })),
 
   // Session
   currentSessionId: null,
@@ -204,6 +225,12 @@ const App: React.FC = () => {
   const traceEntries = useAppStore(s => s.traceEntries);
   const tracePanelOpen = useAppStore(s => s.tracePanelOpen);
   const _permissionRequests = useAppStore(s => s.permissionRequests);
+  // Phase 1.2: V2 shell state
+  const openTabs = useAppStore(s => s.openTabs);
+  const openTab = useAppStore(s => s.openTab);
+  const closeTab = useAppStore(s => s.closeTab);
+  const v2TracePanelOpen = useAppStore(s => s.v2TracePanelOpen);
+  const toggleV2TracePanel = useAppStore(s => s.toggleV2TracePanel);
   const toasts = useAppStore(s => s.toasts);
   const modals = useAppStore(s => s.modals);
   const loading = useAppStore(s => s.loading);
@@ -510,6 +537,8 @@ const App: React.FC = () => {
       setMessages([]);
       useAppStore.getState().clearTraceEntries();
       setCurrentView('chat');
+      // Phase 1.2: open the new session as a tab.
+      openTab(session.id);
 
       // Refresh session list
       const s = await api.sessions.list();
@@ -519,7 +548,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to create session', message: err.message });
     }
-  }, [api, sessions.length, currentSessionId, messages.length, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast]);
+  }, [api, sessions.length, currentSessionId, messages.length, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast, openTab]);
 
   // ─── Load session ──────────────────────────────────────────────────────────
 
@@ -538,6 +567,8 @@ const App: React.FC = () => {
       );
       useAppStore.getState().clearTraceEntries();
       setCurrentView('chat');
+      // Phase 1.2: open the loaded session as a tab.
+      openTab(sessionId);
 
       // Start tracing
       if (api?.trace?.start) {
@@ -561,7 +592,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to load session', message: err.message });
     }
-  }, [setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, addToast]);
+  }, [setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, addToast, openTab]);
 
   // ─── Delete session ────────────────────────────────────────────────────────
 
@@ -826,6 +857,48 @@ const App: React.FC = () => {
         return null;
     }
   };
+
+  // Phase 1.2: Modern layout — render the V2 shell instead of the classic
+  // 3-panel layout. The V2 shell wraps the same renderMainContent() so all
+  // existing views (Chat, Sessions, Settings, etc.) work inside it.
+  if (settings.layoutStyle === 'modern') {
+    return (
+      <V2AppShell
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        openTabs={openTabs}
+        currentSessionId={currentSessionId}
+        sessions={sessions}
+        onLoadSession={handleLoadSession}
+        onNewSession={handleNewSession}
+        onCloseTab={closeTab}
+        v2TracePanelOpen={v2TracePanelOpen}
+        toggleV2TracePanel={toggleV2TracePanel}
+        traceEntries={traceEntries}
+        currentSession={currentSession}
+        providers={providers}
+        loading={loading}
+      >
+        <ErrorBoundary label="Main view">
+          {renderMainContent()}
+        </ErrorBoundary>
+
+        {/* File Drop Zone */}
+        <FileDropZone />
+
+        {/* Toast Notifications */}
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+        {/* Modals */}
+        <ModalContainer modals={modals} onRemove={removeModal} />
+
+        {/* Phase 1.1: First-launch layout chooser */}
+        {showLayoutChooser && (
+          <LayoutChooserDialog onChoose={handleLayoutChoose} />
+        )}
+      </V2AppShell>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)' }}>
