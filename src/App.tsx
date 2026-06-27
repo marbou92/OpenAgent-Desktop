@@ -39,6 +39,8 @@ import FileDropZone from './components/Chat/FileDropZone';
 import RightPanel from './components/Layout/RightPanel/RightPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getAPI } from './utils/api';
+// Phase 1.1: first-launch layout chooser popup.
+import LayoutChooserDialog from './components/Layout/LayoutChooserDialog';
 
 const api = getAPI();
 
@@ -236,6 +238,11 @@ const App: React.FC = () => {
   const providersRef = useRef(providers);
   providersRef.current = providers;
 
+  // Phase 1.1: first-launch layout chooser. Shown once when layoutChoiceShown
+  // is false (new users). Existing users have layoutChoiceShown=true from
+  // their persisted config, so they never see it.
+  const [showLayoutChooser, setShowLayoutChooser] = useState(false);
+
   // ─── Auto-initialize on mount ──────────────────────────────────────────────
 
   useEffect(() => {
@@ -244,6 +251,20 @@ const App: React.FC = () => {
     initializeApp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Phase 1.1: After settings hydrate, check if the layout chooser should
+  // be shown (first launch only). layoutChoiceShown is false by default for
+  // new users; existing users have it set true from their saved config.
+  useEffect(() => {
+    if (settings.layoutChoiceShown === false && !loading) {
+      setShowLayoutChooser(true);
+    }
+  }, [settings.layoutChoiceShown, loading]);
+
+  const handleLayoutChoose = useCallback((layout: 'classic' | 'modern') => {
+    updateSettings({ layoutStyle: layout, layoutChoiceShown: true });
+    setShowLayoutChooser(false);
+  }, [updateSettings]);
 
   // ─── Subscribe to provider push events from main process ──────────────────
 
@@ -871,6 +892,11 @@ const App: React.FC = () => {
 
       {/* Modals */}
       <ModalContainer modals={modals} onRemove={removeModal} />
+
+      {/* Phase 1.1: First-launch layout chooser */}
+      {showLayoutChooser && (
+        <LayoutChooserDialog onChoose={handleLayoutChoose} />
+      )}
     </div>
   );
 };

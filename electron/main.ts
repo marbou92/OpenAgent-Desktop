@@ -107,6 +107,11 @@ interface AppConfig {
   opencodeAutoStart: boolean;
   // Phase 8.1: Catalog source switching (models.dev / pi.dev / merged)
   catalogSource: 'models.dev' | 'pi.dev' | 'merged';
+  // Phase 1.1: Layout style — 'classic' (3-panel) or 'modern' (opencode V2).
+  // Existing users default to 'classic'; new users pick via first-launch popup.
+  layoutStyle: 'classic' | 'modern';
+  // Phase 1.1: Whether the first-launch layout chooser has been shown.
+  layoutChoiceShown: boolean;
   autoStartSandbox: boolean;
   maxConcurrentSessions: number;
   autoSave: boolean;
@@ -329,6 +334,8 @@ function loadConfig(): AppConfig {
     opencodeHostname: "127.0.0.1",
     opencodeAutoStart: true,
     catalogSource: "models.dev",
+    layoutStyle: "classic",
+    layoutChoiceShown: false,
     autoStartSandbox: true,
     maxConcurrentSessions: 5,
     autoSave: true,
@@ -3421,6 +3428,8 @@ if (!gotTheLock) {
         opencodeHostname: "127.0.0.1",
         opencodeAutoStart: true,
         catalogSource: "models.dev",
+        layoutStyle: "classic",
+        layoutChoiceShown: false,
         autoStartSandbox: true,
         maxConcurrentSessions: 5,
         autoSave: true,

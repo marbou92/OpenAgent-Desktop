@@ -13,6 +13,8 @@ import React, { useState, useMemo } from 'react';
 import { useTheme, ThemeMode, InterfaceDensity } from '../Theme/ThemeProvider';
 import { BUILT_IN_PALETTES } from '../Theme/palettes';
 import { generatePalette, meetsWCAGAA } from '../Theme/palette-generator';
+// Phase 1.1: access the settings store for the layoutStyle toggle.
+import { useAppStore } from '../../App';
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -105,6 +107,9 @@ function SectionCard({ children }: { children: React.ReactNode }) {
 
 export default function AppearanceView() {
   const theme = useTheme();
+  // Phase 1.1: layout style toggle (classic vs modern).
+  const settings = useAppStore(s => s.settings);
+  const updateSettings = useAppStore(s => s.updateSettings);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customColorInput, setCustomColorInput] = useState(theme.customAccent || 'var(--color-accent)');
 
@@ -142,6 +147,41 @@ export default function AppearanceView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      {/* ─── Layout Style (Phase 1.1) ─────────────────────────────── */}
+      <SectionTitle>Layout Style</SectionTitle>
+      <SectionCard>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {([
+            { id: 'classic' as const, label: 'Classic', desc: 'Three resizable panels' },
+            { id: 'modern' as const, label: 'Modern', desc: 'Card-based with tabs' },
+          ]).map((opt) => {
+            const isActive = settings.layoutStyle === opt.id;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => updateSettings({ layoutStyle: opt.id })}
+                className="flex-1 flex flex-col items-center gap-1.5 px-4 py-3 rounded-lg transition-all"
+                style={{
+                  background: isActive ? 'var(--color-accent-soft)' : 'var(--color-bg-primary)',
+                  border: `1.5px solid ${isActive ? 'var(--color-accent)' : 'var(--color-border-secondary)'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                <span className="text-sm font-medium" style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-primary)' }}>
+                  {opt.label}
+                </span>
+                <span className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                  {opt.desc}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] mt-2" style={{ color: 'var(--color-text-muted)' }}>
+          Restart the app after switching for the new layout to take full effect.
+        </p>
+      </SectionCard>
+
       {/* ─── Theme Mode ──────────────────────────────────────────────── */}
       <SectionTitle>Theme Mode</SectionTitle>
       <SectionCard>

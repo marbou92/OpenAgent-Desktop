@@ -624,6 +624,10 @@ export interface AppSettings {
   autoStartSandbox: boolean;
   /** Phase 8.1 — which catalog provides the provider/model list. */
   catalogSource: 'models.dev' | 'pi.dev' | 'merged';
+  /** Phase 1.1 — UI layout style: 'classic' (3-panel) or 'modern' (opencode V2). */
+  layoutStyle: 'classic' | 'modern';
+  /** Phase 1.1 — whether the first-launch layout chooser has been shown. */
+  layoutChoiceShown: boolean;
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: number;
@@ -688,6 +692,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   opencodeAutoStart: true,
   autoStartSandbox: false,
   catalogSource: 'models.dev',
+  layoutStyle: 'classic',
+  layoutChoiceShown: false,
   // Session
   maxConcurrentSessions: 5,
   autoSave: true,

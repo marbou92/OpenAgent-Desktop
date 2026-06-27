@@ -62,6 +62,14 @@ export const SETTINGS_SCHEMA: Record<string, SettingConstraint> = {
     type: 'string', required: true, enum: ['models.dev', 'pi.dev', 'merged'],
     description: 'Model catalog source: models.dev (live), pi.dev (static, bundled), or merged (both)', default: 'models.dev', category: 'Provider', since: '8.1.0',
   },
+  layoutStyle: {
+    type: 'string', required: true, enum: ['classic', 'modern'],
+    description: 'UI layout style: classic (3-panel) or modern (opencode V2 card-based)', default: 'classic', category: 'General', since: '1.0.0',
+  },
+  layoutChoiceShown: {
+    type: 'boolean', required: true,
+    description: 'Whether the first-launch layout chooser popup has been shown', default: false, category: 'General', since: '1.0.0',
+  },
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: {
