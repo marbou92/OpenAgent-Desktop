@@ -443,33 +443,54 @@ const TraceEntryItem: React.FC<{
   const [expanded, setExpanded] = useState(false);
   const config = TYPE_CONFIG[entry.type] || TYPE_CONFIG.info;
   const isLong = entry.content.length > 150;
+  // Phase 0.9.2: for tool_call entries, show the tool name as a bold label
+  // and the args as a subtle monospace preview. For tool_result entries,
+  // show a status-colored icon.
+  const toolName = entry.type === 'tool_call' ? (entry.metadata?.toolName as string | undefined) : undefined;
+  const resultStatus = entry.type === 'tool_result' ? (entry.metadata?.status as string | undefined) : undefined;
+  const resultColor = resultStatus === 'denied' ? 'var(--color-error)'
+    : resultStatus === 'deactivated' ? 'var(--color-text-muted)'
+    : 'var(--color-success, #10b981)';
 
   return (
     <div className="py-1.5 flex items-start gap-2">
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke={config.color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ flexShrink: 0, marginTop: 2 }}
-      >
-        <path d={config.iconPath} />
-      </svg>
+      {/* Phase 0.9.2: tool_result gets a status-colored icon instead of the
+          generic tool-result icon, so you can see at a glance if it succeeded. */}
+      {entry.type === 'tool_result' ? (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={resultColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+          {resultStatus === 'denied' ? (
+            <>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </>
+          ) : resultStatus === 'deactivated' ? (
+            <>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+            </>
+          ) : (
+            <polyline points="20 6 9 17 4 12" />
+          )}
+        </svg>
+      ) : (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={config.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+          <path d={config.iconPath} />
+        </svg>
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-medium" style={{ color: config.color }}>
-            {config.label}
+          {/* Phase 0.9.2: for tool_call, show the tool name as the label
+              instead of the generic "Tool Call" text. */}
+          <span className="text-[10px] font-medium font-mono" style={{ color: config.color }}>
+            {toolName || config.label}
           </span>
           <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
             {formatTime(entry.timestamp)}
           </span>
         </div>
         <p
-          className="text-[11px] mt-0.5 break-words"
+          className="text-[11px] mt-0.5 break-words font-mono"
           style={{
             color: 'var(--color-text-secondary)',
             display: !expanded && isLong ? '-webkit-box' : 'block',

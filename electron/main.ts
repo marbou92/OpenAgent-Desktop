@@ -2144,6 +2144,25 @@ function registerIpcHandlers(): void {
     // chunk flooded IPC + React and froze the app.
     let stepThinking = '';
 
+    // Phase 0.9.2: Flush accumulated step thinking as a single trace entry.
+    // Called at STEP BOUNDARIES — the moment the model transitions from
+    // thinking to anything else (content, tool call, result, done). Previously
+    // this was only flushed on tool_call_end, which meant steps with thinking +
+    // content (no tool) had their thinking deferred to the NEXT step's tool
+    // call → groupIntoSteps assigned it to the wrong step (one later).
+    const flushStepThinking = () => {
+      if (!stepThinking.trim()) return;
+      const preview = stepThinking.length > 500
+        ? stepThinking.slice(0, 500) + '…'
+        : stepThinking;
+      traceCollector.addEntry(sessionId, {
+        type: 'thinking',
+        content: preview,
+        metadata: { source: 'agent', charCount: stepThinking.length },
+      }).catch(() => {});
+      stepThinking = '';
+    };
+
     for await (const chunk of chatEngine.chatStream(
       {
         model: `${providerId}/${modelId}`,
@@ -2167,6 +2186,9 @@ function registerIpcHandlers(): void {
     )) {
       switch (chunk.type) {
         case 'content':
+          // Phase 0.9.2: flush thinking at the step boundary (model stopped
+          // thinking, started writing content).
+          flushStepThinking();
           if (chunk.content) {
             fullContent += chunk.content;
             send('chat:stream-chunk', { chunk: chunk.content });
@@ -2177,30 +2199,20 @@ function registerIpcHandlers(): void {
             collectedThinking += chunk.content;
             stepThinking += chunk.content;
             send('chat:stream-thinking', { thinking: chunk.content });
-            // Phase 0.9.1: do NOT trace per chunk — consolidated on step-finish.
+            // Phase 0.9.1: do NOT trace per chunk — consolidated on step boundary.
           }
           break;
         case 'tool_call_start':
         case 'tool_call_delta':
         case 'tool_call_end': {
+          // Phase 0.9.2: flush thinking at the step boundary (model stopped
+          // thinking, started calling a tool). Flush on tool_call_start so the
+          // thinking entry appears BEFORE the tool call in the trace.
+          if (chunk.type === 'tool_call_start') flushStepThinking();
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
           // Phase 2.6: Collect for persistence (upsert by ID)
           const tc = chunk.toolCall;
           if (tc?.id && chunk.type === 'tool_call_end') {
-            // Phase 0.9.1: flush consolidated thinking for this step BEFORE
-            // the tool call. The model's reasoning is done — it's now acting.
-            // This gives a clean trace order: [thinking] → [tool_call] → [result].
-            if (stepThinking.trim()) {
-              const preview = stepThinking.length > 500
-                ? stepThinking.slice(0, 500) + '…'
-                : stepThinking;
-              traceCollector.addEntry(sessionId, {
-                type: 'thinking',
-                content: preview,
-                metadata: { source: 'agent', charCount: stepThinking.length },
-              }).catch(() => {});
-              stepThinking = '';
-            }
             const idx = collectedToolCalls.findIndex(c => c.id === tc.id);
             // Phase 0.6: persist _splitOffset = current content length so the
             // AskUserQuestion card renders at the correct position after a
@@ -2248,6 +2260,10 @@ function registerIpcHandlers(): void {
           break;
         }
         case 'tool_result': {
+          // Phase 0.9.2: flush thinking at the step boundary (in case the
+          // model thought, then a tool result arrived without a tool_call_end
+          // we handled — defensive).
+          flushStepThinking();
           // Phase 1.1: Triple-layer denial detection.
           const tr: any = chunk.toolResult;
           const trId = tr?.id || tr?.toolCallId;
@@ -2321,19 +2337,9 @@ function registerIpcHandlers(): void {
           send('chat:stream-error', { error: chunk.error?.message || 'Unknown error' });
           break;
         case 'done': {
-          // Phase 0.9.1: flush any remaining step thinking (e.g. the model
+          // Phase 0.9.2: flush any remaining step thinking (e.g. the model
           // produced a final text answer without calling any tools).
-          if (stepThinking.trim()) {
-            const preview = stepThinking.length > 500
-              ? stepThinking.slice(0, 500) + '…'
-              : stepThinking;
-            traceCollector.addEntry(sessionId, {
-              type: 'thinking',
-              content: preview,
-              metadata: { source: 'agent', charCount: stepThinking.length },
-            }).catch(() => {});
-            stepThinking = '';
-          }
+          flushStepThinking();
           break;
         }
       }
