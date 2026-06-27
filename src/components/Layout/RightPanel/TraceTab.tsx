@@ -45,6 +45,36 @@ interface StepGroup {
   startTime: string;
   toolCallCount: number;
   hasError: boolean;
+  /** Phase 0.9.1: first tool name for the step header summary. */
+  firstToolName?: string;
+  /** Phase 0.9.1: overall step status (worst of all tool results). */
+  status: 'completed' | 'denied' | 'deactivated' | 'mixed' | 'pending';
+}
+
+/**
+ * Phase 0.9.1: Build a StepGroup with a summary (first tool name + overall
+ * status) so the step header can show what ran at a glance.
+ */
+function buildStep(stepIndex: number, entries: TraceEntry[]): StepGroup {
+  const toolCalls = entries.filter(e => e.type === 'tool_call');
+  const toolResults = entries.filter(e => e.type === 'tool_result');
+  const firstToolName = toolCalls[0]?.metadata?.toolName as string | undefined;
+  let status: StepGroup['status'] = 'pending';
+  if (toolResults.length > 0) {
+    const statuses = toolResults.map(r => (r.metadata?.status as string) || 'completed');
+    const allSame = statuses.every(s => s === statuses[0]);
+    status = allSame ? (statuses[0] as StepGroup['status']) : 'mixed';
+  }
+  return {
+    id: `step-${stepIndex}`,
+    index: stepIndex,
+    entries,
+    startTime: entries[0].timestamp,
+    toolCallCount: toolCalls.length,
+    hasError: entries.some(e => e.type === 'error'),
+    firstToolName,
+    status,
+  };
 }
 
 /**
@@ -69,14 +99,7 @@ function groupIntoSteps(entries: TraceEntry[]): StepGroup[] {
     const prevWasTool = lastEntry && (lastEntry.type === 'tool_result' || lastEntry.type === 'tool_call');
 
     if (currentStep.length > 0 && isReasoningStart && prevWasTool) {
-      steps.push({
-        id: `step-${stepIndex}`,
-        index: stepIndex,
-        entries: currentStep,
-        startTime: currentStep[0].timestamp,
-        toolCallCount: currentStep.filter(e => e.type === 'tool_call').length,
-        hasError: currentStep.some(e => e.type === 'error'),
-      });
+      steps.push(buildStep(stepIndex, currentStep));
       stepIndex++;
       currentStep = [];
     }
@@ -86,14 +109,7 @@ function groupIntoSteps(entries: TraceEntry[]): StepGroup[] {
 
   // Push the final step
   if (currentStep.length > 0) {
-    steps.push({
-      id: `step-${stepIndex}`,
-      index: stepIndex,
-      entries: currentStep,
-      startTime: currentStep[0].timestamp,
-      toolCallCount: currentStep.filter(e => e.type === 'tool_call').length,
-      hasError: currentStep.some(e => e.type === 'error'),
-    });
+    steps.push(buildStep(stepIndex, currentStep));
   }
 
   return steps;
@@ -359,11 +375,35 @@ const TraceTab: React.FC<TraceTabProps> = ({ entries }) => {
                     >
                       #{step.index + 1}
                     </span>
-                    <span className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                    {/* Phase 0.9.1: show the first tool name so the step header
+                        tells you WHAT ran, not just how many. */}
+                    {step.firstToolName && (
+                      <span className="text-[11px] font-medium truncate" style={{ color: 'var(--color-text-secondary)', maxWidth: '120px' }}>
+                        {step.firstToolName}
+                      </span>
+                    )}
+                    <span className="text-[11px] ml-auto" style={{ color: 'var(--color-text-muted)' }}>
                       {formatTime(step.startTime)}
                     </span>
+                    {/* Phase 0.9.1: status badge — green (completed), red (denied),
+                        grey (deactivated), mixed (varies). */}
                     {step.toolCallCount > 0 && (
-                      <span className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }}>
+                      <span
+                        className="text-[10px] px-1 py-0.5 rounded flex items-center gap-0.5"
+                        style={{
+                          background: step.status === 'denied' ? 'rgba(239,68,68,0.1)'
+                            : step.status === 'deactivated' ? 'rgba(107,114,128,0.1)'
+                            : step.status === 'mixed' ? 'rgba(245,158,11,0.1)'
+                            : 'rgba(16,185,129,0.1)',
+                          color: step.status === 'denied' ? 'var(--color-error)'
+                            : step.status === 'deactivated' ? 'var(--color-text-muted)'
+                            : step.status === 'mixed' ? 'var(--color-warning)'
+                            : 'var(--color-success, #10b981)',
+                        }}
+                      >
+                        {step.status === 'completed' && (
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                        )}
                         {step.toolCallCount} tool{step.toolCallCount !== 1 ? 's' : ''}
                       </span>
                     )}

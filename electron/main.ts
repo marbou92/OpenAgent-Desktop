@@ -2139,6 +2139,10 @@ function registerIpcHandlers(): void {
     let status = 'completed';
     const collectedToolCalls: any[] = [];   // Phase 2.6: collect for persistence
     let collectedThinking = '';              // Phase 2.6: collect for persistence
+    // Phase 0.9.1: per-step thinking accumulator. We trace ONE consolidated
+    // thinking entry per step (on step-finish), NOT per chunk. Tracing per
+    // chunk flooded IPC + React and froze the app.
+    let stepThinking = '';
 
     for await (const chunk of chatEngine.chatStream(
       {
@@ -2171,15 +2175,9 @@ function registerIpcHandlers(): void {
         case 'thinking':
           if (chunk.content) {
             collectedThinking += chunk.content;
+            stepThinking += chunk.content;
             send('chat:stream-thinking', { thinking: chunk.content });
-            // Phase 0.9: trace thinking so the trace sidebar captures the
-            // agent's reasoning (the trace is the permanent record now that
-            // ToolUseCards are stripped from the persisted chat).
-            traceCollector.addEntry(sessionId, {
-              type: 'thinking',
-              content: chunk.content,
-              metadata: { source: 'agent' },
-            }).catch(() => {});
+            // Phase 0.9.1: do NOT trace per chunk — consolidated on step-finish.
           }
           break;
         case 'tool_call_start':
@@ -2189,6 +2187,20 @@ function registerIpcHandlers(): void {
           // Phase 2.6: Collect for persistence (upsert by ID)
           const tc = chunk.toolCall;
           if (tc?.id && chunk.type === 'tool_call_end') {
+            // Phase 0.9.1: flush consolidated thinking for this step BEFORE
+            // the tool call. The model's reasoning is done — it's now acting.
+            // This gives a clean trace order: [thinking] → [tool_call] → [result].
+            if (stepThinking.trim()) {
+              const preview = stepThinking.length > 500
+                ? stepThinking.slice(0, 500) + '…'
+                : stepThinking;
+              traceCollector.addEntry(sessionId, {
+                type: 'thinking',
+                content: preview,
+                metadata: { source: 'agent', charCount: stepThinking.length },
+              }).catch(() => {});
+              stepThinking = '';
+            }
             const idx = collectedToolCalls.findIndex(c => c.id === tc.id);
             // Phase 0.6: persist _splitOffset = current content length so the
             // AskUserQuestion card renders at the correct position after a
@@ -2308,8 +2320,22 @@ function registerIpcHandlers(): void {
           status = 'error';
           send('chat:stream-error', { error: chunk.error?.message || 'Unknown error' });
           break;
-        case 'done':
+        case 'done': {
+          // Phase 0.9.1: flush any remaining step thinking (e.g. the model
+          // produced a final text answer without calling any tools).
+          if (stepThinking.trim()) {
+            const preview = stepThinking.length > 500
+              ? stepThinking.slice(0, 500) + '…'
+              : stepThinking;
+            traceCollector.addEntry(sessionId, {
+              type: 'thinking',
+              content: preview,
+              metadata: { source: 'agent', charCount: stepThinking.length },
+            }).catch(() => {});
+            stepThinking = '';
+          }
           break;
+        }
       }
     }
 
