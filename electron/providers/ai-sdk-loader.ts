@@ -19,11 +19,11 @@
  * Ref: https://ai-sdk.dev/docs/foundations/providers-and-models
  */
 
-import { AuthProvider, ProviderDefinition } from './opencode-types';
+import { AuthProvider } from './opencode-types';
 
 // Cached SDK modules (loaded once on first use).
 let _aiSdk: any = null;
-let _providerFactories: Map<string, any> = new Map();
+const _providerFactories: Map<string, any> = new Map();
 let _loadAttempted = false;
 let _loadSucceeded = false;
 

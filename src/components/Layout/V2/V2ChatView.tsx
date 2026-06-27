@@ -23,7 +23,7 @@
  */
 
 import React, { useRef, useEffect, useCallback } from 'react';
-import { ChatMessage, ProviderInfo, Toast, AppSettings, AttachedFile } from '../../../types';
+import { ChatMessage, ProviderInfo, Toast, AttachedFile } from '../../../types';
 import MessageBubble from '../../Chat/MessageBubble';
 import V2Composer from './V2Composer';
 

@@ -21,7 +21,7 @@ import { AdapterCallContext, ProtocolAdapter } from './adapter';
 import { GeminiAdapter } from './gemini-adapter';
 
 const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
-const CODE_ASSIST_API_VERSION = 'v1internal';
+const _CODE_ASSIST_API_VERSION = 'v1internal';
 
 export class GeminiOAuthAdapter implements ProtocolAdapter {
   protocol = 'gemini' as const;

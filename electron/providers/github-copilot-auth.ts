@@ -23,7 +23,7 @@ import { WellKnownAuth } from './opencode-types';
 const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98';
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
-const GITHUB_DEVICE_URL = 'https://github.com/login/device';
+const _GITHUB_DEVICE_URL = 'https://github.com/login/device';
 const COPILOT_PROVIDER_ID = 'github-copilot';
 
 interface DeviceCodeResponse {

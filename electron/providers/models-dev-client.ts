@@ -26,7 +26,7 @@ import { getOpencodeRegistry } from './opencode-registry';
  * Works on all Node versions (including Node 16 / Electron 22 where
  * global fetch is not available and node-fetch v3 is ESM-only).
  */
-function fetchJson(url: string, timeoutMs: number = 30000): Promise<any> {
+function fetchJson(url: string, timeoutMs = 30000): Promise<any> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': 'OpenAgent-Desktop' } }, (res) => {
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
@@ -57,7 +57,7 @@ function fetchJson(url: string, timeoutMs: number = 30000): Promise<any> {
  * If the server returns 304 (Not Modified), returns the 304 status with
  * null data — the caller should keep the existing cache.
  */
-function fetchJsonWithEtag(url: string, etag: string | null, timeoutMs: number = 30000): Promise<{ status: number; data: any; etag: string | null }> {
+function fetchJsonWithEtag(url: string, etag: string | null, timeoutMs = 30000): Promise<{ status: number; data: any; etag: string | null }> {
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = { 'User-Agent': 'OpenAgent-Desktop' };
     if (etag) {
@@ -96,7 +96,7 @@ function fetchJsonWithEtag(url: string, etag: string | null, timeoutMs: number =
 /**
  * Fetch plain text from a URL (for .toml files).
  */
-function fetchText(url: string, timeoutMs: number = 15000): Promise<string> {
+function fetchText(url: string, timeoutMs = 15000): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': 'OpenAgent-Desktop' } }, (res) => {
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
@@ -139,7 +139,7 @@ export class ModelsDevClient extends EventEmitter {
   private githubSha: string | null = null;
   private cachePath: string;
   private checkTimer: ReturnType<typeof setInterval> | null = null;
-  private lastCheckAt: number = 0;
+  private lastCheckAt = 0;
 
   constructor() {
     super();
@@ -418,7 +418,7 @@ export class ModelsDevClient extends EventEmitter {
         githubSha: this.githubSha,
         tomlOverrides: tomlOverridesObj,
         data: Object.fromEntries(
-          Array.from(this.cache.entries()).flatMap(([pid, entries]) =>
+          Array.from(this.cache.entries()).flatMap(([_pid, entries]) =>
             entries.map(e => [e.id, e])
           )
         ),

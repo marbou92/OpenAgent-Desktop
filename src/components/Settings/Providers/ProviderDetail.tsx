@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ExternalLink, Trash2, Power, Activity } from 'lucide-react';
+import { ExternalLink, Trash2, Activity } from 'lucide-react';
 import {
   ProviderDefinition,
   AuthProvider,

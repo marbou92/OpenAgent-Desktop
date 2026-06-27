@@ -63,7 +63,7 @@ class EmbeddingsStore {
    * Search for similar texts within a session.
    * Returns top-K results sorted by cosine similarity (highest first).
    */
-  search(sessionId: string, queryEmbedding: number[], topK: number = 5): SearchResult[] {
+  search(sessionId: string, queryEmbedding: number[], topK = 5): SearchResult[] {
     const sessionEntryIds = this.bySession.get(sessionId);
     if (!sessionEntryIds || sessionEntryIds.size === 0) return [];
 

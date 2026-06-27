@@ -16,10 +16,8 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ChatMessage } from '../../types';
 import { renderMarkdown, sanitizeHtml, attachCopyCodeHandlers } from '../../utils/markdown';
-import { formatFileSize } from '../../utils/format';
 import ThinkingBlock from './message/ThinkingBlock';
 import ToolUseCard from './message/ToolUseCard';
-import TodoWriteCard from './message/TodoWriteCard';
 import AskUserQuestionCard from './message/AskUserQuestionCard';
 
 interface MessageBubbleProps {
@@ -35,7 +33,7 @@ interface MessageBubbleProps {
   onPermissionRespond?: (requestId: string, response: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny') => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy, onAskUserAnswer, askUserRequestId, onPermissionRespond }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy: _onCopy, onAskUserAnswer, askUserRequestId: _askUserRequestId, onPermissionRespond }) => {
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
 

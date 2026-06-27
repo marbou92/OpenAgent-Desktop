@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { RefreshCw, Check } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { ProviderDefinition, ResolvedModel, DiscoveredModel } from './types';
 
 export interface ModelListProps {
@@ -20,13 +20,13 @@ export interface ModelListProps {
 }
 
 export const ModelList: React.FC<ModelListProps> = ({
-  definition,
+  definition: _definition,
   models,
-  discovered,
+  discovered: _discovered,
   discoveredFetchedAt,
   isRefreshing,
   onRefresh,
-  onSetDefault,
+  onSetDefault: _onSetDefault,
 }) => {
   const [showAll, setShowAll] = useState(false);
 

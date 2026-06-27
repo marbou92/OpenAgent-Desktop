@@ -21,7 +21,7 @@ const LayoutOptionCard: React.FC<{
   selected: boolean;
   onSelect: () => void;
   preview: React.ReactNode;
-}> = ({ id, title, description, selected, onSelect, preview }) => (
+}> = ({ id: _id, title, description, selected, onSelect, preview }) => (
   <button
     onClick={onSelect}
     className="flex-1 text-left rounded-xl transition-all p-5"

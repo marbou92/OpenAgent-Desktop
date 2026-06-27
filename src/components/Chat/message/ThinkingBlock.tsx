@@ -2,7 +2,7 @@
  * ThinkingBlock — OpenCowork-style collapsible thinking display
  * Brain icon, preview when collapsed, markdown content when expanded.
  */
-import React, { useState, memo } from 'react';
+import { useState, memo } from 'react';
 
 interface ThinkingBlockProps {
   thinking: string;
@@ -15,7 +15,7 @@ const ThinkingBlock = memo(function ThinkingBlock({ thinking, isStreaming }: Thi
   if (!text) return null;
 
   // Preview: first ~80 chars
-  let preview = text.length > 80 ? text.substring(0, 77) + '...' : text;
+  const preview = text.length > 80 ? text.substring(0, 77) + '...' : text;
 
   return (
     <div className="rounded-2xl overflow-hidden mb-1.5" style={{ border: '1px solid var(--color-border-secondary)', background: 'rgba(0,0,0,0.15)' }}>

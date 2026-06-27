@@ -52,7 +52,7 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
         borderBottom: '1px solid var(--v2-border-border-muted)',
         // Allow window dragging via the titlebar (Electron -webkit-app-region).
         // The CSS property is set via style attribute; Electron honors it.
-        // @ts-ignore — webkitAppRegion is a non-standard CSS property.
+        // @ts-expect-error — webkitAppRegion is a non-standard CSS property.
         WebkitAppRegion: 'drag',
       }}
     >
@@ -64,7 +64,7 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
         onClick={onHome}
         className="flex items-center justify-center flex-shrink-0 h-full px-3 transition-colors"
         style={{
-          // @ts-ignore
+          // @ts-expect-error
           WebkitAppRegion: 'no-drag',
           color: currentView === 'sessions' ? 'var(--v2-icon-icon-accent)' : 'var(--v2-icon-icon-muted)',
         }}
@@ -84,7 +84,7 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
       {/* Tab strip */}
       <div
         className="flex-1 min-w-0 h-full"
-        style={{ // @ts-ignore
+        style={{ // @ts-expect-error
           WebkitAppRegion: 'no-drag',
         }}
       >
@@ -101,7 +101,7 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
       {/* Right-side actions */}
       <div
         className="flex items-center gap-0.5 flex-shrink-0 h-full px-1"
-        style={{ // @ts-ignore
+        style={{ // @ts-expect-error
           WebkitAppRegion: 'no-drag',
         }}
       >

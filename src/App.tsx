@@ -550,7 +550,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to create session', message: err.message });
     }
-  }, [api, sessions.length, currentSessionId, messages.length, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast, openTab]);
+  }, [sessions.length, currentSessionId, messages.length, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast, openTab]);
 
   // ─── Load session ──────────────────────────────────────────────────────────
 

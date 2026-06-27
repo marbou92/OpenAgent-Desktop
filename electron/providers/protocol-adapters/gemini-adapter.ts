@@ -26,7 +26,7 @@ import {
 import { AdapterCallContext, ProtocolAdapter } from './adapter';
 
 /** Convert ChatMessage.content (string | array) to a plain string for non-multi-modal adapters. */
-function contentToString(content: unknown): string {
+function _contentToString(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("");
   return "";

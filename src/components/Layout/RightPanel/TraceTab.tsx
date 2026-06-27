@@ -141,7 +141,7 @@ const TraceTab: React.FC<TraceTabProps> = ({ entries }) => {
         });
       }
     }
-  }, [entries.length]);
+  }, [entries.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filter entries
   const filteredEntries = useMemo(() => {

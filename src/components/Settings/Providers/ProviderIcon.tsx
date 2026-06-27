@@ -9,7 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Sparkles, Brain, Gem, Cloud, Server, Boxes,
-  Router, Wind, Search, Zap, Anchor, Network, Github,
+  Router, Wind, Network, Github,
   type LucideIcon,
 } from 'lucide-react';
 

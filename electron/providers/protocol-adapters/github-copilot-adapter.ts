@@ -22,7 +22,7 @@ import { OpenAIAdapter } from './openai-adapter';
 
 const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
 const COPILOT_API_BASE = 'https://api.githubcopilot.com';
-const TOKEN_CACHE_TTL_MS = 25 * 60 * 1000;
+const _TOKEN_CACHE_TTL_MS = 25 * 60 * 1000;
 
 interface CachedCopilotToken {
   token: string;

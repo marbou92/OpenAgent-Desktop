@@ -2,7 +2,7 @@
  * CodeBlock — syntax-highlighted code with copy button (OpenCowork style)
  * Uses highlight.js for syntax highlighting.
  */
-import React, { useState, useMemo, memo } from 'react';
+import { useState, useMemo, memo } from 'react';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const hljs = require('highlight.js');

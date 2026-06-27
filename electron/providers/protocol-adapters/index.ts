@@ -5,7 +5,7 @@
  * looks up the adapter here per chat call.
  */
 
-import { ProviderDefinition, AuthProvider, ChatRequest, ChatResponse, DiscoveredModel, StreamChunk } from '../opencode-types';
+import { ProviderDefinition, AuthProvider, ChatRequest } from '../opencode-types';
 import { ProtocolAdapter, AdapterCallContext } from './adapter';
 import { OpenAIAdapter } from './openai-adapter';
 import { AnthropicAdapter } from './anthropic-adapter';

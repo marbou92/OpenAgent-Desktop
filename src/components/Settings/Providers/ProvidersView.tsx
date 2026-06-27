@@ -36,7 +36,7 @@ export const ProvidersView: React.FC<ProvidersViewProps> = ({ addToast }) => {
   const [health, setHealth] = useState<Record<string, HealthCheckResult>>({});
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [models, setModels] = useState<ResolvedModel[]>([]);
-  const [discovered, setDiscovered] = useState<DiscoveredModel[] | undefined>(undefined);
+  const [discovered, _setDiscovered] = useState<DiscoveredModel[] | undefined>(undefined);
   const [discoveredFetchedAt, setDiscoveredFetchedAt] = useState<string | undefined>(undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isHealthChecking, setIsHealthChecking] = useState(false);

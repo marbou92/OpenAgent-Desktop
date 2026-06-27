@@ -3,7 +3,7 @@
  * Shows tool name, status, arguments (collapsed), and result (collapsed) in ONE card.
  * Special case: AskUserQuestion renders as a question card.
  */
-import React, { useState, memo } from 'react';
+import { useState, memo } from 'react';
 import { ToolCall } from '../../../types';
 
 interface ToolUseCardProps {
