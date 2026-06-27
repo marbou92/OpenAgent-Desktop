@@ -318,9 +318,9 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
               onClick={onNewSession}
               className="flex items-center gap-1.5 h-7 px-3 rounded-[6px] flex-shrink-0 transition-colors"
               style={{
-                background: 'var(--v2-background-bg-contrast)',
-                color: 'var(--v2-text-text-inverse)',
-                boxShadow: 'var(--v2-elevation-button-contrast)',
+                // Phase 1.9.1: use accent (follows palette) instead of grey contrast.
+                background: 'var(--color-accent, var(--v2-blue-600))',
+                color: 'white',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
@@ -350,8 +350,9 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
                     onClick={onNewSession}
                     className="mt-1 px-3 py-1.5 rounded-[6px] text-[12px] transition-colors"
                     style={{
-                      background: 'var(--v2-background-bg-contrast)',
-                      color: 'var(--v2-text-text-inverse)',
+                      // Phase 1.9.1: use accent (follows palette).
+                      background: 'var(--color-accent, var(--v2-blue-600))',
+                      color: 'white',
                       fontFamily: 'var(--v2-font-family-text)',
                       fontWeight: 'var(--v2-font-weight-medium)',
                     }}

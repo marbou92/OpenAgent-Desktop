@@ -195,24 +195,24 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
         </svg>
       </button>
 
-      {/* Dropdown menu */}
+      {/* Dropdown menu — Phase 1.9.1: V2-styled (rounded, subtle, V2 tokens with legacy fallback) */}
       {open && (
         <div
-          className="absolute bottom-full left-0 mb-2 rounded-lg overflow-hidden animate-fade-in"
+          className="absolute bottom-full left-0 mb-2 rounded-[10px] overflow-hidden animate-fade-in"
           style={{
-            background: 'var(--color-bg-elevated)',
-            border: '1px solid var(--color-border-primary)',
-            boxShadow: 'var(--shadow-popover)',
+            background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+            boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
             minWidth: '220px',
             zIndex: 50,
+            padding: '4px',
           }}
         >
           {/* Primary modes */}
           <div
-            className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider border-b"
+            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
             style={{
-              color: 'var(--color-text-muted)',
-              borderColor: 'var(--color-border-secondary)',
+              color: 'var(--v2-text-text-faint, var(--color-text-muted))',
+              fontFamily: 'var(--v2-font-family-text)',
             }}
           >
             Agent
@@ -225,12 +225,12 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
                 onClick={() => handleSelect(mode.id)}
                 onMouseEnter={() => setHoveredIdx(idx)}
                 onMouseLeave={() => setHoveredIdx(null)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors"
+                className="w-full flex items-center gap-2.5 px-2 py-2 text-left rounded-[6px] transition-colors"
                 style={{
                   background: isActive
-                    ? 'var(--color-accent-soft)'
+                    ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))'
                     : hoveredIdx === idx
-                    ? 'var(--color-bg-hover)'
+                    ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))'
                     : 'transparent',
                 }}
               >
@@ -251,14 +251,15 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
                   <div
                     className="text-xs font-medium truncate"
                     style={{
-                      color: isActive ? 'var(--color-accent)' : 'var(--color-text-primary)',
+                      color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
+                      fontFamily: 'var(--v2-font-family-text)',
                     }}
                   >
                     {mode.label}
                   </div>
                   <div
                     className="text-[10px] truncate"
-                    style={{ color: 'var(--color-text-muted)' }}
+                    style={{ color: 'var(--v2-text-text-muted, var(--color-text-muted))', fontFamily: 'var(--v2-font-family-text)' }}
                   >
                     {mode.description}
                   </div>

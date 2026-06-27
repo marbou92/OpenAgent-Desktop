@@ -141,21 +141,24 @@ const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
         </svg>
       </button>
 
-      {/* Dropdown menu */}
+      {/* Dropdown menu — Phase 1.9.1: V2-styled */}
       {open && (
         <div
-          className="absolute bottom-full left-0 mb-2 rounded-lg overflow-hidden animate-fade-in"
+          className="absolute bottom-full left-0 mb-2 rounded-[10px] overflow-hidden animate-fade-in"
           style={{
-            background: 'var(--color-bg-elevated)',
-            border: '1px solid var(--color-border-primary)',
-            boxShadow: 'var(--shadow-popover)',
+            background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+            boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
             minWidth: '200px',
             zIndex: 50,
+            padding: '4px',
           }}
         >
           <div
-            className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider border-b"
-            style={{ color: 'var(--color-text-muted)', borderColor: 'var(--color-border-secondary)' }}
+            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
+            style={{
+              color: 'var(--v2-text-text-faint, var(--color-text-muted))',
+              fontFamily: 'var(--v2-font-family-text)',
+            }}
           >
             Thinking Effort
           </div>
@@ -166,12 +169,12 @@ const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
               <button
                 key={level.id}
                 onClick={() => handleSelect(level.id)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors"
+                className="w-full flex items-center gap-2.5 px-2 py-2 text-left rounded-[6px] transition-colors"
                 style={{
-                  background: isActive ? 'var(--color-accent-soft)' : 'transparent',
+                  background: isActive ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))' : 'transparent',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'var(--color-bg-hover)';
+                  if (!isActive) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) e.currentTarget.style.background = 'transparent';
@@ -182,19 +185,20 @@ const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
                   className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{
                     background: isActive ? levelColor : 'transparent',
-                    border: `1.5px solid ${isActive ? levelColor : 'var(--color-text-muted)'}`,
+                    border: `1.5px solid ${isActive ? levelColor : 'var(--v2-icon-icon-muted, var(--color-text-muted))'}`,
                   }}
                 />
                 <div className="flex-1 min-w-0">
                   <div
                     className="text-xs font-medium"
                     style={{
-                      color: isActive ? levelColor : 'var(--color-text-primary)',
+                      color: isActive ? levelColor : 'var(--v2-text-text-base, var(--color-text-primary))',
+                      fontFamily: 'var(--v2-font-family-text)',
                     }}
                   >
                     {level.label}
                   </div>
-                  <div className="text-[10px] truncate" style={{ color: 'var(--color-text-muted)' }}>
+                  <div className="text-[10px] truncate" style={{ color: 'var(--v2-text-text-muted, var(--color-text-muted))', fontFamily: 'var(--v2-font-family-text)' }}>
                     {level.description}
                   </div>
                 </div>

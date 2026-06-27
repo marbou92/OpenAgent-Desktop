@@ -18,11 +18,26 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { AttachedFile, ProviderInfo, AgentMode, AgentDefinition } from '../../../types';
+import { AttachedFile, ProviderInfo, AgentMode, AgentDefinition, SlashCommand } from '../../../types';
 import ModelSelector from '../../Chat/ModelSelector';
 // Phase 1.8: add thinking effort + agent mode selectors to the composer.
 import ThinkingEffortSelector, { ThinkingEffort } from '../../Chat/ThinkingEffortSelector';
 import AgentSelector from '../../Chat/AgentSelector';
+
+// Phase 1.9.1: slash commands list (same as ChatInput).
+const SLASH_COMMANDS: SlashCommand[] = [
+  { command: '/recipe', label: '/recipe', description: 'Run a recipe' },
+  { command: '/goal', label: '/goal', description: 'Set a goal' },
+  { command: '/clear', label: '/clear', description: 'Clear conversation' },
+  { command: '/mode', label: '/mode', description: 'Change permission mode' },
+  { command: '/review', label: '/review', description: 'Code review' },
+  { command: '/explain', label: '/explain', description: 'Explain code' },
+  { command: '/test', label: '/test', description: 'Write tests' },
+  { command: '/refactor', label: '/refactor', description: 'Refactor code' },
+  { command: '/doc', label: '/doc', description: 'Generate docs' },
+  { command: '/audit', label: '/audit', description: 'Security audit' },
+  { command: '/structure', label: '/structure', description: 'Structured JSON output' },
+];
 
 interface V2ComposerProps {
   onSend: (content: string, files?: AttachedFile[]) => void;
@@ -69,6 +84,9 @@ const V2Composer: React.FC<V2ComposerProps> = ({
   showAgentMode = true,
 }) => {
   const [input, setInput] = useState('');
+  const [showSlashCommands, setShowSlashCommands] = useState(false);
+  const [slashFilter, setSlashFilter] = useState('');
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -90,16 +108,62 @@ const V2Composer: React.FC<V2ComposerProps> = ({
     if (!trimmed || isStreaming) return;
     onSend(trimmed);
     setInput('');
+    setShowSlashCommands(false);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   }, [input, isStreaming, onSend]);
 
+  // Phase 1.9.1: slash command filtering.
+  const filteredCommands = SLASH_COMMANDS.filter((cmd) =>
+    cmd.command.toLowerCase().includes(slashFilter.toLowerCase()) ||
+    cmd.description.toLowerCase().includes(slashFilter.toLowerCase())
+  );
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const v = e.target.value;
+    setInput(v);
+    if (v.startsWith('/')) {
+      setSlashFilter(v.slice(1).split(' ')[0]);
+      setShowSlashCommands(true);
+      setSelectedSlashIndex(0);
+    } else {
+      setShowSlashCommands(false);
+    }
+  }, []);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Phase 1.9.1: slash command navigation.
+    if (showSlashCommands) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSlashIndex((p) => p < filteredCommands.length - 1 ? p + 1 : 0);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSlashIndex((p) => p > 0 ? p - 1 : filteredCommands.length - 1);
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        const cmd = filteredCommands[selectedSlashIndex];
+        if (cmd) {
+          setInput(cmd.command + ' ');
+          setShowSlashCommands(false);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSlashCommands(false);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (isStreaming) onStop();
       else handleSend();
     }
-  }, [isStreaming, handleSend, onStop]);
+  }, [showSlashCommands, filteredCommands, selectedSlashIndex, isStreaming, handleSend, onStop]);
 
   const handleFilePick = useCallback(() => {
     fileInputRef.current?.click();
@@ -139,12 +203,53 @@ const V2Composer: React.FC<V2ComposerProps> = ({
         onChange={handleFileInputChange}
       />
 
+      {/* Phase 1.9.1: Slash command dropdown */}
+      {showSlashCommands && filteredCommands.length > 0 && (
+        <div
+          className="absolute bottom-full left-0 right-0 mb-2 rounded-[10px] overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-50"
+          style={{
+            background: 'var(--v2-background-bg-base)',
+            boxShadow: 'var(--v2-elevation-floating)',
+            padding: '4px',
+          }}
+        >
+          <div
+            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: 'var(--v2-text-text-faint)', fontFamily: 'var(--v2-font-family-text)' }}
+          >
+            Commands
+          </div>
+          {filteredCommands.map((cmd, index) => (
+            <button
+              key={cmd.command}
+              onClick={() => {
+                setInput(cmd.command + ' ');
+                setShowSlashCommands(false);
+                textareaRef.current?.focus();
+              }}
+              className="w-full flex items-center gap-3 px-2 py-2 text-left rounded-[6px] transition-colors"
+              style={{
+                background: index === selectedSlashIndex ? 'var(--v2-overlay-simple-overlay-hover)' : 'transparent',
+              }}
+              onMouseEnter={() => setSelectedSlashIndex(index)}
+            >
+              <span className="font-mono text-xs" style={{ color: 'var(--color-accent, var(--v2-blue-400))' }}>
+                {cmd.command}
+              </span>
+              <span className="text-[11px]" style={{ color: 'var(--v2-text-text-muted)', fontFamily: 'var(--v2-font-family-text)' }}>
+                {cmd.description}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Textarea area */}
       <div className="px-4 pt-4 pb-2">
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           placeholder="Ask anything, / for commands, @ for context..."
           rows={1}
@@ -223,9 +328,9 @@ const V2Composer: React.FC<V2ComposerProps> = ({
           disabled={!canSend && !isStreaming}
           className="flex items-center justify-center h-7 w-7 rounded-md flex-shrink-0 transition-all disabled:opacity-40"
           style={{
-            background: 'var(--v2-background-bg-contrast)',
-            color: 'var(--v2-text-text-inverse)',
-            boxShadow: 'var(--v2-elevation-button-contrast)',
+            // Phase 1.9.1: use accent (follows palette) instead of grey contrast.
+            background: 'var(--color-accent, var(--v2-blue-600))',
+            color: 'white',
           }}
           aria-label={isStreaming ? 'Stop' : 'Send'}
           title={isStreaming ? 'Stop' : 'Send'}
