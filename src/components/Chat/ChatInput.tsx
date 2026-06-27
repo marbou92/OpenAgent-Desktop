@@ -63,6 +63,9 @@ interface ChatInputProps {
   thinkingEffort?: ThinkingEffort;
   onThinkingEffortChange?: (effort: ThinkingEffort) => void;
   modelSupportsReasoning?: boolean;
+  // Phase 1.9: toggles for showing/hiding the selectors (both layouts).
+  showAgentMode?: boolean;
+  showThinkingEffort?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -72,6 +75,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   activeMode, onModeChange, customAgents, pendingPrompt, onPendingPromptConsumed,
   onImagesAttached, onStructureCommand, thinkingEffort = 'medium',
   onThinkingEffortChange, modelSupportsReasoning = false,
+  showAgentMode = true, showThinkingEffort = true,
 }) => {
   const [input, setInput] = useState('');
   const [showSlashCommands, setShowSlashCommands] = useState(false);
@@ -243,9 +247,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* Controls row — BELOW the card (Agent, Model, Thinking) */}
       <div className="flex items-center gap-1 px-3 pt-1.5 mx-auto justify-center">
-        {onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
+        {showAgentMode && onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
         {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
-        {onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
+        {showThinkingEffort && onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
       </div>
     </div>
   );

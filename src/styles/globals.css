@@ -96,10 +96,10 @@
   --v2-grey-600: #52525b;
   --v2-grey-700: #3f3f46;
   --v2-grey-800: #27272a;
-  --v2-grey-900: #18181b;
-  --v2-grey-1000: #09090b;
-  --v2-grey-1100: #161618;  /* Phase 1.8: lightened from #050507 — pure black was too dark */
-  --v2-grey-1200: #0c0c0e;  /* Phase 1.8: lightened from #000000 — pure black was too dark */
+  --v2-grey-900: #1c1c20;   /* Phase 1.9: lightened — was #18181b */
+  --v2-grey-1000: #18181c;  /* Phase 1.9: lightened — was #09090b */
+  --v2-grey-1100: #232328;  /* Phase 1.9: grey-ish, not AMOLED — was #161618 */
+  --v2-grey-1200: #1a1a1e;  /* Phase 1.9: grey-ish deep bg — was #0c0c0e */
 
   /* ── Blue accent ramp ── */
   --v2-blue-400: #60a5fa;
@@ -151,27 +151,23 @@
   --v2-overlay-simple-overlay-hover: var(--v2-alpha-light-6);
   --v2-overlay-simple-overlay-pressed: var(--v2-alpha-light-10);
 
-  /* ── Elevation (shadows) ── */
+  /* ── Elevation (shadows) ──
+     Phase 1.9: removed the 0.5px hairline border layer (it was showing as an
+     orange/accent outline when --color-accent was set). Cards now rely on bg
+     contrast + drop shadow only, matching opencode V2. */
   --v2-elevation-raised:
     0px 2px 4px 0px var(--v2-alpha-light-4, rgba(255,255,255,0.04)),
-    0px 1px 2px -1px var(--v2-alpha-light-8),
-    0px 0px 0px 0.5px var(--v2-alpha-light-12),
-    0px 0px 0px 0px var(--v2-alpha-light-0);
+    0px 1px 2px -1px var(--v2-alpha-light-8);
   --v2-elevation-floating:
     0px 8px 16px 0px var(--v2-alpha-light-4, rgba(255,255,255,0.04)),
-    0px 4px 8px 0px var(--v2-alpha-light-8),
-    0px 0px 0px 0.5px var(--v2-alpha-light-12),
-    0px 0px 0px 0px var(--v2-alpha-light-0);
+    0px 4px 8px 0px var(--v2-alpha-light-8);
   --v2-elevation-overlay:
     0px 16px 32px 0px var(--v2-alpha-light-8),
-    0px 8px 16px 0px var(--v2-alpha-light-12),
-    0px 0px 0px 0.5px var(--v2-alpha-light-20);
+    0px 8px 16px 0px var(--v2-alpha-light-12);
   --v2-elevation-button-neutral:
-    0px 1px 2px 0px var(--v2-alpha-light-8),
-    0px 0px 0px 0.5px var(--v2-alpha-light-12);
+    0px 1px 2px 0px var(--v2-alpha-light-8);
   --v2-elevation-button-contrast:
-    0px 1px 2px 0px var(--v2-alpha-dark-20),
-    0px 0px 0px 0.5px var(--v2-alpha-dark-12);
+    0px 1px 2px 0px var(--v2-alpha-dark-20);
 
   /* ── Typography ── */
   --v2-font-family-text: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -218,24 +214,17 @@
 
   --v2-elevation-raised:
     0px 2px 4px 0px var(--v2-alpha-dark-4),
-    0px 1px 2px -1px var(--v2-alpha-dark-8),
-    0px 0px 0px 0.5px var(--v2-alpha-dark-12),
-    0px 0px 0px 0px var(--v2-alpha-dark-0);
+    0px 1px 2px -1px var(--v2-alpha-dark-8);
   --v2-elevation-floating:
     0px 8px 16px 0px var(--v2-alpha-dark-4),
-    0px 4px 8px 0px var(--v2-alpha-dark-8),
-    0px 0px 0px 0.5px var(--v2-alpha-dark-12),
-    0px 0px 0px 0px var(--v2-alpha-dark-0);
+    0px 4px 8px 0px var(--v2-alpha-dark-8);
   --v2-elevation-overlay:
     0px 16px 32px 0px var(--v2-alpha-dark-8),
-    0px 8px 16px 0px var(--v2-alpha-dark-12),
-    0px 0px 0px 0.5px var(--v2-alpha-dark-20);
+    0px 8px 16px 0px var(--v2-alpha-dark-12);
   --v2-elevation-button-neutral:
-    0px 1px 2px 0px var(--v2-alpha-dark-8),
-    0px 0px 0px 0.5px var(--v2-alpha-dark-12);
+    0px 1px 2px 0px var(--v2-alpha-dark-8);
   --v2-elevation-button-contrast:
-    0px 1px 2px 0px var(--v2-alpha-dark-20),
-    0px 0px 0px 0.5px var(--v2-alpha-dark-12);
+    0px 1px 2px 0px var(--v2-alpha-dark-20);
 }
 
 /* ── Modern Layout: helper utility classes ── */

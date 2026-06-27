@@ -155,6 +155,11 @@ const V2Composer: React.FC<V2ComposerProps> = ({
             fontWeight: 'var(--v2-font-weight-regular)',
             minHeight: '52px',
             maxHeight: '180px',
+            // Phase 1.9: explicitly kill the focus outline/ring — it was showing
+            // as an orange accent border around the composer.
+            outline: 'none',
+            boxShadow: 'none',
+            border: 'none',
           }}
         />
       </div>

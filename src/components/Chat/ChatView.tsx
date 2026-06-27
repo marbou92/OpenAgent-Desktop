@@ -785,6 +785,8 @@ const ChatView: React.FC<ChatViewProps> = ({
         thinkingEffort={thinkingEffort}
         onThinkingEffortChange={setThinkingEffort}
         modelSupportsReasoning={modelSupportsReasoning}
+        showAgentMode={settings.showAgentMode}
+        showThinkingEffort={settings.showThinkingEffort}
       />
 
       {/* ─── Phase 4: Image attachment preview ─────────────────────────── */}

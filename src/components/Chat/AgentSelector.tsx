@@ -177,20 +177,8 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
         }}
         title={`${activeConfig.description}  [${activeConfig.shortcut}]  — Tab to cycle`}
       >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ flexShrink: 0, color: activeConfig.color }}
-        >
-          <path d={activeConfig.iconPath} />
-        </svg>
-        <span className="truncate">{activeConfig.label}</span>
+        {/* Phase 1.9: opencode-style — text + chevron only, no colored icon on the trigger. */}
+        <span className="truncate" style={{ color: open ? activeConfig.color : 'var(--color-text-secondary)' }}>{activeConfig.label}</span>
         <svg
           width="10"
           height="10"

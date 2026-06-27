@@ -181,32 +181,30 @@ export default function AppearanceView() {
           Restart the app after switching for the new layout to take full effect.
         </p>
 
-        {/* Phase 1.8: Modern composer toggles — only relevant in Modern mode */}
-        {settings.layoutStyle === 'modern' && (
-          <div className="mt-3 flex flex-col gap-2">
-            <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={settings.showAgentMode}
-                onChange={(e) => updateSettings({ showAgentMode: e.target.checked })}
-                className="cursor-pointer"
-              />
-              Show Build/Plan mode selector in composer
-            </label>
-            <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={settings.showThinkingEffort}
-                onChange={(e) => updateSettings({ showThinkingEffort: e.target.checked })}
-                className="cursor-pointer"
-              />
-              Show thinking effort selector in composer
-              <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-                (only appears for reasoning-capable models)
-              </span>
-            </label>
-          </div>
-        )}
+        {/* Phase 1.8 + 1.9: Composer selector toggles — shown for BOTH layout modes. */}
+        <div className="mt-3 flex flex-col gap-2">
+          <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
+            <input
+              type="checkbox"
+              checked={settings.showAgentMode}
+              onChange={(e) => updateSettings({ showAgentMode: e.target.checked })}
+              className="cursor-pointer"
+            />
+            Show Build/Plan mode selector in composer
+          </label>
+          <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
+            <input
+              type="checkbox"
+              checked={settings.showThinkingEffort}
+              onChange={(e) => updateSettings({ showThinkingEffort: e.target.checked })}
+              className="cursor-pointer"
+            />
+            Show thinking effort selector in composer
+            <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+              (only appears for reasoning-capable models)
+            </span>
+          </label>
+        </div>
       </SectionCard>
 
       {/* ─── Theme Mode ──────────────────────────────────────────────── */}
