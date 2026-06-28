@@ -174,17 +174,19 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         type="button"
         onClick={() => !disabled && setPanelOpen((v) => !v)}
         disabled={disabled}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 max-w-[260px]"
+        className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors disabled:opacity-50 max-w-[260px]"
         style={{
-          background: panelOpen ? 'var(--color-bg-hover)' : 'var(--color-bg-tertiary)',
-          color: selectedProviderId ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-          border: '1px solid var(--color-border-primary)',
+          // Phase 1.9.2: ghost/transparent trigger (matching V2 selectors) —
+          // was bg-tertiary + border which looked boxed/inconsistent.
+          background: panelOpen ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))' : 'transparent',
+          color: selectedProviderId ? 'var(--v2-text-text-base, var(--color-text-primary))' : 'var(--v2-text-text-muted, var(--color-text-tertiary))',
+          border: '1px solid transparent',
         }}
         onMouseEnter={(e) => {
-          if (!panelOpen) e.currentTarget.style.background = 'var(--color-bg-hover)';
+          if (!panelOpen) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
         }}
         onMouseLeave={(e) => {
-          if (!panelOpen) e.currentTarget.style.background = 'var(--color-bg-tertiary)';
+          if (!panelOpen) e.currentTarget.style.background = 'transparent';
         }}
         title={selectedProviderId ? `${selectedProvider?.name || selectedProviderId} / ${selectedModelLabel}` : 'Choose a provider'}
       >
@@ -220,15 +222,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
       {panelOpen && (
         <div
-          className="absolute bottom-full left-0 mb-2 rounded-xl overflow-hidden animate-fade-in"
+          className="absolute bottom-full left-0 mb-2 rounded-[10px] overflow-hidden animate-fade-in"
           style={{
-            background: 'var(--color-bg-elevated)',
-            border: '1px solid var(--color-border-primary)',
-            boxShadow: 'var(--shadow-popover)',
+            // Phase 1.9.2: V2-styled dropdown.
+            background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+            boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
             minWidth: '300px',
             maxWidth: '380px',
             maxHeight: '420px',
             zIndex: 50,
+            padding: '4px',
           }}
         >
           {/* Two-column layout: providers | models */}
@@ -238,16 +241,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
               className="overflow-y-auto"
               style={{
                 width: '130px',
-                borderRight: '1px solid var(--color-border-secondary)',
-                background: 'var(--color-bg-secondary)',
+                borderRight: '1px solid var(--v2-border-border-muted, var(--color-border-secondary))',
+                background: 'var(--v2-background-bg-layer-01, var(--color-bg-secondary))',
               }}
             >
               <div
                 className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider sticky top-0"
                 style={{
-                  color: 'var(--color-text-muted)',
-                  background: 'var(--color-bg-secondary)',
-                  borderBottom: '1px solid var(--color-border-secondary)',
+                  color: 'var(--v2-text-text-faint, var(--color-text-muted))',
+                  background: 'var(--v2-background-bg-layer-01, var(--color-bg-secondary))',
+                  borderBottom: '1px solid var(--v2-border-border-muted, var(--color-border-secondary))',
                 }}
               >
                 Providers
@@ -265,14 +268,14 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                     <button
                       key={p.id}
                       onClick={() => handleProviderPick(p.id)}
-                      className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
+                      className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 rounded-[6px]"
                       style={{
-                        background: isActive ? 'var(--color-accent-soft)' : 'transparent',
-                        color: isActive ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                        background: isActive ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))' : 'transparent',
+                        color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-muted, var(--color-text-secondary))',
                         borderLeft: isActive ? '2px solid var(--color-accent)' : '2px solid transparent',
                       }}
                       onMouseEnter={(e) => {
-                        if (!isActive) e.currentTarget.style.background = 'var(--color-bg-hover)';
+                        if (!isActive) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
                       }}
                       onMouseLeave={(e) => {
                         if (!isActive) e.currentTarget.style.background = 'transparent';
@@ -291,7 +294,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                 <>
                   <div
                     className="p-2 border-b"
-                    style={{ borderColor: 'var(--color-border-secondary)' }}
+                    style={{ borderColor: 'var(--v2-border-border-muted, var(--color-border-secondary))' }}
                   >
                     <input
                       ref={searchInputRef}
@@ -301,9 +304,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                       placeholder="Search models..."
                       className="w-full px-2 py-1.5 text-xs rounded-md outline-none"
                       style={{
-                        background: 'var(--color-bg-tertiary)',
-                        color: 'var(--color-text-primary)',
-                        border: '1px solid var(--color-border-primary)',
+                        background: 'var(--v2-background-bg-layer-02, var(--color-bg-tertiary))',
+                        color: 'var(--v2-text-text-base, var(--color-text-primary))',
+                        border: '1px solid var(--v2-border-border-base, var(--color-border-primary))',
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Escape') {
@@ -335,13 +338,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                           <button
                             key={m.id}
                             onClick={() => handleModelPick(m.id)}
-                            className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 rounded-[6px]"
                             style={{
-                              background: isActive ? 'var(--color-accent-soft)' : 'transparent',
-                              color: isActive ? 'var(--color-accent)' : 'var(--color-text-primary)',
+                              background: isActive ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))' : 'transparent',
+                              color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
                             }}
                             onMouseEnter={(e) => {
-                              if (!isActive) e.currentTarget.style.background = 'var(--color-bg-hover)';
+                              if (!isActive) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
                             }}
                             onMouseLeave={(e) => {
                               if (!isActive) e.currentTarget.style.background = 'transparent';
@@ -350,12 +353,12 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                             <span
                               className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                               style={{
-                                background: isActive ? 'var(--color-accent)' : 'var(--color-text-muted)',
+                                background: isActive ? 'var(--color-accent)' : 'var(--v2-icon-icon-muted, var(--color-text-muted))',
                               }}
                             />
                             <div className="min-w-0 flex-1">
                               <div className="truncate font-medium">{m.displayName}</div>
-                              <div className="truncate text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                              <div className="truncate text-[10px]" style={{ color: 'var(--v2-text-text-muted, var(--color-text-muted))' }}>
                                 {m.id}
                               </div>
                             </div>

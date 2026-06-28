@@ -121,26 +121,28 @@
   --v2-alpha-dark-20: rgba(0, 0, 0, 0.20);
 
   /* ── Semantic tokens (dark defaults) ──
-     Phase 1.8: accent tokens now reference the active palette's --color-accent
-     (set dynamically by ThemeProvider) so palettes apply to the Modern layout. */
-  --v2-background-bg-base: var(--v2-grey-1100);
-  --v2-background-bg-deep: var(--v2-grey-1200);
-  --v2-background-bg-layer-01: var(--v2-grey-1000);
-  --v2-background-bg-layer-02: var(--v2-grey-900);
-  --v2-background-bg-layer-03: var(--v2-grey-800);
-  --v2-background-bg-layer-04: var(--v2-grey-700);
-  --v2-background-bg-contrast: var(--v2-grey-700);
-  --v2-background-bg-inverse: var(--v2-grey-1100);
+     Phase 1.9.2: bg/text/icon tokens now reference the active palette's
+     --color-* tokens (set dynamically by ThemeProvider) so the Modern layout
+     follows the palette. Previously these used hardcoded --v2-grey-* values
+     (neutral grey) which looked cold/blue next to warm palettes. */
+  --v2-background-bg-base: var(--color-card, var(--v2-grey-1100));
+  --v2-background-bg-deep: var(--color-background, var(--v2-grey-1200));
+  --v2-background-bg-layer-01: var(--color-background-secondary, var(--v2-grey-1000));
+  --v2-background-bg-layer-02: var(--color-background-tertiary, var(--v2-grey-900));
+  --v2-background-bg-layer-03: var(--color-bg-hover, var(--v2-grey-800));
+  --v2-background-bg-layer-04: var(--color-border-hover, var(--v2-grey-700));
+  --v2-background-bg-contrast: var(--color-foreground, var(--v2-grey-700));
+  --v2-background-bg-inverse: var(--color-foreground, var(--v2-grey-1100));
   --v2-background-bg-accent: var(--color-accent, var(--v2-blue-600));
 
-  --v2-text-text-base: var(--v2-grey-50);
-  --v2-text-text-muted: var(--v2-grey-500);
-  --v2-text-text-faint: var(--v2-grey-600);
-  --v2-text-text-inverse: var(--v2-grey-50);
+  --v2-text-text-base: var(--color-foreground, var(--v2-grey-50));
+  --v2-text-text-muted: var(--color-foreground-secondary, var(--v2-grey-500));
+  --v2-text-text-faint: var(--color-foreground-muted, var(--v2-grey-600));
+  --v2-text-text-inverse: var(--color-background, var(--v2-grey-50));
   --v2-text-text-accent: var(--color-accent, var(--v2-blue-400));
 
-  --v2-icon-icon-base: var(--v2-grey-400);
-  --v2-icon-icon-muted: var(--v2-grey-600);
+  --v2-icon-icon-base: var(--color-foreground-secondary, var(--v2-grey-400));
+  --v2-icon-icon-muted: var(--color-foreground-muted, var(--v2-grey-600));
   --v2-icon-icon-accent: var(--color-accent, var(--v2-blue-400));
 
   --v2-border-border-muted: var(--v2-alpha-light-8);
@@ -182,26 +184,29 @@
   --v2-radius-xl: 14px;
 }
 
-/* ── Modern Layout: Light theme overrides ── */
+/* ── Modern Layout: Light theme overrides ──
+   Phase 1.9.2: same palette-following approach for light mode. The palette's
+   light colors are applied by ThemeProvider via [data-theme='light'] on :root,
+   so the var(--color-*) references resolve correctly. */
 [data-theme='light'] {
-  --v2-background-bg-base: var(--v2-grey-50);
-  --v2-background-bg-deep: var(--v2-grey-100);
-  --v2-background-bg-layer-01: var(--v2-grey-100);
-  --v2-background-bg-layer-02: var(--v2-grey-200);
-  --v2-background-bg-layer-03: var(--v2-grey-300);
-  --v2-background-bg-layer-04: var(--v2-grey-400);
-  --v2-background-bg-contrast: var(--v2-grey-1000);
-  --v2-background-bg-inverse: var(--v2-grey-1100);
+  --v2-background-bg-base: var(--color-card, var(--v2-grey-50));
+  --v2-background-bg-deep: var(--color-background, var(--v2-grey-100));
+  --v2-background-bg-layer-01: var(--color-background-secondary, var(--v2-grey-100));
+  --v2-background-bg-layer-02: var(--color-background-tertiary, var(--v2-grey-200));
+  --v2-background-bg-layer-03: var(--color-bg-hover, var(--v2-grey-300));
+  --v2-background-bg-layer-04: var(--color-border-hover, var(--v2-grey-400));
+  --v2-background-bg-contrast: var(--color-foreground, var(--v2-grey-1000));
+  --v2-background-bg-inverse: var(--color-foreground, var(--v2-grey-1100));
   --v2-background-bg-accent: var(--color-accent, var(--v2-blue-600));
 
-  --v2-text-text-base: var(--v2-grey-1100);
-  --v2-text-text-muted: var(--v2-grey-700);
-  --v2-text-text-faint: var(--v2-grey-600);
-  --v2-text-text-inverse: var(--v2-grey-50);
+  --v2-text-text-base: var(--color-foreground, var(--v2-grey-1100));
+  --v2-text-text-muted: var(--color-foreground-secondary, var(--v2-grey-700));
+  --v2-text-text-faint: var(--color-foreground-muted, var(--v2-grey-600));
+  --v2-text-text-inverse: var(--color-background, var(--v2-grey-50));
   --v2-text-text-accent: var(--color-accent, var(--v2-blue-600));
 
-  --v2-icon-icon-base: var(--v2-grey-800);
-  --v2-icon-icon-muted: var(--v2-grey-600);
+  --v2-icon-icon-base: var(--color-foreground-secondary, var(--v2-grey-800));
+  --v2-icon-icon-muted: var(--color-foreground-muted, var(--v2-grey-600));
   --v2-icon-icon-accent: var(--color-accent, var(--v2-blue-600));
 
   --v2-border-border-muted: var(--v2-alpha-dark-8);
