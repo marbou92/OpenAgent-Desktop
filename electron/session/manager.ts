@@ -48,6 +48,10 @@ export interface Session {
   createdAt: string;
   updatedAt: string;
   metadata: SessionMetadata;
+  /** Phase 2.0.2: the project this session belongs to (null = global). */
+  projectId?: string | null;
+  /** Phase 2.0.2: the working directory for this session (from the project). */
+  workingDirectory?: string;
 }
 
 export interface SessionMetadata {
@@ -70,6 +74,10 @@ export interface SessionSummary {
   updatedAt: string;
   messageCount: number;
   metadata: SessionMetadata;
+  /** Phase 2.0.2: the project this session belongs to. */
+  projectId?: string | null;
+  /** Phase 2.0.2: the working directory for this session. */
+  workingDirectory?: string;
 }
 
 export interface SessionTemplate {
@@ -202,6 +210,8 @@ export class SessionManager extends EventEmitter {
     templateId?: string;
     extensions?: string[];
     metadata?: SessionMetadata;
+    projectId?: string | null;
+    workingDirectory?: string;
   }): Promise<Session> {
     this.ensureInitialized();
 
@@ -229,6 +239,10 @@ export class SessionManager extends EventEmitter {
       createdAt: now,
       updatedAt: now,
       metadata: options?.metadata || {},
+      // Phase 2.0.2: stamp the session with the active project's directory
+      // so tools always run in the directory the session was created in.
+      projectId: options?.projectId ?? null,
+      workingDirectory: options?.workingDirectory,
     };
 
     // Apply template if specified
@@ -859,6 +873,9 @@ export class SessionManager extends EventEmitter {
       updatedAt: session.updatedAt,
       messageCount: session.messages.length,
       metadata: session.metadata,
+      // Phase 2.0.2: include project scope in the summary
+      projectId: session.projectId ?? null,
+      workingDirectory: session.workingDirectory,
     };
   }
 

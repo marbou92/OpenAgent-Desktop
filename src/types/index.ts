@@ -156,6 +156,10 @@ export interface SessionInfo {
   updatedAt: string;
   messageCount: number;
   metadata?: Record<string, unknown>;
+  /** Phase 2.0.2: the project this session belongs to. */
+  projectId?: string | null;
+  /** Phase 2.0.2: the working directory for this session. */
+  workingDirectory?: string;
 }
 
 export interface SessionData {
@@ -169,6 +173,10 @@ export interface SessionData {
   createdAt: string;
   updatedAt: string;
   metadata?: Record<string, unknown>;
+  /** Phase 2.0.2: the project this session belongs to. */
+  projectId?: string | null;
+  /** Phase 2.0.2: the working directory for this session. */
+  workingDirectory?: string;
 }
 
 export interface SessionMessage {
@@ -624,14 +632,6 @@ export interface AppSettings {
   autoStartSandbox: boolean;
   /** Phase 8.1 — which catalog provides the provider/model list. */
   catalogSource: 'models.dev' | 'pi.dev' | 'merged';
-  /** Phase 1.1 — UI layout style: 'classic' (3-panel) or 'modern' (opencode V2). */
-  layoutStyle: 'classic' | 'modern';
-  /** Phase 1.1 — whether the first-launch layout chooser has been shown. */
-  layoutChoiceShown: boolean;
-  /** Phase 1.8 — show the thinking effort selector in the Modern composer. */
-  showThinkingEffort: boolean;
-  /** Phase 1.8 — show the Build/Plan mode selector in the Modern composer. */
-  showAgentMode: boolean;
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: number;
@@ -696,10 +696,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   opencodeAutoStart: true,
   autoStartSandbox: false,
   catalogSource: 'models.dev',
-  layoutStyle: 'classic',
-  layoutChoiceShown: false,
-  showThinkingEffort: true,
-  showAgentMode: true,
   // Session
   maxConcurrentSessions: 5,
   autoSave: true,

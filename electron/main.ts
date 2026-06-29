@@ -1695,7 +1695,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     "session:create",
     wrapIPC(async (_event, options?: Record<string, unknown>) => {
-      const session = await sessionManager.create(options);
+      // Phase 2.0.2: stamp the new session with the active project's ID + directory
+      // so tools always run in the directory the session was created in.
+      const activeProject = projectManager.getActive();
+      const sessionOptions = {
+        ...options,
+        projectId: (options?.projectId as string) ?? activeProject?.id ?? null,
+        workingDirectory: (options?.workingDirectory as string) ?? activeProject?.directory,
+      };
+      const session = await sessionManager.create(sessionOptions);
       return { success: true, data: session };
     })
   );
