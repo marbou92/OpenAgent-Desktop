@@ -138,6 +138,7 @@ const RuleRow: React.FC<{
 }> = ({ rule, index, onUpdate, onRemove, showSuggestions }) => {
   const [patternInput, setPatternInput] = useState(rule.pattern);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [hoveredSuggIdx, setHoveredSuggIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const filteredSuggestions = KNOWN_PATTERNS.filter(
@@ -169,35 +170,55 @@ const RuleRow: React.FC<{
           }}
           placeholder="e.g. bash:git *"
         />
-        {/* Autocomplete dropdown */}
+        {/* Autocomplete dropdown — minimal opencode-style */}
         {showDropdown && filteredSuggestions.length > 0 && (
           <div
-            className="absolute top-full left-0 right-0 mt-1 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto"
+            className="absolute top-full left-0 right-0 mt-1 rounded-[10px] shadow-lg z-50 max-h-40 overflow-y-auto"
             style={{
-              background: 'var(--color-bg-elevated)',
-              border: '1px solid var(--color-border-primary)',
+              background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+              boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
+              padding: '4px',
             }}
           >
-            {filteredSuggestions.map((suggestion) => (
-              <button
-                key={suggestion}
-                className="w-full text-left px-2 py-1.5 text-xs font-mono hover:opacity-90 transition-colors"
-                style={{ color: 'var(--color-text-primary)' }}
-                onMouseDown={() => {
-                  setPatternInput(suggestion);
-                  onUpdate(index, { pattern: suggestion });
-                  setShowDropdown(false);
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = 'transparent';
-                }}
-              >
-                {suggestion}
-              </button>
-            ))}
+            {filteredSuggestions.map((suggestion, idx) => {
+              const isActive = false;
+              const isHovered = hoveredSuggIdx === idx;
+              return (
+                <button
+                  key={suggestion}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
+                  style={{
+                    background: isActive
+                      ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))'
+                      : isHovered
+                      ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))'
+                      : 'transparent',
+                  }}
+                  onMouseDown={() => {
+                    setPatternInput(suggestion);
+                    onUpdate(index, { pattern: suggestion });
+                    setShowDropdown(false);
+                  }}
+                  onMouseEnter={() => setHoveredSuggIdx(idx)}
+                  onMouseLeave={() => setHoveredSuggIdx(null)}
+                >
+                  <span
+                    className="text-[13px] flex-1 truncate font-mono"
+                    style={{
+                      color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
+                      fontFamily: 'var(--v2-font-family-text)',
+                    }}
+                  >
+                    {suggestion}
+                  </span>
+                  {isActive && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

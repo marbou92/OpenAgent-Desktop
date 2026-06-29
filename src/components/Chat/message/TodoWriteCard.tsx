@@ -86,13 +86,12 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* ─── Expanded list (animates upward) ─────────────────────────── */}
+      {/* ─── Expanded list (animates upward) — Phase 1.9.4-b: minimal opencode-style ── */}
       <div
-        className="absolute bottom-full mb-2 rounded-2xl overflow-hidden transition-all duration-300 origin-bottom"
+        className="absolute bottom-full mb-2 rounded-[10px] overflow-hidden transition-all duration-300 origin-bottom"
         style={{
-          background: 'var(--color-bg-elevated, var(--color-bg-secondary))',
-          border: '1px solid var(--color-border-primary)',
-          boxShadow: '0 -8px 32px rgba(0,0,0,0.25)',
+          background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+          boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
           zIndex: 50,
           width: '340px',
           maxWidth: '90vw',
@@ -101,45 +100,11 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
           transform: visible ? 'translateY(0) scale(1)' : 'translateY(8px) scale(0.95)',
           pointerEvents: visible ? 'auto' : 'none',
           overflow: 'hidden',
+          padding: '4px',
         }}
       >
-        {/* Progress header */}
-        <div
-          className="flex items-center gap-2.5 px-4 py-2.5"
-          style={{ borderBottom: '1px solid var(--color-border-secondary)' }}
-        >
-          {/* Circular progress */}
-          <div className="relative w-9 h-9 flex-shrink-0">
-            <svg width="36" height="36" viewBox="0 0 36 36" className="-rotate-90">
-              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--color-border-secondary)" strokeWidth="2.5" />
-              <circle
-                cx="18" cy="18" r="15" fill="none"
-                stroke={allDone ? 'var(--color-success, #10b981)' : 'var(--color-accent)'}
-                strokeWidth="2.5" strokeLinecap="round"
-                strokeDasharray={`${2 * Math.PI * 15}`}
-                strokeDashoffset={`${2 * Math.PI * 15 * (1 - pct / 100)}`}
-                style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-              />
-            </svg>
-            <span
-              className="absolute inset-0 flex items-center justify-center text-[8px] font-bold tabular-nums"
-              style={{ color: allDone ? 'var(--color-success, #10b981)' : 'var(--color-text-secondary)' }}
-            >
-              {pct}%
-            </span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
-              {allDone ? 'All complete' : isStreaming ? 'Working…' : 'Tasks'}
-            </div>
-            <div className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>
-              {completed} of {total} done
-            </div>
-          </div>
-        </div>
-
         {/* Todo items */}
-        <div className="p-2 overflow-y-auto" style={{ maxHeight: '250px' }}>
+        <div className="overflow-y-auto" style={{ maxHeight: '280px' }}>
           {todos.map((todo, idx) => (
             <TodoRow key={todo.id || idx} todo={todo} />
           ))}
@@ -204,81 +169,52 @@ export const TodoWriteCard: React.FC<TodoWriteCardProps> = ({ todos, isStreaming
   );
 };
 
-// ─── Todo Row (used inside the expanded list) ─────────────────────────────────
+// ─── Todo Row (used inside the expanded list) — Phase 1.9.4-b: minimal ──────────
 
 const TodoRow: React.FC<{ todo: TodoItem }> = ({ todo }) => {
   const status = todo.status || 'pending';
-
-  let icon: React.ReactNode;
-  let color: string;
-  let textDecoration = 'none';
-  let opacity = 1;
-
-  switch (status) {
-    case 'completed':
-      icon = (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      );
-      color = 'var(--color-success, #10b981)';
-      textDecoration = 'line-through';
-      opacity = 0.4;
-      break;
-    case 'in_progress':
-      icon = (
-        <span
-          className="inline-block w-2.5 h-2.5 rounded-full"
-          style={{ background: 'var(--color-accent)', animation: 'pulse 1.5s ease-in-out infinite' }}
-        />
-      );
-      color = 'var(--color-accent)';
-      break;
-    case 'cancelled':
-      icon = (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      );
-      color = 'var(--color-text-muted)';
-      opacity = 0.3;
-      break;
-    default:
-      icon = (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-        </svg>
-      );
-      color = 'var(--color-text-muted)';
-      break;
-  }
+  const isActive = status === 'in_progress';
+  const isCompleted = status === 'completed';
+  const isCancelled = status === 'cancelled';
 
   return (
     <div
-      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-colors"
+      className="flex items-center gap-2 px-2 py-1.5 rounded-[6px] transition-colors"
       style={{
-        opacity,
-        background: status === 'in_progress' ? 'var(--color-accent-soft)' : 'transparent',
+        opacity: isCancelled ? 0.4 : 1,
+        background: isActive ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))' : 'transparent',
+        fontFamily: 'var(--v2-font-family-text)',
       }}
     >
-      <span className="flex-shrink-0 flex items-center justify-center w-3 h-3" style={{ color }}>
-        {icon}
-      </span>
       <span
-        className="text-xs flex-1 min-w-0 truncate"
+        className="text-[13px] flex-1 min-w-0 truncate"
         style={{
-          color: status === 'completed' || status === 'cancelled'
-            ? 'var(--color-text-muted)'
-            : status === 'in_progress'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-tertiary)',
-          textDecoration,
-          fontWeight: status === 'in_progress' ? 500 : 400,
+          color: isActive
+            ? 'var(--color-accent)'
+            : isCompleted
+            ? 'var(--v2-text-text-muted, var(--color-text-muted))'
+            : 'var(--v2-text-text-base, var(--color-text-primary))',
+          textDecoration: isCompleted ? 'line-through' : 'none',
+          fontWeight: isActive ? 'var(--v2-font-weight-medium)' : 'var(--v2-font-weight-regular)',
         }}
       >
         {todo.content}
       </span>
+      {isCompleted && (
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ flexShrink: 0 }}
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      )}
     </div>
   );
 };

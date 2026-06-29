@@ -23,6 +23,7 @@ interface ConfigSetSelectorProps {
 
 const ConfigSetSelector: React.FC<ConfigSetSelectorProps> = ({ configSets, activeId, onSelect }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,26 +55,48 @@ const ConfigSetSelector: React.FC<ConfigSetSelectorProps> = ({ configSets, activ
 
       {isOpen && (
         <div
-          className="absolute top-full mt-1 right-0 z-50 w-56 rounded-lg border shadow-lg py-1"
-          style={{ background: 'var(--color-bg-elevated)', borderColor: 'var(--color-border-primary)' }}
+          className="absolute top-full mt-1 right-0 z-50 w-56 rounded-[10px]"
+          style={{
+            background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+            boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
+            padding: '4px',
+          }}
         >
-          {configSets.map((cs) => (
-            <button
-              key={cs.id}
-              onClick={() => { onSelect(cs.id); setIsOpen(false); }}
-              className="w-full px-3 py-2 text-left hover:bg-[var(--color-bg-tertiary)] transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>{cs.name}</span>
-                {cs.isDefault && (
-                  <span className="text-[10px] px-1 rounded" style={{ background: 'var(--color-accent-soft)', color: 'var(--color-accent)' }}>default</span>
+          {configSets.map((cs, idx) => {
+            const isActive = cs.id === activeId;
+            const isHovered = hoveredIdx === idx;
+            return (
+              <button
+                key={cs.id}
+                onClick={() => { onSelect(cs.id); setIsOpen(false); }}
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
+                style={{
+                  background: isActive
+                    ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))'
+                    : isHovered
+                    ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))'
+                    : 'transparent',
+                }}
+              >
+                <span
+                  className="text-[13px] flex-1 truncate"
+                  style={{
+                    color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
+                    fontFamily: 'var(--v2-font-family-text)',
+                  }}
+                >
+                  {cs.name}
+                </span>
+                {isActive && (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
                 )}
-              </div>
-              <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                {cs.providerType} / {cs.model}
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

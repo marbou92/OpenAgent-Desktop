@@ -45,6 +45,7 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
   onAutoDismiss: _onAutoDismiss,
 }) => {
   const [hoveredMode, setHoveredMode] = useState<AgentMode | null>(null);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [showCustomAgents, setShowCustomAgents] = useState(false);
   const [animatingMode, setAnimatingMode] = useState<AgentMode | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -209,46 +210,56 @@ const ModeSwitch: React.FC<ModeSwitchProps> = ({
             </svg>
           </button>
 
-          {/* Dropdown */}
+          {/* Dropdown — minimal opencode-style */}
           {showCustomAgents && (
             <div
-              className="absolute top-full left-0 mt-1 py-1 rounded-lg shadow-lg z-50 min-w-[180px]"
+              className="absolute top-full left-0 mt-1 rounded-[10px] z-50 min-w-[180px]"
               style={{
-                background: 'var(--color-bg-elevated)',
-                border: '1px solid var(--color-border)',
+                background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+                boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
+                padding: '4px',
               }}
             >
-              <div
-                className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider"
-                style={{ color: 'var(--color-text-muted)' }}
-              >
-                Custom Agents
-              </div>
-              {agentsForCurrentMode.map((agent) => (
-                <button
-                  key={agent.id}
-                  onClick={() => {
-                    // If there's a way to select a specific agent, call onModeChange
-                    // with the agent context. For now, just switch mode.
-                    handleModeClick(agent.mode);
-                    setShowCustomAgents(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-xs hover:opacity-90 transition-colors flex items-center gap-2"
-                  style={{ color: 'var(--color-text-primary)' }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = 'transparent';
-                  }}
-                >
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ background: agent.color || activeModeConfig.color }}
-                  />
-                  <span className="truncate">{agent.name}</span>
-                </button>
-              ))}
+              {agentsForCurrentMode.map((agent, idx) => {
+                const isActive = false;
+                const isHovered = hoveredIdx === idx;
+                return (
+                  <button
+                    key={agent.id}
+                    onClick={() => {
+                      // If there's a way to select a specific agent, call onModeChange
+                      // with the agent context. For now, just switch mode.
+                      handleModeClick(agent.mode);
+                      setShowCustomAgents(false);
+                    }}
+                    onMouseEnter={() => setHoveredIdx(idx)}
+                    onMouseLeave={() => setHoveredIdx(null)}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
+                    style={{
+                      background: isActive
+                        ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))'
+                        : isHovered
+                        ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))'
+                        : 'transparent',
+                    }}
+                  >
+                    <span
+                      className="text-[13px] flex-1 truncate"
+                      style={{
+                        color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
+                        fontFamily: 'var(--v2-font-family-text)',
+                      }}
+                    >
+                      {agent.name}
+                    </span>
+                    {isActive && (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

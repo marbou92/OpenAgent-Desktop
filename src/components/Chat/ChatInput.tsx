@@ -20,6 +20,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { AttachedFile, SlashCommand, ProviderInfo, AgentMode, AgentDefinition } from '../../types';
 import { formatFileSize } from '../../utils/format';
+import { getAPI } from '../../utils/api';
 import ModelSelector from './ModelSelector';
 import AgentSelector from './AgentSelector';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
@@ -63,19 +64,15 @@ interface ChatInputProps {
   thinkingEffort?: ThinkingEffort;
   onThinkingEffortChange?: (effort: ThinkingEffort) => void;
   modelSupportsReasoning?: boolean;
-  // Phase 1.9: toggles for showing/hiding the selectors (both layouts).
-  showAgentMode?: boolean;
-  showThinkingEffort?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
   onSend, onStop, isStreaming, attachedFiles, onRemoveFile, onClearFiles,
-  disabled = false, streamingThinking: _streamingThinking, providers = [],
+  disabled = false, streamingThinking, providers = [],
   selectedProviderId = '', selectedModel = '', onProviderChange, onModelChange,
   activeMode, onModeChange, customAgents, pendingPrompt, onPendingPromptConsumed,
   onImagesAttached, onStructureCommand, thinkingEffort = 'medium',
   onThinkingEffortChange, modelSupportsReasoning = false,
-  showAgentMode = true, showThinkingEffort = true,
 }) => {
   const [input, setInput] = useState('');
   const [showSlashCommands, setShowSlashCommands] = useState(false);
@@ -149,20 +146,45 @@ const ChatInput: React.FC<ChatInputProps> = ({
     <div className="relative flex-shrink-0 px-4 pb-2 pt-1">
       <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFileInputChange} />
 
-      {/* Slash commands */}
+      {/* Slash commands — Phase 1.9.4-b: minimal opencode-style (accent command names, muted descriptions, rounded-[6px] items) */}
       {showSlashCommands && filteredCommands.length > 0 && (
-        <div className="absolute bottom-full left-4 right-4 mb-2 rounded-lg overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
-          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-popover)' }}>
-          {filteredCommands.map((cmd, index) => (
-            <button key={cmd.command} onClick={() => { setInput(cmd.command + ' '); setShowSlashCommands(false); textareaRef.current?.focus(); }}
-              className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors"
-              style={{ background: index === selectedSlashIndex ? 'var(--color-accent-soft)' : 'transparent' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; setSelectedSlashIndex(index); }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
-              <span className="font-mono text-xs" style={{ color: 'var(--color-accent)' }}>{cmd.command}</span>
-              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{cmd.description}</span>
-            </button>
-          ))}
+        <div
+          className="absolute bottom-full left-4 right-4 mb-2 rounded-[10px] overflow-hidden max-h-64 overflow-y-auto animate-fade-in z-20"
+          style={{
+            background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+            boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
+            padding: '4px',
+          }}
+        >
+          {filteredCommands.map((cmd, index) => {
+            const isActive = index === selectedSlashIndex;
+            return (
+              <button
+                key={cmd.command}
+                onClick={() => { setInput(cmd.command + ' '); setShowSlashCommands(false); textareaRef.current?.focus(); }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
+                style={{
+                  background: isActive ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))' : 'transparent',
+                  fontFamily: 'var(--v2-font-family-text)',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))'; setSelectedSlashIndex(index); }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span
+                  className="text-[13px] font-mono flex-shrink-0"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  {cmd.command}
+                </span>
+                <span
+                  className="text-[13px] truncate flex-1"
+                  style={{ color: 'var(--v2-text-text-muted, var(--color-text-tertiary))' }}
+                >
+                  {cmd.description}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -247,9 +269,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* Controls row — BELOW the card (Agent, Model, Thinking) */}
       <div className="flex items-center gap-1 px-3 pt-1.5 mx-auto justify-center">
-        {showAgentMode && onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
+        {onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
         {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
-        {showThinkingEffort && onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
+        {onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
       </div>
     </div>
   );

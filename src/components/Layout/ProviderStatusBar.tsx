@@ -203,115 +203,82 @@ const ProviderStatusBar: React.FC<ProviderStatusBarProps> = ({
         </svg>
       </div>
 
-      {/* Dropdown panel */}
+      {/* Dropdown panel — Phase 1.9.4-b: minimal opencode-style */}
       <div
-        className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border shadow-xl overflow-hidden z-50"
+        className="absolute bottom-full left-0 right-0 mb-1 rounded-[10px] overflow-hidden z-50"
         style={{
-          background: 'var(--color-bg-elevated)',
-          borderColor: 'var(--color-border-primary)',
+          background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
+          boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
           maxHeight: '280px',
+          padding: '4px',
         }}
       >
-        {/* Header */}
-        <div
-          className="px-3 py-2 border-b flex items-center justify-between"
-          style={{ borderColor: 'var(--color-border-secondary)' }}
-        >
-          <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>
-            Providers
-          </span>
-          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
-            {configuredProviders.length} configured
-          </span>
-        </div>
-
         {/* Provider list */}
-        <div className="overflow-y-auto max-h-[240px]">
+        <div className="overflow-y-auto" style={{ maxHeight: '260px' }}>
           {configuredProviders.length === 0 ? (
             <div className="px-3 py-4 text-center">
-              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+              <p className="text-xs" style={{ color: 'var(--v2-text-text-muted, var(--color-text-tertiary))' }}>
                 No providers configured
               </p>
             </div>
           ) : (
             configuredProviders.map((provider) => {
-              const health = healthSnapshots.find((h) => h.providerId === provider.id);
               const isActive = provider.id === activeProviderId;
 
               return (
                 <div key={provider.id}>
                   <button
                     onClick={() => handleSwitch(provider, provider.models[0] || '')}
-                    className="w-full text-left px-3 py-2 transition-colors"
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
                     style={{
-                      background: isActive ? 'var(--color-accent-soft)' : 'transparent',
+                      background: isActive ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))' : 'transparent',
                     }}
                     onMouseEnter={(e) => {
-                      if (!isActive) e.currentTarget.style.background = 'var(--color-bg-hover)';
+                      if (!isActive) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive) e.currentTarget.style.background = 'transparent';
                     }}
                   >
-                    <div className="flex items-center gap-2">
-                      {/* Health dot */}
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ background: getHealthDot(health?.status) }}
-                      />
-
-                      {/* Provider info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className="text-xs font-medium truncate"
-                            style={{
-                              color: isActive ? 'var(--color-accent)' : 'var(--color-text-primary)',
-                            }}
-                          >
-                            {provider.name}
-                          </span>
-                          {isActive && (
-                            <span
-                              className="text-[8px] px-1 py-0.5 rounded font-medium"
-                              style={{ background: 'var(--color-accent)', color: 'white' }}
-                            >
-                              ACTIVE
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                            {provider.type}
-                          </span>
-                          {health && (
-                            <>
-                              <span style={{ color: 'var(--color-text-muted)' }}>·</span>
-                              <span
-                                className="text-[10px]"
-                                style={{ color: getHealthColor(health.status) }}
-                              >
-                                {health.latencyMs}ms
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                    <span
+                      className="text-[13px] flex-1 min-w-0 truncate"
+                      style={{
+                        color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
+                        fontFamily: 'var(--v2-font-family-text)',
+                        fontWeight: isActive ? 'var(--v2-font-weight-medium)' : 'var(--v2-font-weight-regular)',
+                      }}
+                    >
+                      {provider.name}
+                    </span>
+                    {isActive && (
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--color-accent)"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ flexShrink: 0 }}
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
                   </button>
 
                   {/* Model selector for active provider */}
                   {isActive && provider.models.length > 1 && (
-                    <div className="px-3 pb-2">
+                    <div className="px-2 pb-1.5 pt-0.5">
                       <select
                         value={activeModel}
                         onChange={(e) => handleSwitch(provider, e.target.value)}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-full px-2 py-1 text-[10px] rounded border outline-none cursor-pointer"
+                        className="w-full px-2 py-1 text-[11px] rounded-[6px] outline-none cursor-pointer"
                         style={{
-                          background: 'var(--color-bg-secondary)',
-                          borderColor: 'var(--color-border-primary)',
-                          color: 'var(--color-text-primary)',
+                          background: 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))',
+                          color: 'var(--v2-text-text-base, var(--color-text-primary))',
+                          fontFamily: 'var(--v2-font-family-text)',
                         }}
                       >
                         {provider.models.map((model) => (
