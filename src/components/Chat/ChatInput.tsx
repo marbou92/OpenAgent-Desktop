@@ -24,6 +24,8 @@ import { getAPI } from '../../utils/api';
 import ModelSelector from './ModelSelector';
 import AgentSelector from './AgentSelector';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
+// Phase 2.0.4: project/folder selector.
+import ProjectSelector from './ProjectSelector';
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/recipe', label: '/recipe', description: 'Run a recipe' },
@@ -251,6 +253,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         {showAgentMode && onModeChange && activeMode !== undefined && (<AgentSelector activeMode={activeMode} onModeChange={onModeChange} customAgents={customAgents} disabled={disabled || isStreaming} />)}
         {onProviderChange && onModelChange && (<ModelSelector providers={providers} selectedProviderId={selectedProviderId} selectedModel={selectedModel} onProviderChange={onProviderChange} onModelChange={onModelChange} disabled={disabled || isStreaming} />)}
         {showThinkingEffort && onThinkingEffortChange && (<ThinkingEffortSelector effort={thinkingEffort} onChange={onThinkingEffortChange} modelSupportsReasoning={modelSupportsReasoning} disabled={disabled || isStreaming} />)}
+        <ProjectSelector />
       </div>
     </div>
   );

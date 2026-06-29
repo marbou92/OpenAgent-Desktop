@@ -48,6 +48,7 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({ addToast }) => {
     name: '',
     description: '',
     templateId: '',
+    directory: '',
   });
 
   const fetchProjects = useCallback(async () => {
@@ -80,22 +81,40 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({ addToast }) => {
       addToast({ type: 'error', title: 'Project name is required' });
       return;
     }
+    if (!newProject.directory.trim()) {
+      addToast({ type: 'error', title: 'Please select a project directory' });
+      return;
+    }
 
     try {
       const template = templates.find((t) => t.id === newProject.templateId);
       await api.projects.create({
         name: newProject.name,
         description: newProject.description || undefined,
+        directory: newProject.directory,
         extensions: template?.defaultExtensions || [],
         skills: template?.defaultSkills || [],
         providerId: template?.providerType || undefined,
       });
       addToast({ type: 'success', title: 'Project created' });
       setShowCreateDialog(false);
-      setNewProject({ name: '', description: '', templateId: '' });
+      setNewProject({ name: '', description: '', templateId: '', directory: '' });
       await fetchProjects();
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to create project', message: err.message });
+    }
+  };
+
+  const handlePickDirectory = async () => {
+    if (!api?.dialog?.openDirectory) return;
+    const dir = await api.dialog.openDirectory('Select project directory');
+    if (dir) {
+      setNewProject((prev) => ({
+        ...prev,
+        directory: dir,
+        // Auto-fill name from the folder if name is empty
+        name: prev.name || dir.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '',
+      }));
     }
   };
 
@@ -248,6 +267,27 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({ addToast }) => {
                   className="w-full px-3 py-2 rounded-lg border text-sm"
                   style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
                 />
+              </div>
+              {/* Phase 2.0.6: Directory picker */}
+              <div>
+                <label className="text-sm font-medium mb-1 block" style={{ color: 'var(--color-text-primary)' }}>Directory</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newProject.directory}
+                    onChange={(e) => setNewProject((prev) => ({ ...prev, directory: e.target.value }))}
+                    placeholder="/path/to/your/project"
+                    className="flex-1 px-3 py-2 rounded-lg border text-sm"
+                    style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-primary)', color: 'var(--color-text-primary)' }}
+                  />
+                  <button
+                    onClick={handlePickDirectory}
+                    className="px-3 py-2 rounded-lg text-sm font-medium flex-shrink-0"
+                    style={{ background: 'var(--color-accent)', color: 'white' }}
+                  >
+                    Browse...
+                  </button>
+                </div>
               </div>
               {templates.length > 0 && (
                 <div>

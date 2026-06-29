@@ -21,6 +21,8 @@ import React, { useMemo } from 'react';
 import { SessionInfo } from '../../../types';
 import { getAPI } from '../../../utils/api';
 import V2TabStrip from './V2TabStrip';
+// Phase 2.0.5: project/folder selector in the titlebar.
+import ProjectSelector from '../../Chat/ProjectSelector';
 
 interface V2TitlebarProps {
   /** Session IDs currently open as tabs. */
@@ -118,6 +120,17 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
           <path d="M5 10v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V10" />
         </svg>
       </button>
+
+      {/* Phase 2.0.5: Project/folder selector — compact mode for the titlebar. */}
+      <div
+        style={{
+          // @ts-expect-error — webkitAppRegion is a non-standard CSS property.
+          WebkitAppRegion: 'no-drag',
+        }}
+        className="flex-shrink-0 h-full flex items-center"
+      >
+        <ProjectSelector compact />
+      </div>
 
       {/* Tab strip — fills the available space. */}
       <div
