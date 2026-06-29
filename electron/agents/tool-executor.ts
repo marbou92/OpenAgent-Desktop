@@ -342,6 +342,16 @@ async function executeEdit(args: Record<string, unknown>, deps: ToolExecutorDeps
       isError: true,
     };
   }
+  // Phase 2.0.12: CAS (compare-and-swap) — if the model provides an "expected"
+  // field (the full file content it read earlier), verify the file hasn't
+  // changed since. This prevents clobbering concurrent edits.
+  const expectedContent = args.expected_content || args.expected;
+  if (typeof expectedContent === 'string' && content !== expectedContent) {
+    return {
+      content: `edit: file '${filePath}' has been modified since you last read it. Read the file again to get the current content before editing.`,
+      isError: true,
+    };
+  }
   const updated = content.replace(oldString, newString);
   fs.writeFileSync(resolved, updated, 'utf-8');
   return { content: `Edited ${filePath}: replaced ${oldString.length} chars with ${newString.length} chars` };

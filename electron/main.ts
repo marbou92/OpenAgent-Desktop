@@ -2177,6 +2177,14 @@ function registerIpcHandlers(): void {
     // This IS the agent loop — the SDK handles everything.
     let fullContent = '';
     let stepCount = 0;
+    // Phase 2.0.13: Doom loop detection — track tool+input repeats.
+    const toolCallHistory: string[] = [];
+    function checkDoomLoop(toolName: string, toolInput: any): boolean {
+      const key = `${toolName}:${JSON.stringify(toolInput).slice(0, 200)}`;
+      toolCallHistory.push(key);
+      const last3 = toolCallHistory.slice(-3);
+      return last3.length === 3 && last3.every(k => k === key);
+    }
     let status = 'completed';
     const collectedToolCalls: any[] = [];   // Phase 2.6: collect for persistence
     let collectedThinking = '';              // Phase 2.6: collect for persistence
@@ -2222,6 +2230,18 @@ function registerIpcHandlers(): void {
           // Phase 2.6: Collect for persistence (upsert by ID)
           const tc = chunk.toolCall;
           if (tc?.id && chunk.type === 'tool_call_end') {
+            // Phase 2.0.13: Doom loop detection — if the same tool+input appears
+            // 3 times in a row, inject a warning message to the model.
+            if (checkDoomLoop(String(tc.name || 'unknown'), tc.arguments)) {
+              logger.warn('Agent', `Doom loop detected: ${tc.name} called 3x with same input — breaking`);
+              send('chat:stream-tool-result', {
+                toolResult: {
+                  id: tc.id,
+                  content: 'WARNING: You have called this tool with the exact same arguments 3 times in a row. This looks like a loop. Please try a different approach or ask the user for help.',
+                  isError: true,
+                },
+              });
+            }
             const idx = collectedToolCalls.findIndex(c => c.id === tc.id);
             // Phase 0.6: persist _splitOffset = current content length so the
             // AskUserQuestion card renders at the correct position after a
@@ -2255,16 +2275,17 @@ function registerIpcHandlers(): void {
           break;
         }
         case 'tool_result': {
-          // Phase 1.1: Triple-layer denial detection.
+          // Phase 2.0.10: Fixed denial detection — check the structured sentinel
+          // first (tr.denied === true), then the deniedToolCallIds set, then
+          // ONLY fall back to substring matching if the content is a string
+          // AND starts with the sentinel prefix (not just includes it).
           const tr: any = chunk.toolResult;
           const trId = tr?.id || tr?.toolCallId;
           const trContent = typeof tr?.content === 'string' ? tr.content :
                             typeof tr?.result === 'string' ? tr.result :
                             JSON.stringify(tr?.result || tr?.content || '');
-          const hasDeniedMarker = trContent.includes('DENIED') || trContent.includes('Permission denied');
           const isDenied = (tr?.denied === true) ||
-                           (trId && deniedToolCallIds.has(trId)) ||
-                           hasDeniedMarker;
+                           (trId && deniedToolCallIds.has(trId));
           if (isDenied) {
             send('chat:stream-tool-result', { toolResult: { ...tr, denied: true } });
           } else {
@@ -2279,13 +2300,12 @@ function registerIpcHandlers(): void {
             if (tcIdx >= 0) {
               const isDeniedFlag = tr?.denied === true;
               const isDeactivatedFlag = tr?.deactivated === true;
-              const trContentStr = typeof trContent === 'string' ? trContent : '';
-              const hasDenied = isDeniedFlag || trContentStr.includes('DENIED') || trContentStr.includes('Permission denied');
-              const hasDeact = isDeactivatedFlag || trContentStr.includes('deactivated') || trContentStr.includes('not found');
+              // Phase 2.0.10: removed brittle substring matching — rely on
+              // the structured tr.denied / tr.deactivated flags instead.
               collectedToolCalls[tcIdx] = {
                 ...collectedToolCalls[tcIdx],
                 result: trContent,
-                status: hasDeact ? 'deactivated' : hasDenied ? 'denied' : 'completed',
+                status: isDeactivatedFlag ? 'deactivated' : isDeniedFlag ? 'denied' : 'completed',
               };
             }
           }
