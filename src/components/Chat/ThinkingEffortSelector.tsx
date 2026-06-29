@@ -53,17 +53,11 @@ const LEVELS: { id: ThinkingEffort; label: string; description: string }[] = [
   { id: 'medium', label: 'Medium', description: 'Balanced reasoning (default)' },
   { id: 'high', label: 'High', description: 'Deep reasoning — slower' },
   { id: 'max', label: 'Max', description: 'Maximum effort — slowest, best quality' },
-  { id: 'extended', label: 'Extended', description: 'Phase 8.4: max reasoning + boosted steps/tokens for hard problems' },
+  // Phase 1.9.3: 'extended' removed per user request.
 ];
 
-const EFFORT_COLORS: Record<ThinkingEffort, string> = {
-  off: 'var(--color-text-muted)',
-  low: 'var(--color-info)',
-  medium: 'var(--color-accent)',
-  high: 'var(--color-warning)',
-  max: 'var(--color-error)',
-  extended: '#a855f7', // Purple — visually distinct from "max" (red)
-};
+// Phase 1.9.3: EFFORT_COLORS removed — the minimal trigger/dropdown no longer
+// uses per-level colors (just accent for active, muted for inactive).
 
 const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
   effort,
@@ -95,7 +89,6 @@ const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
   if (!modelSupportsReasoning) return null;
 
   const currentLevel = LEVELS.find(l => l.id === effort) || LEVELS[2]; // default to medium
-  const color = EFFORT_COLORS[effort];
 
   return (
     <div className="relative" ref={containerRef}>
@@ -103,28 +96,27 @@ const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
         type="button"
         onClick={() => !disabled && setOpen(v => !v)}
         disabled={disabled}
-        className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] transition-colors disabled:opacity-50"
         style={{
-          background: open ? 'var(--color-bg-hover)' : 'transparent',
-          color: open ? color : 'var(--color-text-secondary)',
+          background: open ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))' : 'transparent',
+          color: 'var(--v2-text-text-muted, var(--color-text-secondary))',
           border: '1px solid transparent',
+          fontFamily: 'var(--v2-font-family-text)',
         }}
         onMouseEnter={(e) => {
           if (!disabled && !open) {
-            e.currentTarget.style.background = 'var(--color-bg-hover)';
-            e.currentTarget.style.color = color;
+            e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
           }
         }}
         onMouseLeave={(e) => {
           if (!disabled && !open) {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--color-text-secondary)';
           }
         }}
-        title={`Thinking: ${currentLevel.label} — ${currentLevel.description}`}
+        title={`Thinking: ${currentLevel.label}`}
       >
-        {/* Phase 1.9: opencode-style — text + chevron only, no brain icon on the trigger. */}
-        <span className="truncate" style={{ color: open ? color : 'var(--color-text-secondary)' }}>{currentLevel.label}</span>
+        {/* Phase 1.9.3: minimal — text + chevron only, no icon. */}
+        <span className="truncate">{currentLevel.label}</span>
         <svg
           width="10"
           height="10"
@@ -141,35 +133,25 @@ const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
         </svg>
       </button>
 
-      {/* Dropdown menu — Phase 1.9.1: V2-styled */}
+      {/* Dropdown menu — Phase 1.9.3: minimal opencode-style (no radio dots, no descriptions, just label + checkmark) */}
       {open && (
         <div
           className="absolute bottom-full left-0 mb-2 rounded-[10px] overflow-hidden animate-fade-in"
           style={{
             background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
             boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
-            minWidth: '200px',
+            minWidth: '140px',
             zIndex: 50,
             padding: '4px',
           }}
         >
-          <div
-            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
-            style={{
-              color: 'var(--v2-text-text-faint, var(--color-text-muted))',
-              fontFamily: 'var(--v2-font-family-text)',
-            }}
-          >
-            Thinking Effort
-          </div>
           {LEVELS.map((level) => {
             const isActive = level.id === effort;
-            const levelColor = EFFORT_COLORS[level.id];
             return (
               <button
                 key={level.id}
                 onClick={() => handleSelect(level.id)}
-                className="w-full flex items-center gap-2.5 px-2 py-2 text-left rounded-[6px] transition-colors"
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
                 style={{
                   background: isActive ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))' : 'transparent',
                 }}
@@ -180,28 +162,21 @@ const ThinkingEffortSelector: React.FC<ThinkingEffortSelectorProps> = ({
                   if (!isActive) e.currentTarget.style.background = 'transparent';
                 }}
               >
-                {/* Radio dot */}
                 <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  className="text-[13px] flex-1 truncate"
                   style={{
-                    background: isActive ? levelColor : 'transparent',
-                    border: `1.5px solid ${isActive ? levelColor : 'var(--v2-icon-icon-muted, var(--color-text-muted))'}`,
+                    color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
+                    fontFamily: 'var(--v2-font-family-text)',
+                    fontWeight: isActive ? 'var(--v2-font-weight-medium)' : 'var(--v2-font-weight-regular)',
                   }}
-                />
-                <div className="flex-1 min-w-0">
-                  <div
-                    className="text-xs font-medium"
-                    style={{
-                      color: isActive ? levelColor : 'var(--v2-text-text-base, var(--color-text-primary))',
-                      fontFamily: 'var(--v2-font-family-text)',
-                    }}
-                  >
-                    {level.label}
-                  </div>
-                  <div className="text-[10px] truncate" style={{ color: 'var(--v2-text-text-muted, var(--color-text-muted))', fontFamily: 'var(--v2-font-family-text)' }}>
-                    {level.description}
-                  </div>
-                </div>
+                >
+                  {level.label}
+                </span>
+                {isActive && (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
               </button>
             );
           })}

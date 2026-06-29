@@ -152,33 +152,32 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
 
   return (
     <div className="relative" ref={containerRef}>
-      {/* Trigger button — ghost-styled, matches opencode desktop's Select */}
+      {/* Trigger button — Phase 1.9.3: minimal ghost (text + chevron, muted) */}
       <button
         type="button"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors disabled:opacity-50 max-w-[160px]"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] transition-colors disabled:opacity-50 max-w-[160px]"
         style={{
-          background: open ? 'var(--color-bg-hover)' : 'transparent',
-          color: open ? activeConfig.color : 'var(--color-text-secondary)',
+          background: open ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))' : 'transparent',
+          color: 'var(--v2-text-text-muted, var(--color-text-secondary))',
           border: '1px solid transparent',
+          fontFamily: 'var(--v2-font-family-text)',
         }}
         onMouseEnter={(e) => {
           if (!disabled && !open) {
-            e.currentTarget.style.background = 'var(--color-bg-hover)';
-            e.currentTarget.style.color = activeConfig.color;
+            e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
           }
         }}
         onMouseLeave={(e) => {
           if (!disabled && !open) {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--color-text-secondary)';
           }
         }}
-        title={`${activeConfig.description}  [${activeConfig.shortcut}]  — Tab to cycle`}
+        title={`${activeConfig.description} — Tab to cycle`}
       >
-        {/* Phase 1.9: opencode-style — text + chevron only, no colored icon on the trigger. */}
-        <span className="truncate" style={{ color: open ? activeConfig.color : 'var(--color-text-secondary)' }}>{activeConfig.label}</span>
+        {/* Phase 1.9.3: no icon — text + chevron only. */}
+        <span className="truncate">{activeConfig.label}</span>
         <svg
           width="10"
           height="10"
@@ -195,28 +194,18 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
         </svg>
       </button>
 
-      {/* Dropdown menu — Phase 1.9.1: V2-styled (rounded, subtle, V2 tokens with legacy fallback) */}
+      {/* Dropdown menu — Phase 1.9.3: minimal opencode-style (no icons, no chips, no footer) */}
       {open && (
         <div
           className="absolute bottom-full left-0 mb-2 rounded-[10px] overflow-hidden animate-fade-in"
           style={{
             background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
             boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
-            minWidth: '220px',
+            minWidth: '160px',
             zIndex: 50,
             padding: '4px',
           }}
         >
-          {/* Primary modes */}
-          <div
-            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
-            style={{
-              color: 'var(--v2-text-text-faint, var(--color-text-muted))',
-              fontFamily: 'var(--v2-font-family-text)',
-            }}
-          >
-            Agent
-          </div>
           {MODES.map((mode, idx) => {
             const isActive = mode.id === displayMode;
             return (
@@ -225,7 +214,7 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
                 onClick={() => handleSelect(mode.id)}
                 onMouseEnter={() => setHoveredIdx(idx)}
                 onMouseLeave={() => setHoveredIdx(null)}
-                className="w-full flex items-center gap-2.5 px-2 py-2 text-left rounded-[6px] transition-colors"
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
                 style={{
                   background: isActive
                     ? 'var(--v2-overlay-simple-overlay-hover, var(--color-accent-soft))'
@@ -234,92 +223,50 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
                     : 'transparent',
                 }}
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={mode.color}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ flexShrink: 0 }}
-                >
-                  <path d={mode.iconPath} />
-                </svg>
-                <div className="min-w-0 flex-1">
-                  <div
-                    className="text-xs font-medium truncate"
-                    style={{
-                      color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
-                      fontFamily: 'var(--v2-font-family-text)',
-                    }}
-                  >
-                    {mode.label}
-                  </div>
-                  <div
-                    className="text-[10px] truncate"
-                    style={{ color: 'var(--v2-text-text-muted, var(--color-text-muted))', fontFamily: 'var(--v2-font-family-text)' }}
-                  >
-                    {mode.description}
-                  </div>
-                </div>
                 <span
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                  className="text-[13px] flex-1 truncate"
                   style={{
-                    background: 'var(--color-bg-tertiary)',
-                    color: 'var(--color-text-muted)',
+                    color: isActive ? 'var(--color-accent)' : 'var(--v2-text-text-base, var(--color-text-primary))',
+                    fontFamily: 'var(--v2-font-family-text)',
+                    fontWeight: isActive ? 'var(--v2-font-weight-medium)' : 'var(--v2-font-weight-regular)',
                   }}
                 >
-                  {mode.shortcut}
+                  {mode.label}
                 </span>
+                {isActive && (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
               </button>
             );
           })}
 
-          {/* Custom agents for the current mode (if any) */}
+          {/* Custom agents for the current mode (if any) — minimal style */}
           {customForCurrent.length > 0 && (
             <>
               <div
-                className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider border-t"
-                style={{
-                  color: 'var(--color-text-muted)',
-                  borderColor: 'var(--color-border-secondary)',
-                }}
+                className="px-2 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider"
+                style={{ color: 'var(--v2-text-text-faint, var(--color-text-muted))' }}
               >
-                Custom — {activeConfig.label}
+                Custom
               </div>
               {customForCurrent.map((agent) => (
                 <button
                   key={agent.id}
                   onClick={() => handleSelect(agent.mode)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors"
-                  style={{ color: 'var(--color-text-primary)' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-hover)')}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-[6px] transition-colors"
+                  style={{ color: 'var(--v2-text-text-base, var(--color-text-primary))' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ background: agent.color || activeConfig.color }}
-                  />
-                  <span className="text-xs truncate">{agent.name}</span>
+                  <span className="text-[13px] truncate flex-1" style={{ fontFamily: 'var(--v2-font-family-text)' }}>
+                    {agent.name}
+                  </span>
                 </button>
               ))}
             </>
           )}
-
-          {/* Footer hint */}
-          <div
-            className="px-3 py-1.5 text-[10px] border-t flex items-center justify-between"
-            style={{
-              color: 'var(--color-text-muted)',
-              borderColor: 'var(--color-border-secondary)',
-              background: 'var(--color-bg-secondary)',
-            }}
-          >
-            <span>Tab to cycle</span>
-            <span>1/2 to select</span>
-          </div>
         </div>
       )}
     </div>
