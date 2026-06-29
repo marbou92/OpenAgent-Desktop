@@ -28,6 +28,7 @@ import {
 import { autoUpdater } from "electron-updater";
 import * as path from "path";
 import * as fs from "fs";
+import * as crypto from "crypto";
 
 // ─── Subsystem Imports ────────────────────────────────────────────────────────
 import { SandboxManager } from "./sandbox/manager";
@@ -63,7 +64,8 @@ import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/regi
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
 import { AgentPresetManager } from './agents/agent-presets';
 import { AgentSessionBridge } from './agents/session-bridge';
-import { executeToolCall } from './agents/tool-executor';
+import { AgentRunner } from './agents/agent-runner';
+import { executeToolCall, listAvailableTools } from './agents/tool-executor';
 import { AgentMode, ToolPermissionLevel } from './agents/types';
 import { ModelIdResolver, getModelIdResolver } from './providers/model-id-resolver';
 import { ConfigSetManager } from './providers/config-sets';
@@ -105,14 +107,14 @@ interface AppConfig {
   opencodeAutoStart: boolean;
   // Phase 8.1: Catalog source switching (models.dev / pi.dev / merged)
   catalogSource: 'models.dev' | 'pi.dev' | 'merged';
-  // Phase 1.1: Layout style — 'classic' (3-panel) or 'modern' (opencode V2).
-  // Existing users default to 'classic'; new users pick via first-launch popup.
+  // Phase 1.1: Layout style + first-launch chooser
   layoutStyle: 'classic' | 'modern';
-  // Phase 1.1: Whether the first-launch layout chooser has been shown.
   layoutChoiceShown: boolean;
-  // Phase 1.8: Show thinking effort + agent mode selectors in Modern composer.
+  // Phase 1.8: Composer selector toggles
   showThinkingEffort: boolean;
   showAgentMode: boolean;
+  // Phase 2.0.1: Active project — persisted so working directory survives restarts
+  activeProjectId: string | null;
   autoStartSandbox: boolean;
   maxConcurrentSessions: number;
   autoSave: boolean;
@@ -154,7 +156,7 @@ interface IPCError {
 // try to call them. This enforces Plan mode (read-only) and Chat mode (no
 // tools) at the model level, not just at the execution level.
 
-function _filterToolsByMode(
+function filterToolsByMode(
   allTools: Record<string, any>,
   mode: string,
   permissions: Record<string, string>
@@ -339,6 +341,7 @@ function loadConfig(): AppConfig {
     layoutChoiceShown: false,
     showThinkingEffort: true,
     showAgentMode: true,
+    activeProjectId: null,
     autoStartSandbox: true,
     maxConcurrentSessions: 5,
     autoSave: true,
@@ -1082,6 +1085,18 @@ async function initializeSubsystems(): Promise<void> {
   // Initialize project manager
   projectManager = new ProjectManager(path.join(userDataPath, "projects"));
   await projectManager.initialize();
+  // Phase 2.0.1: restore the active project from persisted config so the
+  // working directory survives restarts.
+  if (appConfig.activeProjectId) {
+    try {
+      await projectManager.setActive(appConfig.activeProjectId);
+      logger.info('Project', `Restored active project: ${appConfig.activeProjectId}`);
+    } catch {
+      // Project may have been deleted — clear the stale ID.
+      appConfig.activeProjectId = null;
+      saveConfig(appConfig);
+    }
+  }
   projectManager.on('project:created', (project) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('project:created', project);
@@ -2027,9 +2042,17 @@ function registerIpcHandlers(): void {
     }
 
     // Build the tool definitions with permission checking.
+    // Phase 2.0.1: use the active project's directory as the working directory.
+    // Previously this fell back to process.cwd() (the Electron launch dir) because
+    // session.workingDirectory was always undefined and projectManager.getActive()
+    // was never called. Now we check: session → active project → process.cwd().
+    const activeProject = projectManager.getActive();
+    const workingDirectory = session.workingDirectory
+      || activeProject?.directory
+      || process.cwd();
     const toolDeps = {
       sandboxManager,
-      workingDirectory: session.workingDirectory || process.cwd(),
+      workingDirectory,
       extensionRegistry,
       // Phase 1: Pass the denied tracker so execute() handlers can report
       // which tool call IDs were denied.
@@ -2149,29 +2172,6 @@ function registerIpcHandlers(): void {
     let status = 'completed';
     const collectedToolCalls: any[] = [];   // Phase 2.6: collect for persistence
     let collectedThinking = '';              // Phase 2.6: collect for persistence
-    // Phase 0.9.1: per-step thinking accumulator. We trace ONE consolidated
-    // thinking entry per step (on step-finish), NOT per chunk. Tracing per
-    // chunk flooded IPC + React and froze the app.
-    let stepThinking = '';
-
-    // Phase 0.9.2: Flush accumulated step thinking as a single trace entry.
-    // Called at STEP BOUNDARIES — the moment the model transitions from
-    // thinking to anything else (content, tool call, result, done). Previously
-    // this was only flushed on tool_call_end, which meant steps with thinking +
-    // content (no tool) had their thinking deferred to the NEXT step's tool
-    // call → groupIntoSteps assigned it to the wrong step (one later).
-    const flushStepThinking = () => {
-      if (!stepThinking.trim()) return;
-      const preview = stepThinking.length > 500
-        ? stepThinking.slice(0, 500) + '…'
-        : stepThinking;
-      traceCollector.addEntry(sessionId, {
-        type: 'thinking',
-        content: preview,
-        metadata: { source: 'agent', charCount: stepThinking.length },
-      }).catch(() => {});
-      stepThinking = '';
-    };
 
     for await (const chunk of chatEngine.chatStream(
       {
@@ -2196,9 +2196,6 @@ function registerIpcHandlers(): void {
     )) {
       switch (chunk.type) {
         case 'content':
-          // Phase 0.9.2: flush thinking at the step boundary (model stopped
-          // thinking, started writing content).
-          flushStepThinking();
           if (chunk.content) {
             fullContent += chunk.content;
             send('chat:stream-chunk', { chunk: chunk.content });
@@ -2207,18 +2204,12 @@ function registerIpcHandlers(): void {
         case 'thinking':
           if (chunk.content) {
             collectedThinking += chunk.content;
-            stepThinking += chunk.content;
             send('chat:stream-thinking', { thinking: chunk.content });
-            // Phase 0.9.1: do NOT trace per chunk — consolidated on step boundary.
           }
           break;
         case 'tool_call_start':
         case 'tool_call_delta':
         case 'tool_call_end': {
-          // Phase 0.9.2: flush thinking at the step boundary (model stopped
-          // thinking, started calling a tool). Flush on tool_call_start so the
-          // thinking entry appears BEFORE the tool call in the trace.
-          if (chunk.type === 'tool_call_start') flushStepThinking();
           send('chat:stream-tool-call', { toolCall: chunk.toolCall });
           // Phase 2.6: Collect for persistence (upsert by ID)
           const tc = chunk.toolCall;
@@ -2237,20 +2228,6 @@ function registerIpcHandlers(): void {
             };
             if (idx >= 0) collectedToolCalls[idx] = { ...collectedToolCalls[idx], ...entry };
             else collectedToolCalls.push(entry);
-            // Phase 0.9: trace the tool call so the trace sidebar has a
-            // permanent record (ToolUseCards are no longer persisted in chat).
-            const tcArgs = tc.arguments || {};
-            const tcName = String(tc.name || 'unknown');
-            const tcPreview = tcName === 'bash' && tcArgs.command
-              ? `$ ${String(tcArgs.command).slice(0, 200)}`
-              : Object.keys(tcArgs).length > 0
-                ? `${tcName}(${Object.keys(tcArgs).join(', ')})`
-                : tcName;
-            traceCollector.addEntry(sessionId, {
-              type: 'tool_call',
-              content: tcPreview,
-              metadata: { toolName: tcName, toolCallId: tc.id, args: tcArgs },
-            }).catch(() => {});
           }
           // Phase 2.2: If the AI calls a tool that's been deactivated
           // (not in the tools map because the user disabled it), immediately
@@ -2270,10 +2247,6 @@ function registerIpcHandlers(): void {
           break;
         }
         case 'tool_result': {
-          // Phase 0.9.2: flush thinking at the step boundary (in case the
-          // model thought, then a tool result arrived without a tool_call_end
-          // we handled — defensive).
-          flushStepThinking();
           // Phase 1.1: Triple-layer denial detection.
           const tr: any = chunk.toolResult;
           const trId = tr?.id || tr?.toolCallId;
@@ -2309,22 +2282,6 @@ function registerIpcHandlers(): void {
             }
           }
 
-          // Phase 0.9: trace the tool result so the trace sidebar shows the
-          // outcome of every tool call (success / denied / deactivated).
-          {
-            const isDeniedFlag = tr?.denied === true;
-            const isDeactivatedFlag = tr?.deactivated === true;
-            const status = isDeactivatedFlag ? 'deactivated' : isDeniedFlag ? 'denied' : 'completed';
-            const trPreview = typeof trContent === 'string'
-              ? (trContent.length > 300 ? trContent.slice(0, 300) + '…' : trContent)
-              : '(non-string result)';
-            traceCollector.addEntry(sessionId, {
-              type: 'tool_result',
-              content: trPreview,
-              metadata: { toolCallId: trId, status },
-            }).catch(() => {});
-          }
-
           // Phase 1.5: Forward TodoWrite todos to the renderer.
           if (trId && (toolDeps as any)._todos) {
             const todos = (toolDeps as any)._todos;
@@ -2346,12 +2303,8 @@ function registerIpcHandlers(): void {
           status = 'error';
           send('chat:stream-error', { error: chunk.error?.message || 'Unknown error' });
           break;
-        case 'done': {
-          // Phase 0.9.2: flush any remaining step thinking (e.g. the model
-          // produced a final text answer without calling any tools).
-          flushStepThinking();
+        case 'done':
           break;
-        }
       }
     }
 
@@ -3083,6 +3036,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("project:setActive", wrapIPC(async (_event, projectId: string) => {
     await projectManager.setActive(projectId);
+    // Phase 2.0.1: persist the active project ID to appConfig so it
+    // survives restarts. Previously this was in-memory only.
+    appConfig.activeProjectId = projectId;
+    saveConfig(appConfig);
     return { success: true };
   }));
 
@@ -3435,6 +3392,7 @@ if (!gotTheLock) {
         layoutChoiceShown: false,
         showThinkingEffort: true,
         showAgentMode: true,
+        activeProjectId: null,
         autoStartSandbox: true,
         maxConcurrentSessions: 5,
         autoSave: true,
