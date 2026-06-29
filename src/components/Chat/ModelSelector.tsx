@@ -174,13 +174,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         type="button"
         onClick={() => !disabled && setPanelOpen((v) => !v)}
         disabled={disabled}
-        className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors disabled:opacity-50 max-w-[260px]"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] transition-colors disabled:opacity-50 max-w-[260px]"
         style={{
-          // Phase 1.9.2: ghost/transparent trigger (matching V2 selectors) —
-          // was bg-tertiary + border which looked boxed/inconsistent.
+          // Phase 1.9.5: ghost/transparent trigger (matching Agent + Thinking selectors).
           background: panelOpen ? 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))' : 'transparent',
-          color: selectedProviderId ? 'var(--v2-text-text-base, var(--color-text-primary))' : 'var(--v2-text-text-muted, var(--color-text-tertiary))',
+          color: selectedProviderId ? 'var(--v2-text-text-muted, var(--color-text-secondary))' : 'var(--v2-text-text-faint, var(--color-text-tertiary))',
           border: '1px solid transparent',
+          fontFamily: 'var(--v2-font-family-text)',
         }}
         onMouseEnter={(e) => {
           if (!panelOpen) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover, var(--color-bg-hover))';
@@ -195,8 +195,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             <span className="truncate max-w-[110px]">{selectedProvider?.name || selectedProviderId}</span>
             {selectedModelLabel && (
               <>
-                <span style={{ color: 'var(--color-text-muted)' }}>/</span>
-                <span className="truncate max-w-[110px]" style={{ color: 'var(--color-text-secondary)' }}>
+                <span style={{ color: 'var(--v2-text-text-faint, var(--color-text-muted))' }}>/</span>
+                <span className="truncate max-w-[110px]">
                   {selectedModelLabel}
                 </span>
               </>
@@ -213,7 +213,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           style={{
             transform: panelOpen ? 'rotate(180deg)' : 'rotate(0)',
             transition: 'transform 0.15s ease',
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--v2-icon-icon-muted, var(--color-text-tertiary))',
           }}
         >
           <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -224,7 +224,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         <div
           className="absolute bottom-full left-0 mb-2 rounded-[10px] overflow-hidden animate-fade-in"
           style={{
-            // Phase 1.9.2: V2-styled dropdown.
+            // Phase 1.9.5: V2-styled dropdown.
             background: 'var(--v2-background-bg-base, var(--color-bg-elevated))',
             boxShadow: 'var(--v2-elevation-floating, var(--shadow-popover))',
             minWidth: '300px',
@@ -350,18 +350,17 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                               if (!isActive) e.currentTarget.style.background = 'transparent';
                             }}
                           >
-                            <span
-                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              style={{
-                                background: isActive ? 'var(--color-accent)' : 'var(--v2-icon-icon-muted, var(--color-text-muted))',
-                              }}
-                            />
                             <div className="min-w-0 flex-1">
                               <div className="truncate font-medium">{m.displayName}</div>
                               <div className="truncate text-[10px]" style={{ color: 'var(--v2-text-text-muted, var(--color-text-muted))' }}>
                                 {m.id}
                               </div>
                             </div>
+                            {isActive && (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
                           </button>
                         );
                       })
