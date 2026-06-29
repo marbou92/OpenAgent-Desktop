@@ -1,160 +1,279 @@
 /**
- * OpenAgent-Desktop — Layout Chooser Dialog (Phase 1.1)
+ * OpenAgent-Desktop — Layout Chooser Dialog (Phase 2.0.3)
  *
- * Shown on first launch (when layoutChoiceShown === false). Lets the user pick
- * between the Classic (3-panel) and Modern (opencode V2 card-based) layouts.
- * The choice is persisted via onUpdateSettings, and layoutChoiceShown is set
- * so the popup never appears again.
+ * First-launch popup that lets the user pick between the Classic sidebar
+ * layout and the Modern (V2) titlebar + floating-card layout.
+ *
+ *   ┌─────────────────────────────────────────────────────────────┐
+ *   │              Welcome to OpenAgent-Desktop                   │
+ *   │              Pick the layout that fits you.                 │
+ *   │                                                             │
+ *   │   ┌─────────────────┐    ┌─────────────────┐                │
+ *   │   │   Classic       │    │   Modern        │                │
+ *   │   │  (sidebar mock) │    │  (titlebar mock)│                │
+ *   │   │                 │    │                 │                │
+ *   │   │   [ Use this ]  │    │   [ Use this ]  │                │
+ *   │   └─────────────────┘    └─────────────────┘                │
+ *   └─────────────────────────────────────────────────────────────┘
+ *
+ * Choosing a card calls `onChoose('classic' | 'modern')`. The dialog renders
+ * as a centered modal with a dim backdrop; Escape is intentionally NOT bound
+ * — the user must make a choice (first-launch is a one-time gate).
  */
 
-import React, { useState } from 'react';
+import React from 'react';
+
+export type LayoutChoice = 'classic' | 'modern';
 
 interface LayoutChooserDialogProps {
-  /** Called with the chosen layout when the user clicks Start. */
-  onChoose: (layout: 'classic' | 'modern') => void;
+  /** Called with the user's choice. */
+  onChoose: (layout: LayoutChoice) => void;
 }
 
-const LayoutOptionCard: React.FC<{
-  id: 'classic' | 'modern';
-  title: string;
-  description: string;
-  selected: boolean;
-  onSelect: () => void;
-  preview: React.ReactNode;
-}> = ({ id: _id, title, description, selected, onSelect, preview }) => (
-  <button
-    onClick={onSelect}
-    className="flex-1 text-left rounded-xl transition-all p-5"
-    style={{
-      background: selected ? 'var(--color-accent-soft)' : 'var(--color-bg-primary)',
-      border: `1.5px solid ${selected ? 'var(--color-accent)' : 'var(--color-border-secondary)'}`,
-      cursor: 'pointer',
-    }}
-    onMouseEnter={(e) => {
-      if (!selected) e.currentTarget.style.borderColor = 'var(--color-border-primary)';
-    }}
-    onMouseLeave={(e) => {
-      if (!selected) e.currentTarget.style.borderColor = 'var(--color-border-secondary)';
-    }}
-  >
-    {/* Mini preview swatch */}
-    <div
-      className="rounded-lg mb-3 overflow-hidden"
-      style={{
-        background: 'var(--color-bg-tertiary)',
-        border: '1px solid var(--color-border-secondary)',
-        height: '90px',
-      }}
-    >
-      {preview}
-    </div>
-    <div className="flex items-center gap-2 mb-1">
-      <span
-        className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center"
-        style={{
-          border: `1.5px solid ${selected ? 'var(--color-accent)' : 'var(--color-text-muted)'}`,
-          background: selected ? 'var(--color-accent)' : 'transparent',
-        }}
-      >
-        {selected && (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        )}
-      </span>
-      <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-        {title}
-      </span>
-    </div>
-    <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-      {description}
-    </p>
-  </button>
-);
-
-// ─── Mini preview swatches (visual representations of each layout) ───────────
-
-const ClassicPreview = () => (
-  <div className="flex h-full w-full gap-0.5 p-1">
-    <div className="w-1/5 bg-[var(--color-accent)] opacity-60 rounded-sm" />
-    <div className="flex-1 bg-[var(--color-bg-secondary)] rounded-sm" />
-    <div className="w-1/4 bg-[var(--color-bg-secondary)] rounded-sm" />
-  </div>
-);
-
-const ModernPreview = () => (
-  <div className="flex flex-col h-full w-full p-1 gap-0.5">
-    <div className="h-3 bg-[var(--color-bg-secondary)] rounded-sm" />
-    <div className="flex-1 flex items-center justify-center p-2">
-      <div className="w-3/4 h-full bg-[var(--color-accent)] opacity-60 rounded-md" />
-    </div>
-  </div>
-);
-
 const LayoutChooserDialog: React.FC<LayoutChooserDialogProps> = ({ onChoose }) => {
-  const [selected, setSelected] = useState<'classic' | 'modern'>('modern');
-
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.5)' }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in"
+      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="layout-chooser-title"
     >
       <div
-        className="rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in"
-        style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-primary)' }}
+        className="w-full max-w-3xl rounded-2xl border shadow-2xl overflow-hidden"
+        style={{
+          background: 'var(--color-bg-elevated, var(--color-bg-secondary))',
+          borderColor: 'var(--color-border-primary)',
+          fontFamily: 'var(--v2-font-family-text, inherit)',
+        }}
       >
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 text-center">
-          <div className="flex justify-center mb-3">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M9 9h6v6H9z" />
+        <div className="px-6 pt-6 pb-2 text-center">
+          <div
+            className="inline-flex items-center justify-center mb-3"
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, var(--color-accent, var(--v2-blue-600)), #6d28d9)',
+            }}
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            Welcome to OpenAgent Desktop
+          <h2
+            id="layout-chooser-title"
+            className="text-lg font-semibold"
+            style={{
+              color: 'var(--color-text-primary)',
+              fontWeight: 'var(--v2-font-weight-medium, 600)',
+            }}
+          >
+            Welcome to OpenAgent-Desktop
           </h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-            Choose how you want the app to look. You can change this anytime in Settings → Appearance.
+          <p
+            className="text-sm mt-1"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            Pick the layout that fits the way you work. You can change this later in Settings.
           </p>
         </div>
 
-        {/* Options */}
-        <div className="flex gap-4 px-6 pb-4">
-          <LayoutOptionCard
-            id="classic"
+        {/* Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-6 py-4">
+          <LayoutCard
+            layout="classic"
             title="Classic"
-            description="Three resizable panels — sidebar, chat, and trace. The layout you're familiar with."
-            selected={selected === 'classic'}
-            onSelect={() => setSelected('classic')}
-            preview={<ClassicPreview />}
+            description="Sidebar navigation with stacked panels. Familiar three-pane IDE feel."
+            onChoose={onChoose}
           />
-          <LayoutOptionCard
-            id="modern"
+          <LayoutCard
+            layout="modern"
             title="Modern"
-            description="Clean card-based design with a browser-style tab strip. Floating panels on a deep background."
-            selected={selected === 'modern'}
-            onSelect={() => setSelected('modern')}
-            preview={<ModernPreview />}
+            description="Browser-style tabs in a slim titlebar with floating chat cards. Minimal & focused."
+            onChoose={onChoose}
+            recommended
           />
         </div>
 
-        {/* Footer */}
+        {/* Footer hint */}
         <div
-          className="flex justify-end gap-2 px-6 py-4"
-          style={{ background: 'var(--color-bg-tertiary)', borderTop: '1px solid var(--color-border-secondary)' }}
+          className="px-6 py-3 text-center text-[11px] border-t"
+          style={{
+            color: 'var(--color-text-muted)',
+            borderColor: 'var(--color-border-secondary)',
+            background: 'var(--color-bg-secondary)',
+          }}
         >
-          <button
-            onClick={() => onChoose(selected)}
-            className="px-5 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={{ background: 'var(--color-accent)', color: 'white' }}
-          >
-            Get Started
-          </button>
+          Tip: switch layouts any time from Settings → Appearance.
         </div>
       </div>
     </div>
   );
 };
+
+// ─── Layout preview card ───────────────────────────────────────────────────
+interface LayoutCardProps {
+  layout: LayoutChoice;
+  title: string;
+  description: string;
+  onChoose: (layout: LayoutChoice) => void;
+  recommended?: boolean;
+}
+
+const LayoutCard: React.FC<LayoutCardProps> = ({
+  layout,
+  title,
+  description,
+  onChoose,
+  recommended = false,
+}) => {
+  return (
+    <button
+      type="button"
+      onClick={() => onChoose(layout)}
+      className="group relative flex flex-col text-left rounded-xl border overflow-hidden transition-all"
+      style={{
+        background: 'var(--color-bg-primary)',
+        borderColor: recommended
+          ? 'var(--color-accent)'
+          : 'var(--color-border-primary)',
+        boxShadow: recommended
+          ? '0 0 0 3px var(--color-accent-soft)'
+          : 'none',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = 'var(--color-accent)';
+        e.currentTarget.style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = recommended
+          ? 'var(--color-accent)'
+          : 'var(--color-border-primary)';
+        e.currentTarget.style.transform = 'translateY(0)';
+      }}
+      aria-label={`Choose ${title} layout`}
+    >
+      {recommended && (
+        <span
+          className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full text-[10px] font-medium"
+          style={{
+            background: 'var(--color-accent)',
+            color: 'white',
+          }}
+        >
+          Recommended
+        </span>
+      )}
+
+      {/* Preview mock */}
+      <div
+        className="px-4 pt-4 pb-3"
+        style={{
+          background: 'var(--color-bg-secondary)',
+          borderBottom: '1px solid var(--color-border-secondary)',
+        }}
+      >
+        {layout === 'classic' ? <ClassicMock /> : <ModernMock />}
+      </div>
+
+      {/* Text */}
+      <div className="px-4 py-3 flex-1 flex flex-col">
+        <div
+          className="text-sm font-semibold mb-1"
+          style={{ color: 'var(--color-text-primary)' }}
+        >
+          {title}
+        </div>
+        <div
+          className="text-[12px] flex-1"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          {description}
+        </div>
+        <div
+          className="mt-3 inline-flex items-center justify-center h-8 px-3 rounded-md text-[12px] font-medium transition-colors"
+          style={{
+            background: 'var(--color-accent)',
+            color: 'white',
+          }}
+        >
+          Use this layout
+        </div>
+      </div>
+    </button>
+  );
+};
+
+// ─── Classic mock — sidebar + main + right panel ───────────────────────────
+const ClassicMock: React.FC = () => (
+  <div className="flex w-full h-20 rounded-md overflow-hidden border" style={{ borderColor: 'var(--color-border-secondary)' }}>
+    {/* Sidebar */}
+    <div
+      className="flex flex-col gap-1 p-1.5 flex-shrink-0"
+      style={{ width: '28px', background: 'var(--color-bg-tertiary)' }}
+    >
+      <div className="h-2 rounded-sm" style={{ background: 'var(--color-accent)' }} />
+      <div className="h-1.5 rounded-sm" style={{ background: 'var(--color-border-primary)' }} />
+      <div className="h-1.5 rounded-sm" style={{ background: 'var(--color-border-primary)' }} />
+      <div className="h-1.5 rounded-sm" style={{ background: 'var(--color-border-primary)' }} />
+    </div>
+    {/* Main */}
+    <div className="flex-1 p-2 flex flex-col gap-1" style={{ background: 'var(--color-bg-primary)' }}>
+      <div className="h-1.5 rounded-sm w-1/2" style={{ background: 'var(--color-border-primary)' }} />
+      <div className="h-1.5 rounded-sm w-3/4" style={{ background: 'var(--color-border-secondary)' }} />
+      <div className="h-1.5 rounded-sm w-2/3" style={{ background: 'var(--color-border-secondary)' }} />
+      <div className="mt-auto h-3 rounded-sm" style={{ background: 'var(--color-bg-hover)' }} />
+    </div>
+    {/* Right panel */}
+    <div
+      className="flex-shrink-0 p-1.5 flex flex-col gap-1"
+      style={{ width: '24px', background: 'var(--color-bg-secondary)', borderLeft: '1px solid var(--color-border-secondary)' }}
+    >
+      <div className="h-1.5 rounded-sm" style={{ background: 'var(--color-border-primary)' }} />
+      <div className="h-1.5 rounded-sm" style={{ background: 'var(--color-border-secondary)' }} />
+      <div className="h-1.5 rounded-sm" style={{ background: 'var(--color-border-secondary)' }} />
+    </div>
+  </div>
+);
+
+// ─── Modern mock — titlebar with tabs + floating card ──────────────────────
+const ModernMock: React.FC = () => (
+  <div className="flex flex-col w-full h-20 rounded-md overflow-hidden border" style={{ borderColor: 'var(--color-border-secondary)' }}>
+    {/* Titlebar */}
+    <div
+      className="flex items-center gap-1 px-1.5 flex-shrink-0"
+      style={{ height: '14px', background: 'var(--color-bg-tertiary)', borderBottom: '1px solid var(--color-border-secondary)' }}
+    >
+      <div className="h-1.5 w-1.5 rounded-sm" style={{ background: 'var(--color-border-primary)' }} />
+      <div className="h-1.5 w-6 rounded-sm" style={{ background: 'var(--color-accent-soft)' }} />
+      <div className="h-1.5 w-5 rounded-sm" style={{ background: 'var(--color-border-primary)' }} />
+      <div className="ml-auto h-1.5 w-1.5 rounded-sm" style={{ background: 'var(--color-border-primary)' }} />
+    </div>
+    {/* Floating card */}
+    <div className="flex-1 p-2 flex items-center justify-center" style={{ background: 'var(--color-bg-secondary)' }}>
+      <div
+        className="w-full h-full rounded-md px-2 py-1.5 flex flex-col gap-1"
+        style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border-secondary)' }}
+      >
+        <div className="h-1.5 rounded-sm w-1/2" style={{ background: 'var(--color-border-primary)' }} />
+        <div className="h-1.5 rounded-sm w-2/3" style={{ background: 'var(--color-border-secondary)' }} />
+        <div className="mt-auto h-2.5 rounded-sm self-end w-1/3" style={{ background: 'var(--color-accent)' }} />
+      </div>
+    </div>
+  </div>
+);
 
 export default LayoutChooserDialog;

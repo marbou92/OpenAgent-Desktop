@@ -1,43 +1,56 @@
 /**
- * OpenAgent-Desktop — V2 Chat View (Phase 1.5)
+ * OpenAgent-Desktop — V2 Chat View (Phase 2.0.3)
  *
- * The Modern-layout active chat. A floating rounded card on the deep background
- * containing:
- *   - A slim header (session name, streaming status, trace toggle)
- *   - The message timeline (reuses MessageBubble — all the AskUserQuestion /
- *     TodoWrite / tool-call rendering from phases 0.x is preserved)
- *   - The V2 composer docked at the bottom of the card
+ * The Modern-layout chat surface. A floating rounded card on a deep bg:
  *
  *   ┌──────────────────────────────────────────────────────────────┐
- *   │ deep bg                                                      │
+ *   │ deep bg                                                       │
  *   │  ┌────────────────────────────────────────────────────────┐  │
- *   │  │ Session Name        [● Ready]  [trace]                  │  │ ← header
+ *   │  │ Session name     [Generating…]              [Trace] [⚙]│  │ ← slim header
  *   │  ├────────────────────────────────────────────────────────┤  │
  *   │  │                                                        │  │
- *   │  │  Message timeline (MessageBubble × N)                   │  │ ← scrollable
+ *   │  │  message timeline (MessageBubble x N)                   │  │
  *   │  │                                                        │  │
+ *   │  │  [Jump to latest ↓]                                    │  │
  *   │  ├────────────────────────────────────────────────────────┤  │
- *   │  │ [+]  [Model ▾]                                  [⬆]   │  │ ← V2Composer
+ *   │  │ streaming status bar (Connecting/Thinking/Generating)  │  │
+ *   │  │ error bar (only when error)                            │  │
+ *   │  ├────────────────────────────────────────────────────────┤  │
+ *   │  │ V2Composer (docked)                                    │  │
  *   │  └────────────────────────────────────────────────────────┘  │
  *   └──────────────────────────────────────────────────────────────┘
+ *
+ * V2ChatView is a pure presentation component — all data flows in via props.
+ * The parent owns the streaming state, message list, error, etc. so the
+ * shell can swap views (home / new-session / chat) without losing state.
  */
 
-import React, { useRef, useEffect, useCallback } from 'react';
-import { ChatMessage, ProviderInfo, Toast, AttachedFile, AgentMode, AgentDefinition } from '../../../types';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import {
+  ChatMessage,
+  ProviderInfo,
+  SessionData,
+  TraceEntry,
+  Toast,
+  PermissionRequest,
+  AgentMode,
+  AgentDefinition,
+  AttachedFile,
+} from '../../../types';
 import MessageBubble from '../../Chat/MessageBubble';
 import V2Composer from './V2Composer';
 import { ThinkingEffort } from '../../Chat/ThinkingEffortSelector';
 
-const api = (window as any).openagent;
-
 interface V2ChatViewProps {
   sessionId: string | null;
-  session: { name?: string } | null;
+  session: SessionData | null;
   messages: ChatMessage[];
   isStreaming: boolean;
   error: string | null;
-  streamingContent: string;
-  streamingThinking: string;
+  /** Live-streaming assistant text (not yet committed to a message). */
+  streamingContent?: string;
+  /** Live-streaming thinking text. */
+  streamingThinking?: string;
   providers: ProviderInfo[];
   selectedProviderId: string;
   selectedModel: string;
@@ -45,17 +58,27 @@ interface V2ChatViewProps {
   onModelChange: (model: string) => void;
   onSend: (content: string, files?: AttachedFile[]) => void;
   onStop: () => void;
-  onRetry: () => void;
-  onCopyMessage: (content: string) => void;
+  onRetry?: () => void;
+  onCopyMessage?: (content: string) => void;
   onImagesAttached?: (images: string[]) => void;
-  askUserRequestId: string | null;
-  onAskUserAnswer: (requestId: string, answer: string) => void;
-  permissionRequest: { id: string; toolName: string; args: Record<string, unknown> } | null;
-  onPermissionRespond: (requestId: string, response: string) => void;
-  v2TracePanelOpen: boolean;
-  onToggleTracePanel: () => void;
-  addToast: (toast: Omit<Toast, 'id'>) => void;
-  // Phase 1.8: thinking effort + agent mode
+  /** Active AskUserQuestion request ID (matches a tool-call id in messages). */
+  askUserRequestId?: string | null;
+  /** Called when the user answers an inline AskUserQuestion. */
+  onAskUserAnswer?: (requestId: string, answer: string | null) => void;
+  /** Active permission request (for the inline permission prompt). */
+  permissionRequest?: PermissionRequest | null;
+  /** Called when the user responds to an inline permission prompt. */
+  onPermissionRespond?: (
+    requestId: string,
+    response: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny',
+  ) => void;
+  /** Whether the V2 trace panel is open. */
+  v2TracePanelOpen?: boolean;
+  /** Toggle the V2 trace panel. */
+  onToggleTracePanel?: () => void;
+  /** Toast helper (for copy notifications etc.). */
+  addToast?: (toast: Omit<Toast, 'id'>) => void;
+  // ─── Composer pass-through props ──────────────────────────────────
   thinkingEffort?: ThinkingEffort;
   onThinkingEffortChange?: (effort: ThinkingEffort) => void;
   modelSupportsReasoning?: boolean;
@@ -67,12 +90,13 @@ interface V2ChatViewProps {
 }
 
 const V2ChatView: React.FC<V2ChatViewProps> = ({
+  sessionId,
   session,
   messages,
   isStreaming,
   error,
-  streamingContent,
-  streamingThinking,
+  streamingContent = '',
+  streamingThinking = '',
   providers,
   selectedProviderId,
   selectedModel,
@@ -85,9 +109,11 @@ const V2ChatView: React.FC<V2ChatViewProps> = ({
   onImagesAttached,
   askUserRequestId,
   onAskUserAnswer,
-  v2TracePanelOpen,
+  permissionRequest,
+  onPermissionRespond,
+  v2TracePanelOpen = false,
   onToggleTracePanel,
-  // Phase 1.8: thinking effort + agent mode
+  addToast,
   thinkingEffort,
   onThinkingEffortChange,
   modelSupportsReasoning,
@@ -99,277 +125,421 @@ const V2ChatView: React.FC<V2ChatViewProps> = ({
 }) => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = React.useState(true);
-  const [sessionName, setSessionName] = React.useState(session?.name || 'New Chat');
-  const [isEditingName, setIsEditingName] = React.useState(false);
+  const [autoScroll, setAutoScroll] = useState(true);
 
-  // Sync session name when session changes
-  useEffect(() => {
-    setSessionName(session?.name || 'New Chat');
-  }, [session?.name]);
+  const hasMessages = messages.length > 0;
+  const sessionName = session?.name || (sessionId ? 'New session' : 'Chat');
 
-  // Auto-scroll to bottom on new messages
+  // ── Auto-scroll on new content ─────────────────────────────────────
   useEffect(() => {
     if (autoScroll && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, autoScroll]);
+  }, [messages, streamingContent, streamingThinking, autoScroll]);
 
-  // Scroll handler — detect if user scrolled up
   const handleScroll = useCallback(() => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const atBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
     setAutoScroll(atBottom);
   }, []);
 
-  const handleNameSubmit = useCallback(() => {
-    setIsEditingName(false);
-    // Name persistence is handled by the parent; here we just exit edit mode.
+  const handleJumpToLatest = useCallback(() => {
+    setAutoScroll(true);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  const hasConnectedProvider = providers.length > 0 && providers.some((p) => p.configured);
+  const handleCopy = useCallback(
+    (content: string) => {
+      if (onCopyMessage) {
+        onCopyMessage(content);
+      } else {
+        try {
+          void navigator.clipboard.writeText(content);
+        } catch {
+          /* ignore */
+        }
+      }
+      addToast?.({ type: 'success', title: 'Copied', duration: 1500 });
+    },
+    [onCopyMessage, addToast],
+  );
 
   return (
     <div
-      className="h-full w-full flex items-center justify-center p-2"
-      style={{ background: 'var(--v2-background-bg-deep)' }}
+      className="h-full w-full flex items-stretch justify-center overflow-hidden"
+      style={{
+        background: 'var(--v2-background-bg-deep, var(--v2-background-bg-base))',
+        fontFamily: 'var(--v2-font-family-text)',
+        padding: '0 16px 16px',
+      }}
     >
-      {/* The floating chat card */}
+      {/* Floating card — fills available width, max-w 1024px. */}
       <div
-        className="flex flex-col h-full w-full max-w-[1080px] overflow-hidden"
+        className="flex flex-col h-full w-full"
         style={{
+          maxWidth: '1024px',
           background: 'var(--v2-background-bg-base)',
-          borderRadius: 'var(--v2-radius-lg)',
+          borderRadius: 'var(--v2-radius-xl, 16px)',
           boxShadow: 'var(--v2-elevation-raised)',
+          border: '1px solid var(--v2-border-border-muted)',
+          overflow: 'hidden',
+          marginTop: '16px',
         }}
       >
-        {/* ─── Slim header ─── */}
+        {/* ─── Slim header ────────────────────────────────────────────── */}
         <div
-          className="flex items-center justify-between px-4 flex-shrink-0"
+          className="flex items-center gap-2 px-4 flex-shrink-0"
           style={{
-            height: '36px',
+            height: '40px',
             borderBottom: '1px solid var(--v2-border-border-muted)',
-            background: 'var(--v2-background-bg-layer-01)',
           }}
         >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            {isEditingName ? (
-              <input
-                type="text"
-                value={sessionName}
-                onChange={(e) => setSessionName(e.target.value)}
-                onBlur={handleNameSubmit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleNameSubmit();
-                  if (e.key === 'Escape') setIsEditingName(false);
-                }}
-                className="text-[13px] bg-transparent outline-none px-1"
-                style={{
-                  color: 'var(--v2-text-text-base)',
-                  fontFamily: 'var(--v2-font-family-text)',
-                  fontWeight: 'var(--v2-font-weight-medium)',
-                  borderBottom: '1px solid var(--v2-icon-icon-accent)',
-                  width: '220px',
-                }}
-                autoFocus
-              />
-            ) : (
-              <button
-                onClick={() => setIsEditingName(true)}
-                className="text-[13px] truncate hover:opacity-80 transition-opacity max-w-[280px]"
-                style={{
-                  color: 'var(--v2-text-text-base)',
-                  fontFamily: 'var(--v2-font-family-text)',
-                  fontWeight: 'var(--v2-font-weight-medium)',
-                }}
-                title="Click to edit session name"
-              >
-                {sessionName || 'New Chat'}
-              </button>
-            )}
-          </div>
-
-          {/* Status pill */}
-          <div
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] flex-shrink-0"
+          <span
+            className="text-[13px] font-medium truncate flex-1 min-w-0"
             style={{
-              background: isStreaming
-                ? (streamingThinking && !streamingContent
-                  ? 'rgba(168,85,247,0.1)'
-                  : 'rgba(34,197,94,0.1)')
-                : hasConnectedProvider
-                ? 'rgba(34,197,94,0.1)'
-                : 'rgba(239,68,68,0.1)',
-              color: isStreaming
-                ? (streamingThinking && !streamingContent
-                  ? 'var(--v2-icon-icon-accent)'
-                  : 'var(--v2-text-text-base)')
-                : hasConnectedProvider ? 'var(--v2-text-text-base)' : 'var(--v2-text-text-base)',
-              fontFamily: 'var(--v2-font-family-text)',
+              color: 'var(--v2-text-text-base)',
+              fontWeight: 'var(--v2-font-weight-medium)',
             }}
+            title={sessionName}
           >
-            {isStreaming ? (
-              streamingThinking && !streamingContent ? (
-                <span className="thinking-dots"><span /><span /><span /></span>
-              ) : (
-                <span className="generating-pulse" />
-              )
-            ) : (
+            {sessionName}
+          </span>
+
+          {/* Streaming status chip */}
+          {isStreaming && (
+            <span
+              className="flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full"
+              style={{
+                color: 'var(--color-accent, var(--v2-blue-600))',
+                background: 'var(--v2-overlay-simple-overlay-hover)',
+              }}
+            >
               <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: hasConnectedProvider ? 'var(--v2-icon-icon-accent)' : 'var(--v2-text-text-base)' }}
+                className="w-1.5 h-1.5 rounded-full animate-pulse"
+                style={{
+                  background: 'var(--color-accent, var(--v2-blue-600))',
+                }}
               />
-            )}
-            <span>
-              {isStreaming
-                ? (streamingThinking && !streamingContent ? 'Thinking' : 'Generating')
-                : hasConnectedProvider ? 'Ready' : 'Setup needed'}
+              {streamingThinking && !streamingContent
+                ? 'Thinking'
+                : streamingContent
+                ? 'Generating'
+                : 'Connecting'}
             </span>
-          </div>
+          )}
 
           {/* Trace toggle */}
-          <button
-            onClick={onToggleTracePanel}
-            className="flex items-center justify-center h-7 w-7 rounded transition-colors ml-1 flex-shrink-0"
-            style={{
-              color: v2TracePanelOpen ? 'var(--v2-icon-icon-accent)' : 'var(--v2-icon-icon-muted)',
-              background: v2TracePanelOpen ? 'var(--v2-overlay-simple-overlay-hover)' : 'transparent',
-            }}
-            onMouseEnter={(e) => {
-              if (!v2TracePanelOpen) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)';
-            }}
-            onMouseLeave={(e) => {
-              if (!v2TracePanelOpen) e.currentTarget.style.background = 'transparent';
-            }}
-            title="Trace"
-            aria-label="Toggle trace panel"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
-          </button>
+          {onToggleTracePanel && (
+            <button
+              type="button"
+              onClick={onToggleTracePanel}
+              className="flex items-center justify-center h-7 w-7 rounded-md transition-colors flex-shrink-0"
+              style={{
+                color: v2TracePanelOpen
+                  ? 'var(--color-accent, var(--v2-blue-600))'
+                  : 'var(--v2-icon-icon-muted)',
+                background: v2TracePanelOpen
+                  ? 'var(--v2-overlay-simple-overlay-hover)'
+                  : 'transparent',
+              }}
+              onMouseEnter={(e) => {
+                if (!v2TracePanelOpen) {
+                  e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!v2TracePanelOpen) {
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
+              aria-label="Toggle trace panel"
+              aria-pressed={v2TracePanelOpen}
+              title="Toggle trace panel"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+            </button>
+          )}
         </div>
 
-        {/* ─── Streaming status bar (thin, only when streaming) ─── */}
+        {/* ─── Message timeline ───────────────────────────────────────── */}
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 min-h-0 overflow-y-auto relative"
+          onScroll={handleScroll}
+        >
+          {hasMessages ? (
+            <div className="max-w-3xl mx-auto px-5 py-6 space-y-5">
+              {messages.map((message, index) => (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  isLast={index === messages.length - 1}
+                  onRetry={
+                    message.role === 'assistant' &&
+                    (message.error || index === messages.length - 1)
+                      ? onRetry
+                      : undefined
+                  }
+                  onCopy={handleCopy}
+                  askUserRequestId={askUserRequestId}
+                  onAskUserAnswer={onAskUserAnswer}
+                  onPermissionRespond={onPermissionRespond}
+                />
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+          ) : (
+            <div
+              className="flex flex-col items-center justify-center h-full px-6 text-center"
+              style={{ color: 'var(--v2-text-text-muted)' }}
+            >
+              <div
+                className="flex items-center justify-center mb-4"
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: 'var(--v2-radius-xl, 16px)',
+                  background:
+                    'linear-gradient(135deg, var(--color-accent, var(--v2-blue-600)), #6d28d9)',
+                }}
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+              </div>
+              <div
+                style={{
+                  color: 'var(--v2-text-text-base)',
+                  fontSize: '14px',
+                  fontWeight: 'var(--v2-font-weight-medium)',
+                  marginBottom: '4px',
+                }}
+              >
+                Start the conversation
+              </div>
+              <div
+                style={{
+                  color: 'var(--v2-text-text-muted)',
+                  fontSize: '12px',
+                }}
+              >
+                Type a message below to begin.
+              </div>
+            </div>
+          )}
+
+          {/* Scroll-to-bottom indicator */}
+          {!autoScroll && hasMessages && (
+            <div className="sticky bottom-2 flex justify-center pointer-events-none">
+              <button
+                type="button"
+                onClick={handleJumpToLatest}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium pointer-events-auto transition-colors"
+                style={{
+                  background: 'var(--v2-background-bg-base)',
+                  color: 'var(--color-accent, var(--v2-blue-600))',
+                  border: '1px solid var(--v2-border-border-base)',
+                  boxShadow: 'var(--v2-elevation-floating)',
+                }}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+                Jump to latest
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ─── Streaming status bar ───────────────────────────────────── */}
         {isStreaming && (
           <div
             className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0 text-[11px]"
             style={{
-              background: 'var(--v2-background-bg-layer-01)',
-              borderBottom: '1px solid var(--v2-border-border-muted)',
+              background: 'var(--v2-background-bg-deep, var(--v2-background-bg-base))',
+              borderTop: '1px solid var(--v2-border-border-muted)',
               color: 'var(--v2-text-text-muted)',
-              fontFamily: 'var(--v2-font-family-text)',
             }}
           >
             {streamingThinking && !streamingContent ? (
               <>
-                <span className="thinking-dots"><span /><span /><span /></span>
-                <span style={{ color: 'var(--v2-icon-icon-accent)', fontWeight: 'var(--v2-font-weight-medium)' }}>Thinking</span>
-                <span className="flex-1 truncate">
-                  {streamingThinking.slice(0, 120)}{streamingThinking.length > 120 ? '…' : ''}
+                <span className="thinking-dots">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span
+                  className="font-medium"
+                  style={{ color: 'var(--v2-text-text-muted)' }}
+                >
+                  Thinking
+                </span>
+                <span className="flex-1 truncate text-[11px]">
+                  {streamingThinking.slice(0, 120)}
+                  {streamingThinking.length > 120 ? '…' : ''}
                 </span>
               </>
             ) : streamingContent ? (
               <>
-                <span className="generating-pulse" />
-                <span style={{ color: 'var(--v2-icon-icon-accent)', fontWeight: 'var(--v2-font-weight-medium)' }}>Generating</span>
-                <span className="flex-1 truncate font-mono">
+                <span
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{
+                    background: 'var(--color-accent, var(--v2-blue-600))',
+                  }}
+                />
+                <span
+                  className="font-medium"
+                  style={{ color: 'var(--color-accent, var(--v2-blue-600))' }}
+                >
+                  Generating
+                </span>
+                <span className="flex-1 truncate text-[11px] font-mono">
                   {streamingContent.slice(-100)}
                 </span>
               </>
             ) : (
               <>
-                <div className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--v2-icon-icon-accent)', borderTopColor: 'transparent' }} />
+                <div
+                  className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow"
+                  style={{
+                    borderColor: 'var(--color-accent, var(--v2-blue-600))',
+                    borderTopColor: 'transparent',
+                  }}
+                />
                 <span>Connecting…</span>
               </>
             )}
           </div>
         )}
 
-        {/* ─── Error bar ─── */}
+        {/* ─── Error bar ──────────────────────────────────────────────── */}
         {error && (
           <div
-            className="flex items-center gap-2 px-4 py-2 flex-shrink-0 text-[11px]"
+            className="flex items-center gap-2 px-4 py-2 flex-shrink-0 text-[12px]"
             style={{
               background: 'rgba(239,68,68,0.08)',
-              borderBottom: '1px solid var(--v2-border-border-muted)',
-              color: 'var(--v2-text-text-base)',
-              fontFamily: 'var(--v2-font-family-text)',
+              borderTop: '1px solid var(--v2-border-border-muted)',
+              color: 'var(--color-error)',
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="15" y1="9" x2="9" y2="15" />
               <line x1="9" y1="9" x2="15" y2="15" />
             </svg>
             <span className="flex-1 truncate">{error}</span>
-            <button onClick={onRetry} className="font-medium underline">Retry</button>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="text-[12px] font-medium underline"
+                style={{ color: 'var(--color-error)' }}
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 
-        {/* ─── Message timeline ─── */}
-        <div
-          ref={messagesContainerRef}
-          className="flex-1 overflow-y-auto"
-          onScroll={handleScroll}
-        >
-          <div className="max-w-[720px] mx-auto px-4 py-6 space-y-5">
-            {messages.map((message, index) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                isLast={index === messages.length - 1}
-                onRetry={
-                  message.role === 'assistant' &&
-                  (message.error || index === messages.length - 1)
-                    ? onRetry
-                    : undefined
-                }
-                onCopy={onCopyMessage}
-                askUserRequestId={askUserRequestId}
-                onAskUserAnswer={(requestId, answer) => {
-                  if (api?.permissions?.respondToQuestion) {
-                    api.permissions.respondToQuestion(requestId, answer);
-                  }
-                  onAskUserAnswer(requestId, answer);
-                }}
-                onPermissionRespond={() => {
-                  // Permission handling is delegated to the parent in V2 mode
-                }}
-              />
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        {/* ─── Scroll-to-bottom indicator ─── */}
-        {!autoScroll && (
-          <div className="flex justify-center pb-1.5 -mt-9 relative z-10">
+        {/* ─── Inline permission prompt (above composer) ──────────────── */}
+        {permissionRequest && onPermissionRespond && (
+          <div
+            className="flex items-center gap-2 px-4 py-2 flex-shrink-0 text-[12px]"
+            style={{
+              background: 'rgba(245,158,11,0.08)',
+              borderTop: '1px solid var(--v2-border-border-muted)',
+              color: 'var(--color-warning)',
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span className="flex-1 truncate">
+              {permissionRequest.toolName} — {permissionRequest.reason || 'permission required'}
+            </span>
             <button
-              onClick={() => {
-                setAutoScroll(true);
-                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium transition-colors"
+              type="button"
+              onClick={() => onPermissionRespond(permissionRequest.id, 'allow_once')}
+              className="px-2 py-0.5 rounded text-[11px] font-medium"
               style={{
-                background: 'var(--v2-background-bg-layer-03)',
-                color: 'var(--v2-text-text-base)',
-                boxShadow: 'var(--v2-elevation-floating)',
-                fontFamily: 'var(--v2-font-family-text)',
+                background: 'var(--color-accent, var(--v2-blue-600))',
+                color: 'white',
               }}
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-              Jump to latest
+              Allow
+            </button>
+            <button
+              type="button"
+              onClick={() => onPermissionRespond(permissionRequest.id, 'deny_once')}
+              className="px-2 py-0.5 rounded text-[11px] font-medium"
+              style={{
+                background: 'var(--v2-overlay-simple-overlay-hover)',
+                color: 'var(--v2-text-text-base)',
+              }}
+            >
+              Deny
             </button>
           </div>
         )}
 
-        {/* ─── Docked V2 composer ─── */}
-        <div className="flex-shrink-0 px-4 pb-4 pt-1">
+        {/* ─── Docked V2Composer ──────────────────────────────────────── */}
+        <div
+          className="flex-shrink-0 px-3 py-3"
+          style={{ borderTop: '1px solid var(--v2-border-border-muted)' }}
+        >
           <V2Composer
             onSend={onSend}
             onStop={onStop}

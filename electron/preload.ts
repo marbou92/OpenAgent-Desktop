@@ -472,6 +472,15 @@ const electronAPI = {
     templates: (): Promise<any[]> => invoke("project:templates"),
   },
 
+  // Phase 2.0.3: expose the native directory/file picker dialog to the renderer.
+  dialog: {
+    openDirectory: (title?: string): Promise<string | null> =>
+      invoke<Electron.OpenDialogReturnValue>("dialog:openFile", {
+        title: title || "Select directory",
+        properties: ["openDirectory"],
+      }).then((r: any) => r?.filePaths?.[0] ?? null),
+  },
+
   // ── Skills ─────────────────────────────────────────────────────────────────
 
   skills: {

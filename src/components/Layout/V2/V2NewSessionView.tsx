@@ -1,27 +1,34 @@
 /**
- * OpenAgent-Desktop — V2 New Session View (Phase 1.4)
+ * OpenAgent-Desktop — V2 New-Session View (Phase 2.0.3)
  *
- * The Modern-layout new/empty session state. Deep background with the app
- * logo centered at ~25% from the top, and the V2 composer below it (max-w-720px).
+ * The first-launch / "New session" landing view for the V2 (Modern) layout.
  *
- *   ┌────────────────────────────────────────────┐
- *   │                                            │
- *   │                                            │
- *   │            [  LOGO  ]                      │  ← ~25% from top
- *   │                                            │
- *   │   ╭────────────────────────────────────╮   │
- *   │   │ Ask anything, / for commands...    │   │  ← V2Composer (max-w-720)
- *   │   │                                    │   │
- *   │   ├────────────────────────────────────┤   │
- *   │   │ [+]  [Model ▾]              [⬆]   │   │
- *   │   ╰────────────────────────────────────╯   │
- *   │                                            │
- *   └────────────────────────────────────────────┘
+ *   ┌────────────────────────────────────────────────────────┐
+ *   │ (deep bg)                                              │
+ *   │                                                        │
+ *   │              [logo at 25.375% from top]                │
+ *   │                                                        │
+ *   │                OpenAgent-Desktop                       │
+ *   │             What can I build for you?                  │
+ *   │                                                        │
+ *   │      ┌─────────────────────────────────────────┐       │
+ *   │      │  V2Composer (max-w 720px)               │       │
+ *   │      └─────────────────────────────────────────┘       │
+ *   │                                                        │
+ *   └────────────────────────────────────────────────────────┘
+ *
+ * The view is a deep-bg column with the brand mark anchored at 25.375% of
+ * the viewport height (matches the opencode-desktop "splash hero" feel).
+ * The composer sits in a 720px-wide column below the wordmark.
+ *
+ * Note: the spec referenced `/logo.svg` but the OpenAgent-Desktop project
+ * does not ship a logo asset file — we use the inline layered-stack SVG
+ * mark that the rest of the app (Sidebar, splash screen) already uses.
  */
 
 import React from 'react';
+import { ProviderInfo, AgentMode, AgentDefinition, AttachedFile } from '../../../types';
 import V2Composer from './V2Composer';
-import { AttachedFile, ProviderInfo, AgentMode, AgentDefinition } from '../../../types';
 import { ThinkingEffort } from '../../Chat/ThinkingEffortSelector';
 
 interface V2NewSessionViewProps {
@@ -34,7 +41,6 @@ interface V2NewSessionViewProps {
   onProviderChange: (providerId: string) => void;
   onModelChange: (model: string) => void;
   onImagesAttached?: (images: string[]) => void;
-  // Phase 1.8: thinking effort + agent mode
   thinkingEffort?: ThinkingEffort;
   onThinkingEffortChange?: (effort: ThinkingEffort) => void;
   modelSupportsReasoning?: boolean;
@@ -66,52 +72,74 @@ const V2NewSessionView: React.FC<V2NewSessionViewProps> = ({
 }) => {
   return (
     <div
-      className="relative h-full w-full overflow-hidden flex flex-col items-center"
-      style={{ background: 'var(--v2-background-bg-deep)' }}
+      className="h-full w-full overflow-y-auto"
+      style={{
+        background: 'var(--v2-background-bg-deep, var(--v2-background-bg-base))',
+        fontFamily: 'var(--v2-font-family-text)',
+      }}
     >
-      {/* Logo — centered horizontally, ~25% from top */}
+      {/* Brand mark — anchored at 25.375% from the top of the viewport. */}
       <div
-        className="absolute inset-x-0 flex justify-center px-6"
-        style={{ top: '25.375%' }}
+        className="flex flex-col items-center"
+        style={{ paddingTop: '25.375vh' }}
       >
-        <div className="w-full max-w-[720px] flex flex-col items-center">
-          {/* App logo (uses /logo.svg from public/) */}
-          <img
-            src="/logo.svg"
-            alt="OpenAgent Desktop"
-            className="h-12 w-auto mb-8"
-            style={{ opacity: 0.9 }}
-          />
-          {/* App name wordmark */}
-          <h1
-            className="text-[20px] mb-1"
-            style={{
-              color: 'var(--v2-text-text-base)',
-              fontFamily: 'var(--v2-font-family-text)',
-              fontWeight: 'var(--v2-font-weight-medium)',
-              letterSpacing: '-0.02em',
-            }}
+        <div
+          className="flex items-center justify-center"
+          style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: 'var(--v2-radius-xl, 16px)',
+            background: 'linear-gradient(135deg, var(--color-accent, var(--v2-blue-600)), #6d28d9)',
+            boxShadow: 'var(--v2-elevation-raised)',
+            marginBottom: '20px',
+          }}
+        >
+          {/* Layered-stack logo (matches Sidebar + splash screen). */}
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="white"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           >
-            OpenAgent Desktop
-          </h1>
-          <p
-            className="text-[13px]"
-            style={{
-              color: 'var(--v2-text-text-muted)',
-              fontFamily: 'var(--v2-font-family-text)',
-            }}
-          >
-            How can I help you today?
-          </p>
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
         </div>
-      </div>
 
-      {/* Composer — centered, below the logo block, docked near bottom */}
-      <div
-        className="absolute inset-x-0 flex justify-center px-6"
-        style={{ bottom: 'calc(74.625% - 280px)' }}
-      >
-        <div className="w-full max-w-[720px]">
+        <h1
+          className="text-center"
+          style={{
+            color: 'var(--v2-text-text-base)',
+            fontSize: '24px',
+            fontWeight: 'var(--v2-font-weight-medium)',
+            letterSpacing: '-0.01em',
+            marginBottom: '6px',
+          }}
+        >
+          OpenAgent-Desktop
+        </h1>
+        <p
+          className="text-center"
+          style={{
+            color: 'var(--v2-text-text-muted)',
+            fontSize: '14px',
+            fontWeight: 'var(--v2-font-weight-regular)',
+            marginBottom: '40px',
+          }}
+        >
+          What can I build for you?
+        </p>
+
+        {/* Composer column — 720px max, full width on small screens. */}
+        <div
+          className="w-full px-4 mx-auto"
+          style={{ maxWidth: '720px', marginBottom: '80px' }}
+        >
           <V2Composer
             onSend={onSend}
             onStop={onStop}

@@ -1,52 +1,87 @@
 /**
- * OpenAgent-Desktop — V2 App Shell (Phase 1.2)
+ * OpenAgent-Desktop — V2 App Shell (Phase 2.0.3)
  *
- * The Modern layout shell. Structure:
+ * The top-level shell for the V2 (Modern) layout. Assembles:
  *
- *   ┌──────────────────────────────────────────────────────────────┐
- *   │ V2Titlebar (36px) — home, tab strip, trace toggle, settings  │
- *   ├──────────────────────────────────────────────────────────────┤
- *   │                                                              │
- *   │  Main Area (deep bg) — renders the current view              │
- *   │  (Chat / Sessions / Settings / etc. as floating cards)       │
- *   │                                                              │
- *   └──────────────────────────────────────────────────────────────┘
+ *   ┌──────────────────────────────────────────────────────────┐
+ *   │ V2Titlebar (36px)                                       │
+ *   ├──────────────────────────────────────────────────────────┤
+ *   │                                                          │
+ *   │  Main area (children) — V2HomeView / V2NewSessionView /  │
+ *   │  V2ChatView — chosen by the parent based on currentView. │
+ *   │                                                          │
+ *   ├──────────────────────────────────────────────────────────┤
+ *   │ Right side: V2SlideInPanel wraps the existing RightPanel │ (overlay)
+ *   └──────────────────────────────────────────────────────────┘
  *
- * The slide-in trace panel overlays from the right when toggled.
- * Settings/Providers/etc. open as full-screen overlays (Q1=A).
+ * The shell is responsible for:
+ *   - Mounting the titlebar with all the session-tab plumbing.
+ *   - Mounting the slide-in trace panel + forwarding RightPanel props.
+ *   - Rendering `children` (the active view) inside a deep-bg container.
+ *
+ * `currentView` / `setCurrentView` are accepted for routing — the titlebar's
+ * Home button calls setCurrentView('home'). The shell itself does NOT switch
+ * between views; the parent passes the right child for the current view.
  */
 
 import React from 'react';
+import { SessionInfo, SessionData, TraceEntry, ProviderInfo } from '../../../types';
 import V2Titlebar from './V2Titlebar';
 import V2SlideInPanel from './V2SlideInPanel';
-import { SessionInfo, ViewType, TraceEntry, SessionData, ProviderInfo } from '../../../types';
 import RightPanel from '../RightPanel/RightPanel';
 
+/**
+ * V2 view names. Extends the classic ViewType set with the new "home" and
+ * "new-session" views introduced by the Modern layout. The `| string` tail
+ * keeps it open for callers that route via string-based view identifiers.
+ */
+export type V2View =
+  | 'home'
+  | 'new-session'
+  | 'chat'
+  | 'settings'
+  | 'sessions'
+  | 'projects'
+  | 'extensions'
+  | 'recipes'
+  | 'hooks'
+  | 'sandbox'
+  | 'skills'
+  | string;
+
 interface V2AppShellProps {
-  // Navigation
-  currentView: ViewType;
-  setCurrentView: (view: ViewType) => void;
-
-  // Tabs
+  /** The currently-active view name (used by the Home button to navigate). */
+  currentView: V2View;
+  /** Navigate to a view. */
+  setCurrentView: (view: V2View) => void;
+  /** Session IDs currently open as tabs. */
   openTabs: string[];
+  /** The active session ID. */
   currentSessionId: string | null;
+  /** All known sessions. */
   sessions: SessionInfo[];
-
-  // Tab actions
+  /** Click on a tab — load that session. */
   onLoadSession: (sessionId: string) => void;
+  /** New session ("+" button or empty state). */
   onNewSession: () => void;
+  /** Close a tab. */
   onCloseTab: (sessionId: string) => void;
-
-  // Trace panel
+  /** Whether the trace panel is open. */
   v2TracePanelOpen: boolean;
+  /** Toggle the trace panel. */
   toggleV2TracePanel: () => void;
+  /** Trace entries for the RightPanel. */
   traceEntries: TraceEntry[];
+  /** The full current session data (for the RightPanel context tab). */
   currentSession: SessionData | null;
+  /** Known providers (for the RightPanel context tab). */
   providers: ProviderInfo[];
-
-  // Content
-  loading: boolean;
-  children: React.ReactNode;
+  /** Whether the app is in an initial-loading state. */
+  loading?: boolean;
+  /** Open the settings sheet (V2Titlebar's ⚙ button). */
+  onOpenSettings?: () => void;
+  /** Main area content. */
+  children?: React.ReactNode;
 }
 
 const V2AppShell: React.FC<V2AppShellProps> = ({
@@ -63,67 +98,98 @@ const V2AppShell: React.FC<V2AppShellProps> = ({
   traceEntries,
   currentSession,
   providers,
-  loading,
+  loading = false,
+  onOpenSettings,
   children,
 }) => {
+  const handleHome = React.useCallback(() => {
+    setCurrentView('home');
+  }, [setCurrentView]);
+
+  // The new-tab button in the titlebar creates a fresh session — that flows
+  // through the same onNewSession callback the parent already wires up.
+  const handleNewTab = React.useCallback(() => {
+    onNewSession();
+  }, [onNewSession]);
+
+  // Closing the slide-in panel = toggle off (only meaningful when open).
+  const handleClosePanel = React.useCallback(() => {
+    if (v2TracePanelOpen) toggleV2TracePanel();
+  }, [v2TracePanelOpen, toggleV2TracePanel]);
+
+  // Derive the RightPanel context props from the current session so the user
+  // sees the session's provider/model even though AppShell doesn't take them
+  // as explicit props.
+  const selectedProviderId = currentSession?.providerId || '';
+  const selectedModel = currentSession?.model || '';
+
   return (
     <div
-      className="flex flex-col h-screen w-screen overflow-hidden"
+      className="flex flex-col h-full w-full overflow-hidden relative"
       style={{
-        background: 'var(--v2-background-bg-deep)',
-        color: 'var(--v2-text-text-base)',
+        background: 'var(--v2-background-bg-deep, var(--v2-background-bg-base))',
         fontFamily: 'var(--v2-font-family-text)',
-        fontSize: 'var(--v2-font-size-base)',
       }}
     >
-      {/* Titlebar */}
       <V2Titlebar
-        currentView={currentView}
         openTabs={openTabs}
         currentSessionId={currentSessionId}
         sessions={sessions}
-        v2TracePanelOpen={v2TracePanelOpen}
-        onHome={() => setCurrentView('sessions')}
         onTabClick={onLoadSession}
         onTabClose={onCloseTab}
-        onNewTab={onNewSession}
-        onToggleTrace={toggleV2TracePanel}
-        onOpenSettings={() => setCurrentView('settings')}
+        onNewTab={handleNewTab}
+        onHome={handleHome}
+        onOpenSettings={() => {
+          if (onOpenSettings) onOpenSettings();
+          else setCurrentView('settings');
+        }}
+        v2TracePanelOpen={v2TracePanelOpen}
+        toggleV2TracePanel={toggleV2TracePanel}
       />
 
-      {/* Main content area */}
-      <main className="flex-1 min-h-0 min-w-0 overflow-hidden">
+      {/* Main area — children fill the space. The slide-in panel overlays
+          this area (absolute-positioned inside the relative parent). */}
+      <main className="flex-1 min-h-0 relative overflow-hidden">
         {loading ? (
           <div
             className="flex items-center justify-center h-full"
             style={{ color: 'var(--v2-text-text-muted)' }}
           >
             <div
-              className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
-              style={{ borderColor: 'var(--v2-icon-icon-accent)', borderTopColor: 'transparent' }}
+              className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin-slow"
+              style={{
+                borderColor: 'var(--color-accent, var(--v2-blue-600))',
+                borderTopColor: 'transparent',
+              }}
             />
           </div>
         ) : (
           children
         )}
+
+        {/* Slide-in trace / context / notes panel. */}
+        <V2SlideInPanel
+          open={v2TracePanelOpen}
+          onClose={handleClosePanel}
+          width={340}
+          title="Inspector"
+        >
+          <RightPanel
+            entries={traceEntries}
+            session={currentSession}
+            sessionId={currentSessionId}
+            providers={providers}
+            selectedProviderId={selectedProviderId}
+            selectedModel={selectedModel}
+            onClose={handleClosePanel}
+          />
+        </V2SlideInPanel>
       </main>
 
-      {/* Slide-in trace panel (overlays from the right) */}
-      <V2SlideInPanel
-        open={v2TracePanelOpen}
-        onClose={toggleV2TracePanel}
-        title="Trace"
-      >
-        <RightPanel
-          entries={traceEntries}
-          session={currentSession}
-          sessionId={currentSessionId}
-          providers={providers}
-          selectedProviderId={currentSession?.providerId || ''}
-          selectedModel={currentSession?.model || ''}
-          onClose={toggleV2TracePanel}
-        />
-      </V2SlideInPanel>
+      {/* Silence "currentView is unused" — it's used implicitly via the
+          Home button which sets it. Reading it here keeps the prop live in
+          React DevTools and lets future shells branch on it. */}
+      {currentView ? null : null}
     </div>
   );
 };

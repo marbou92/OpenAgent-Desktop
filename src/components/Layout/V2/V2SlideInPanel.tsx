@@ -1,27 +1,38 @@
 /**
- * OpenAgent-Desktop — V2 Slide-In Panel (Phase 1.2)
+ * OpenAgent-Desktop — V2 Slide-In Panel (Phase 2.0.3)
  *
- * A reusable slide-in panel that overlays the main content from the right edge.
- * Used for the trace/context panel in Modern layout mode. The panel slides in
- * with a CSS transform animation and has a semi-transparent backdrop.
+ * A reusable right-side overlay panel used by the V2 (Modern) layout to host
+ * the RightPanel (Trace / Context / Notes). Renders:
  *
- * Inspired by opencode V2's review side panel — overlays the chat card rather
- * than pushing it (keeps the chat card at a stable width).
+ *   - A semi-transparent backdrop (click to close).
+ *   - A fixed-width panel anchored to the right edge that slides in/out via a
+ *     CSS transform transition.
+ *   - A header row with the panel title + a close button.
+ *   - A scrollable body slot for `children`.
+ *
+ * Keyboard:
+ *   - Escape closes the panel (only when `open` is true).
+ *
+ * The panel is `position: absolute` so it overlays its parent (the V2AppShell
+ * main area) rather than the whole OS chrome — this keeps it under the V2
+ * titlebar, matching the opencode-desktop "in-app right rail" feel.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 
 interface V2SlideInPanelProps {
-  /** Whether the panel is open. */
+  /** Whether the panel is currently mounted/open. */
   open: boolean;
-  /** Called when the panel requests to close (backdrop click or close button). */
+  /** Called when the user requests the panel to close (backdrop click, Esc, or close button). */
   onClose: () => void;
-  /** Panel width in pixels (default 340). */
+  /** Panel width in pixels. Default 340. */
   width?: number;
-  /** Panel title (shown in the header). */
+  /** Title shown in the header row. */
   title?: string;
-  /** Content inside the panel. */
-  children: React.ReactNode;
+  /** Optional header accessory rendered to the left of the close button. */
+  headerAccessory?: React.ReactNode;
+  /** Panel body. */
+  children?: React.ReactNode;
 }
 
 const V2SlideInPanel: React.FC<V2SlideInPanelProps> = ({
@@ -29,77 +40,116 @@ const V2SlideInPanel: React.FC<V2SlideInPanelProps> = ({
   onClose,
   width = 340,
   title,
+  headerAccessory,
   children,
 }) => {
-  // Close on Escape key
+  // ── Escape-to-close ───────────────────────────────────────────────────
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && open) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    },
+    [open, onClose],
+  );
+
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  if (!open) return null;
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, handleKeyDown]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop — semi-transparent, click to close */}
-      <div
-        className="absolute inset-0 animate-fade-in"
-        style={{ background: 'rgba(0,0,0,0.3)' }}
-        onClick={onClose}
-      />
+    <>
+      {/* Backdrop — click anywhere to close. */}
+      {open && (
+        <div
+          className="absolute inset-0 z-40 animate-fade-in"
+          style={{
+            background: 'var(--v2-overlay-simple-overlay-hover, rgba(0,0,0,0.32))',
+            backdropFilter: 'blur(2px)',
+          }}
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-      {/* Panel */}
-      <div
-        className="relative h-full flex flex-col animate-slide-in-right"
+      {/* Panel — anchored to the right edge. */}
+      <aside
+        className="absolute top-0 right-0 bottom-0 z-50 flex flex-col"
         style={{
-          width,
+          width: `${width}px`,
+          maxWidth: '100%',
           background: 'var(--v2-background-bg-base)',
-          boxShadow: 'var(--v2-elevation-floating)',
           borderLeft: '1px solid var(--v2-border-border-base)',
+          boxShadow: open ? 'var(--v2-elevation-floating)' : 'none',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)',
+          visibility: open ? 'visible' : 'hidden',
+          fontFamily: 'var(--v2-font-family-text)',
         }}
+        role="dialog"
+        aria-label={title || 'Side panel'}
+        aria-hidden={!open}
       >
         {/* Header */}
-        {title && (
-          <div
-            className="flex items-center justify-between px-4 flex-shrink-0"
-            style={{
-              height: '36px',
-              borderBottom: '1px solid var(--v2-border-border-muted)',
-              background: 'var(--v2-background-bg-layer-01)',
-            }}
-          >
+        <div
+          className="flex items-center justify-between gap-2 px-4 flex-shrink-0"
+          style={{
+            height: '36px',
+            borderBottom: '1px solid var(--v2-border-border-muted)',
+          }}
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <span
-              className="text-[13px] font-medium"
-              style={{ color: 'var(--v2-text-text-base)', fontFamily: 'var(--v2-font-family-text)' }}
+              className="text-[12px] font-medium truncate"
+              style={{
+                color: 'var(--v2-text-text-base)',
+                fontWeight: 'var(--v2-font-weight-medium)',
+              }}
             >
               {title}
             </span>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {headerAccessory}
             <button
+              type="button"
               onClick={onClose}
-              className="p-1 rounded transition-colors"
+              className="flex items-center justify-center h-6 w-6 rounded-md transition-colors"
               style={{ color: 'var(--v2-icon-icon-muted)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
               aria-label="Close panel"
+              title="Close panel"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
           </div>
-        )}
-
-        {/* Content */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {children}
         </div>
-      </div>
-    </div>
+
+        {/* Body */}
+        <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+      </aside>
+    </>
   );
 };
 

@@ -1,27 +1,35 @@
 /**
- * OpenAgent-Desktop — V2 Tab Strip (Phase 1.2)
+ * OpenAgent-Desktop — V2 Tab Strip (Phase 2.0.3)
  *
- * Browser-style session tabs in the titlebar. Each open session is a tab.
- * Clicking a tab loads that session; clicking the X closes the tab.
- * A "+" button creates a new session.
+ * Browser-style horizontal session tabs that live inside the V2 titlebar.
  *
- * Tabs are backed by the `openTabs` array in the Zustand store (session IDs).
- * The active tab is `currentSessionId`.
+ *   ┌─────┬──────────┬──────────┬─────┐
+ *   │  +  │ Session1 │ Session2 │  +  │  ← tab strip
+ *   └─────┴──────────┴──────────┴─────┘
+ *
+ * Each tab shows:
+ *   - The session name (truncated).
+ *   - A close (×) button that appears on hover or when the tab is active.
+ *
+ * The "+" button at the trailing edge creates a new session.
+ *
+ * Tabs are middle-click closable (browser convention) and the active tab is
+ * underlined with the accent colour.
  */
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import { SessionInfo } from '../../../types';
 
 interface V2TabStripProps {
-  /** Session IDs that are open as tabs. */
+  /** Session IDs that are currently open as tabs (in display order). */
   openTabs: string[];
-  /** The currently active session ID (null = no session / home view). */
+  /** The currently active session ID (highlighted). */
   currentSessionId: string | null;
-  /** All sessions (for looking up names). */
+  /** All known sessions — used to resolve names for tab IDs. */
   sessions: SessionInfo[];
   /** Called when the user clicks a tab. */
   onTabClick: (sessionId: string) => void;
-  /** Called when the user clicks a tab's close button. */
+  /** Called when the user closes a tab (× button or middle-click). */
   onTabClose: (sessionId: string) => void;
   /** Called when the user clicks the "+" button. */
   onNewTab: () => void;
@@ -35,113 +43,184 @@ const V2TabStrip: React.FC<V2TabStripProps> = ({
   onTabClose,
   onNewTab,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // Auto-scroll to the active tab
-  useEffect(() => {
-    if (!scrollRef.current || !currentSessionId) return;
-    const activeEl = scrollRef.current.querySelector(`[data-tab-id="${currentSessionId}"]`) as HTMLElement;
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
-  }, [currentSessionId]);
+  // Build a fast lookup so we don't iterate every render per tab.
+  const sessionMap = React.useMemo(() => {
+    const m = new Map<string, SessionInfo>();
+    for (const s of sessions) m.set(s.id, s);
+    return m;
+  }, [sessions]);
 
-  // Build a name lookup map
-  const nameMap = new Map<string, string>();
-  for (const s of sessions) {
-    nameMap.set(s.id, s.name || 'New Chat');
+  const handleAuxClick = useCallback(
+    (e: React.MouseEvent, sessionId: string) => {
+      // Middle-click closes the tab (browser convention).
+      if (e.button === 1) {
+        e.preventDefault();
+        onTabClose(sessionId);
+      }
+    },
+    [onTabClose],
+  );
+
+  if (openTabs.length === 0) {
+    // Empty state — just show the + button centred.
+    return (
+      <div
+        ref={stripRef}
+        className="flex items-center gap-1 h-full min-w-0 flex-1 px-2"
+        role="tablist"
+        aria-label="Open sessions"
+      >
+        <NewTabButton onClick={onNewTab} />
+      </div>
+    );
   }
 
   return (
-    <div className="flex items-center min-w-0 flex-1 h-full">
-      {/* Scrollable tab container */}
-      <div
-        ref={scrollRef}
-        className="flex items-center h-full overflow-x-auto"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-      >
-        <style>{`/* hide webkit scrollbar */ .v2-tab-strip::-webkit-scrollbar { display: none; }`}</style>
-        <div className="flex items-center h-full v2-tab-strip">
-          {openTabs.map((tabId) => {
-            const isActive = tabId === currentSessionId;
-            const name = nameMap.get(tabId) || 'New Chat';
-            return (
-              <div
-                key={tabId}
-                data-tab-id={tabId}
-                onClick={() => onTabClick(tabId)}
-                className="group flex items-center gap-1.5 h-full px-3 cursor-pointer transition-colors flex-shrink-0"
-                style={{
-                  background: isActive ? 'var(--v2-background-bg-base)' : 'transparent',
-                  maxWidth: '200px',
-                  minWidth: '120px',
-                  borderRight: '1px solid var(--v2-border-border-muted)',
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'transparent';
-                }}
-              >
-                {/* Active indicator dot */}
-                <span
-                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  style={{
-                    background: isActive ? 'var(--v2-icon-icon-accent)' : 'var(--v2-icon-icon-muted)',
-                  }}
-                />
-                {/* Tab name */}
-                <span
-                  className="text-[12px] truncate flex-1 min-w-0"
-                  style={{
-                    fontFamily: 'var(--v2-font-family-text)',
-                    fontWeight: isActive ? 'var(--v2-font-weight-medium)' : 'var(--v2-font-weight-regular)',
-                    color: isActive ? 'var(--v2-text-text-base)' : 'var(--v2-text-text-muted)',
-                  }}
-                >
-                  {name}
-                </span>
-                {/* Close button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTabClose(tabId);
-                  }}
-                  className="flex-shrink-0 p-0.5 rounded transition-colors opacity-0 group-hover:opacity-100"
-                  style={{ color: 'var(--v2-icon-icon-muted)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-pressed)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  aria-label="Close tab"
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+    <div
+      ref={stripRef}
+      className="flex items-center gap-0.5 h-full min-w-0 flex-1 overflow-x-auto no-scrollbar"
+      style={{ scrollbarWidth: 'none' }}
+      role="tablist"
+      aria-label="Open sessions"
+    >
+      {openTabs.map((sessionId) => {
+        const session = sessionMap.get(sessionId);
+        const name = session?.name || 'New session';
+        const isActive = sessionId === currentSessionId;
+        const isHovered = sessionId === hoveredId;
+        return (
+          <div
+            key={sessionId}
+            role="tab"
+            tabIndex={0}
+            aria-selected={isActive}
+            onClick={() => onTabClick(sessionId)}
+            onAuxClick={(e) => handleAuxClick(e, sessionId)}
+            onMouseEnter={() => setHoveredId(sessionId)}
+            onMouseLeave={() => setHoveredId((prev) => (prev === sessionId ? null : prev))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onTabClick(sessionId);
+              }
+            }}
+            className="group relative flex items-center gap-1.5 h-7 pl-3 pr-1.5 rounded-md cursor-pointer transition-colors flex-shrink-0 max-w-[180px]"
+            style={{
+              background: isActive
+                ? 'var(--v2-overlay-simple-overlay-hover)'
+                : isHovered
+                ? 'var(--v2-overlay-simple-overlay-hover)'
+                : 'transparent',
+              outline: 'none',
+            }}
+            title={name}
+          >
+            <span
+              className="text-[12px] truncate"
+              style={{
+                color: isActive
+                  ? 'var(--v2-text-text-base)'
+                  : 'var(--v2-text-text-muted)',
+                fontFamily: 'var(--v2-font-family-text)',
+                fontWeight: isActive
+                  ? 'var(--v2-font-weight-medium)'
+                  : 'var(--v2-font-weight-regular)',
+                maxWidth: '120px',
+              }}
+            >
+              {name}
+            </span>
 
-      {/* New tab button */}
-      <button
-        onClick={onNewTab}
-        className="flex items-center justify-center flex-shrink-0 px-2.5 h-full transition-colors"
-        style={{ color: 'var(--v2-icon-icon-muted)' }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-        aria-label="New session"
-        title="New session"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+            {/* Close button — visible on hover or when active. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTabClose(sessionId);
+              }}
+              className="flex items-center justify-center h-4 w-4 rounded-[4px] flex-shrink-0 transition-all"
+              style={{
+                color: 'var(--v2-icon-icon-muted)',
+                background: 'transparent',
+                opacity: isActive || isHovered ? 1 : 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)';
+                e.currentTarget.style.color = 'var(--v2-text-text-base)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--v2-icon-icon-muted)';
+              }}
+              aria-label={`Close ${name}`}
+              title={`Close ${name}`}
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+
+            {/* Active underline */}
+            {isActive && (
+              <span
+                className="absolute -bottom-px left-2 right-2 h-0.5 rounded-full"
+                style={{ background: 'var(--color-accent, var(--v2-blue-600))' }}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      <NewTabButton onClick={onNewTab} />
     </div>
   );
 };
+
+// ─── New Tab "+" button ────────────────────────────────────────────────────
+const NewTabButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="flex items-center justify-center h-7 w-7 rounded-md flex-shrink-0 transition-colors"
+    style={{ color: 'var(--v2-icon-icon-muted)' }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)';
+      e.currentTarget.style.color = 'var(--v2-text-text-base)';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'transparent';
+      e.currentTarget.style.color = 'var(--v2-icon-icon-muted)';
+    }}
+    aria-label="New session"
+    title="New session"
+  >
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  </button>
+);
 
 export default V2TabStrip;
