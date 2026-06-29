@@ -25,35 +25,22 @@
  */
 
 import React from 'react';
-import { SessionInfo, SessionData, TraceEntry, ProviderInfo } from '../../../types';
+import { SessionInfo, SessionData, TraceEntry, ProviderInfo, ViewType } from '../../../types';
 import V2Titlebar from './V2Titlebar';
 import V2SlideInPanel from './V2SlideInPanel';
 import RightPanel from '../RightPanel/RightPanel';
 
 /**
- * V2 view names. Extends the classic ViewType set with the new "home" and
- * "new-session" views introduced by the Modern layout. The `| string` tail
- * keeps it open for callers that route via string-based view identifiers.
+ * V2 view names — uses the existing ViewType from the app's type system.
+ * The shell itself does NOT switch between views; the parent passes the
+ * right child for the current view.
  */
-export type V2View =
-  | 'home'
-  | 'new-session'
-  | 'chat'
-  | 'settings'
-  | 'sessions'
-  | 'projects'
-  | 'extensions'
-  | 'recipes'
-  | 'hooks'
-  | 'sandbox'
-  | 'skills'
-  | string;
 
 interface V2AppShellProps {
   /** The currently-active view name (used by the Home button to navigate). */
-  currentView: V2View;
+  currentView: ViewType;
   /** Navigate to a view. */
-  setCurrentView: (view: V2View) => void;
+  setCurrentView: (view: ViewType) => void;
   /** Session IDs currently open as tabs. */
   openTabs: string[];
   /** The active session ID. */
@@ -103,7 +90,7 @@ const V2AppShell: React.FC<V2AppShellProps> = ({
   children,
 }) => {
   const handleHome = React.useCallback(() => {
-    setCurrentView('home');
+    setCurrentView('sessions');
   }, [setCurrentView]);
 
   // The new-tab button in the titlebar creates a fresh session — that flows
@@ -141,7 +128,7 @@ const V2AppShell: React.FC<V2AppShellProps> = ({
         onHome={handleHome}
         onOpenSettings={() => {
           if (onOpenSettings) onOpenSettings();
-          else setCurrentView('settings');
+          else setCurrentView('settings' as ViewType);
         }}
         v2TracePanelOpen={v2TracePanelOpen}
         toggleV2TracePanel={toggleV2TracePanel}
