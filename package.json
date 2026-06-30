@@ -102,7 +102,8 @@
     "wait-on": "^7.2.0"
   },
   "optionalDependencies": {
-    "@opencode-ai/server": "^1.17.0"
+    "@opencode-ai/server": "^1.17.0",
+    "better-sqlite3": "^9.6.0"
   },
   "build": {
     "appId": "com.openagent.desktop",
@@ -110,6 +111,7 @@
     "directories": {
       "output": "release"
     },
+    "npmRebuild": false,
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
