@@ -466,6 +466,7 @@ const electronAPI = {
     list: (): Promise<any[]> => invoke("project:list"),
     create: (options: Record<string, unknown>): Promise<any> => invoke("project:create", options),
     open: (projectId: string): Promise<any> => invoke("project:open", projectId),
+    update: (projectId: string, updates: Record<string, unknown>): Promise<any> => invoke("project:update", projectId, updates),
     delete: (projectId: string): Promise<void> => invoke<void>("project:delete", projectId),
     getActive: (): Promise<any | null> => invoke("project:getActive"),
     setActive: (projectId: string): Promise<void> => invoke<void>("project:setActive", projectId),

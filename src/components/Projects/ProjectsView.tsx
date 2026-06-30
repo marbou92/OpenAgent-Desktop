@@ -112,9 +112,22 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({ addToast }) => {
       setNewProject((prev) => ({
         ...prev,
         directory: dir,
-        // Auto-fill name from the folder if name is empty
         name: prev.name || dir.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '',
       }));
+    }
+  };
+
+  // Phase 2.4.6: Change a project's directory.
+  const handleChangeDirectory = async (projectId: string) => {
+    if (!api?.dialog?.openDirectory || !api?.projects?.update) return;
+    const dir = await api.dialog.openDirectory('Select new project directory');
+    if (!dir) return;
+    try {
+      await api.projects.update(projectId, { directory: dir });
+      addToast({ type: 'success', title: 'Project directory updated' });
+      await fetchProjects();
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Failed to update directory', message: err.message });
     }
   };
 
@@ -190,17 +203,31 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({ addToast }) => {
             {project.description && (
               <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>{project.description}</div>
             )}
+            <div className="text-xs mt-1 truncate" style={{ color: 'var(--color-text-tertiary)' }}>
+              {project.directory || '(no directory)'}
+            </div>
             <div className="flex items-center justify-between mt-2">
               <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 {new Date(project.updatedAt).toLocaleDateString()}
               </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleDelete(project.id); }}
-                className="text-xs px-2 py-0.5 rounded transition-colors"
-                style={{ color: '#ef4444' }}
-              >
-                Delete
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleChangeDirectory(project.id); }}
+                  className="text-xs px-2 py-0.5 rounded transition-colors"
+                  style={{ color: 'var(--color-text-secondary)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-secondary)'; }}
+                >
+                  Change dir
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(project.id); }}
+                  className="text-xs px-2 py-0.5 rounded transition-colors"
+                  style={{ color: '#ef4444' }}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         ))}

@@ -3058,6 +3058,12 @@ function registerIpcHandlers(): void {
     return { success: true };
   }));
 
+  // Phase 2.4.6: Update a project (e.g. change its directory).
+  ipcMain.handle("project:update", wrapIPC(async (_event, projectId: string, updates: Record<string, unknown>) => {
+    const updated = await projectManager.update(projectId, updates);
+    return { success: true, data: updated };
+  }));
+
   ipcMain.handle("project:getActive", wrapIPC(async () => {
     return { success: true, data: projectManager.getActive() };
   }));

@@ -282,7 +282,7 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({ compact = false }) =>
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
               <span className="text-[13px]" style={{ fontFamily: 'var(--v2-font-family-text)' }}>
-                Add project...
+                Choose folder...
               </span>
             </button>
           </div>
