@@ -39,12 +39,10 @@ import FileDropZone from './components/Chat/FileDropZone';
 import RightPanel from './components/Layout/RightPanel/RightPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getAPI } from './utils/api';
-// Phase 1.1: first-launch layout chooser popup.
-import LayoutChooserDialog from './components/Layout/LayoutChooserDialog';
-// Phase 1.2: Modern layout shell.
+// Phase 2.0.3: Modern layout shell + first-launch chooser.
 import V2AppShell from './components/Layout/V2/V2AppShell';
-// Phase 1.3: Modern home view.
 import V2HomeView from './components/Layout/V2/V2HomeView';
+import LayoutChooserDialog from './components/Layout/LayoutChooserDialog';
 
 const api = getAPI();
 
@@ -56,14 +54,6 @@ interface AppStore {
   sidebarCollapsed: boolean;
   setCurrentView: (view: ViewType) => void;
   toggleSidebar: () => void;
-
-  // Phase 1.2: V2 tab strip — session IDs that are open as tabs.
-  openTabs: string[];
-  openTab: (sessionId: string) => void;
-  closeTab: (sessionId: string) => void;
-  // Phase 1.2: V2 slide-in trace panel (separate from the classic tracePanelOpen).
-  v2TracePanelOpen: boolean;
-  toggleV2TracePanel: () => void;
 
   // Session
   currentSessionId: string | null;
@@ -94,6 +84,13 @@ interface AppStore {
   clearTraceEntries: () => void;
   toggleTracePanel: () => void;
 
+  // Phase 2.0.3: V2 tab strip + slide-in trace panel
+  openTabs: string[];
+  openTab: (sessionId: string) => void;
+  closeTab: (sessionId: string) => void;
+  v2TracePanelOpen: boolean;
+  toggleV2TracePanel: () => void;
+
   // Permission requests
   permissionRequests: PermissionRequest[];
   addPermissionRequest: (request: PermissionRequest) => void;
@@ -123,17 +120,6 @@ export const useAppStore = create<AppStore>((set, _get) => ({
   setCurrentView: (view) => set({ currentView: view }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
-  // Phase 1.2: V2 tab strip
-  openTabs: [],
-  openTab: (sessionId) => set((state) => ({
-    openTabs: state.openTabs.includes(sessionId) ? state.openTabs : [...state.openTabs, sessionId],
-  })),
-  closeTab: (sessionId) => set((state) => ({
-    openTabs: state.openTabs.filter(id => id !== sessionId),
-  })),
-  v2TracePanelOpen: false,
-  toggleV2TracePanel: () => set((state) => ({ v2TracePanelOpen: !state.v2TracePanelOpen })),
-
   // Session
   currentSessionId: null,
   currentSession: null,
@@ -162,6 +148,17 @@ export const useAppStore = create<AppStore>((set, _get) => ({
   addTraceEntry: (entry) => set((state) => ({ traceEntries: [...state.traceEntries, entry] })),
   clearTraceEntries: () => set({ traceEntries: [] }),
   toggleTracePanel: () => set((state) => ({ tracePanelOpen: !state.tracePanelOpen })),
+
+  // Phase 2.0.3: V2 tab strip + slide-in trace panel
+  openTabs: [],
+  openTab: (sessionId) => set((state) => ({
+    openTabs: state.openTabs.includes(sessionId) ? state.openTabs : [...state.openTabs, sessionId],
+  })),
+  closeTab: (sessionId) => set((state) => ({
+    openTabs: state.openTabs.filter(id => id !== sessionId),
+  })),
+  v2TracePanelOpen: false,
+  toggleV2TracePanel: () => set((state) => ({ v2TracePanelOpen: !state.v2TracePanelOpen })),
 
   // Permission requests
   permissionRequests: [],
@@ -226,13 +223,13 @@ const App: React.FC = () => {
   const settings = useAppStore(s => s.settings);
   const traceEntries = useAppStore(s => s.traceEntries);
   const tracePanelOpen = useAppStore(s => s.tracePanelOpen);
-  const _permissionRequests = useAppStore(s => s.permissionRequests);
-  // Phase 1.2: V2 shell state
+  // Phase 2.0.3: V2 shell state
   const openTabs = useAppStore(s => s.openTabs);
   const openTab = useAppStore(s => s.openTab);
   const closeTab = useAppStore(s => s.closeTab);
   const v2TracePanelOpen = useAppStore(s => s.v2TracePanelOpen);
   const toggleV2TracePanel = useAppStore(s => s.toggleV2TracePanel);
+  const _permissionRequests = useAppStore(s => s.permissionRequests);
   const toasts = useAppStore(s => s.toasts);
   const modals = useAppStore(s => s.modals);
   const loading = useAppStore(s => s.loading);
@@ -267,11 +264,6 @@ const App: React.FC = () => {
   const providersRef = useRef(providers);
   providersRef.current = providers;
 
-  // Phase 1.1: first-launch layout chooser. Shown once when layoutChoiceShown
-  // is false (new users). Existing users have layoutChoiceShown=true from
-  // their persisted config, so they never see it.
-  const [showLayoutChooser, setShowLayoutChooser] = useState(false);
-
   // ─── Auto-initialize on mount ──────────────────────────────────────────────
 
   useEffect(() => {
@@ -280,20 +272,6 @@ const App: React.FC = () => {
     initializeApp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Phase 1.1: After settings hydrate, check if the layout chooser should
-  // be shown (first launch only). layoutChoiceShown is false by default for
-  // new users; existing users have it set true from their saved config.
-  useEffect(() => {
-    if (settings.layoutChoiceShown === false && !loading) {
-      setShowLayoutChooser(true);
-    }
-  }, [settings.layoutChoiceShown, loading]);
-
-  const handleLayoutChoose = useCallback((layout: 'classic' | 'modern') => {
-    updateSettings({ layoutStyle: layout, layoutChoiceShown: true });
-    setShowLayoutChooser(false);
-  }, [updateSettings]);
 
   // ─── Subscribe to provider push events from main process ──────────────────
 
@@ -539,7 +517,6 @@ const App: React.FC = () => {
       setMessages([]);
       useAppStore.getState().clearTraceEntries();
       setCurrentView('chat');
-      // Phase 1.2: open the new session as a tab.
       openTab(session.id);
 
       // Refresh session list
@@ -550,7 +527,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to create session', message: err.message });
     }
-  }, [sessions.length, currentSessionId, messages.length, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast, openTab]);
+  }, [api, sessions.length, currentSessionId, messages.length, setCurrentSession, setCurrentSessionId, setMessages, setCurrentView, setSessions, addToast, openTab]);
 
   // ─── Load session ──────────────────────────────────────────────────────────
 
@@ -569,27 +546,11 @@ const App: React.FC = () => {
       );
       useAppStore.getState().clearTraceEntries();
       setCurrentView('chat');
-      // Phase 1.2: open the loaded session as a tab.
       openTab(sessionId);
 
       // Start tracing
       if (api?.trace?.start) {
         await api.trace.start(sessionId);
-      }
-      // Phase 0.9: load persisted trace entries so the trace sidebar shows the
-      // full tool-execution history from previous turns in this session.
-      // ToolUseCards are no longer persisted in the chat (they're stripped on
-      // save), so the trace sidebar is the permanent record of what ran.
-      if (api?.trace?.get) {
-        try {
-          const result: any = await api.trace.get(sessionId);
-          const entries: TraceEntry[] = (result?.data ?? result) || [];
-          for (const entry of entries) {
-            useAppStore.getState().addTraceEntry(entry);
-          }
-        } catch {
-          // Non-critical — trace panel just starts empty.
-        }
       }
     } catch (err: any) {
       addToast({ type: 'error', title: 'Failed to load session', message: err.message });
@@ -757,20 +718,6 @@ const App: React.FC = () => {
           </div>
         );
       case 'sessions':
-        // Phase 1.3: Modern layout renders the V2 home view (floating card
-        // with Projects + Sessions columns). Classic keeps the legacy view.
-        if (settings.layoutStyle === 'modern') {
-          return (
-            <V2HomeView
-              sessions={sessions}
-              currentSessionId={currentSessionId}
-              onLoadSession={handleLoadSession}
-              onNewSession={handleNewSession}
-              onOpenSettings={() => setCurrentView('settings')}
-              addToast={addToast}
-            />
-          );
-        }
         return (
           <div className="flex flex-col h-full">
             <ViewHeader title="Sessions" />
@@ -874,10 +821,23 @@ const App: React.FC = () => {
     }
   };
 
-  // Phase 1.2: Modern layout — render the V2 shell instead of the classic
-  // 3-panel layout. The V2 shell wraps the same renderMainContent() so all
-  // existing views (Chat, Sessions, Settings, etc.) work inside it.
-  if (settings.layoutStyle === 'modern') {
+  // Phase 2.0.3: Modern layout — render the V2 shell instead of the classic
+  // 3-panel layout when layoutStyle is 'modern'.
+  const [showLayoutChooser, setShowLayoutChooser] = useState(false);
+  const isModern = settings.layoutStyle === 'modern';
+
+  useEffect(() => {
+    if (settings.layoutChoiceShown === false && !loading) {
+      setShowLayoutChooser(true);
+    }
+  }, [settings.layoutChoiceShown, loading]);
+
+  const handleLayoutChoose = useCallback((layout: 'classic' | 'modern') => {
+    updateSettings({ layoutStyle: layout, layoutChoiceShown: true });
+    setShowLayoutChooser(false);
+  }, [updateSettings]);
+
+  if (isModern) {
     return (
       <V2AppShell
         currentView={currentView}
@@ -898,20 +858,10 @@ const App: React.FC = () => {
         <ErrorBoundary label="Main view">
           {renderMainContent()}
         </ErrorBoundary>
-
-        {/* File Drop Zone */}
         <FileDropZone />
-
-        {/* Toast Notifications */}
         <ToastContainer toasts={toasts} onRemove={removeToast} />
-
-        {/* Modals */}
         <ModalContainer modals={modals} onRemove={removeModal} />
-
-        {/* Phase 1.1: First-launch layout chooser */}
-        {showLayoutChooser && (
-          <LayoutChooserDialog onChoose={handleLayoutChoose} />
-        )}
+        {showLayoutChooser && <LayoutChooserDialog onChoose={handleLayoutChoose} />}
       </V2AppShell>
     );
   }
@@ -981,11 +931,6 @@ const App: React.FC = () => {
 
       {/* Modals */}
       <ModalContainer modals={modals} onRemove={removeModal} />
-
-      {/* Phase 1.1: First-launch layout chooser */}
-      {showLayoutChooser && (
-        <LayoutChooserDialog onChoose={handleLayoutChoose} />
-      )}
     </div>
   );
 };
