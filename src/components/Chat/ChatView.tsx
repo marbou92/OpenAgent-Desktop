@@ -51,16 +51,15 @@ import { useFileDrop } from '../../hooks/useFileDrop';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import ChatEmptyState from './ChatEmptyState';
-// Phase 1.4: Modern layout new-session view (centered logo + composer).
-import V2NewSessionView from '../Layout/V2/V2NewSessionView';
-// Phase 1.5: Modern layout active chat view (floating card + timeline + docked composer).
-import V2ChatView from '../Layout/V2/V2ChatView';
-import { ThinkingEffort } from './ThinkingEffortSelector';
+import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
+import TodoPanel from '../Layout/RightPanel/TodoPanel';
 import TodoWriteCard from './message/TodoWriteCard';
 import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
+// Phase 2.4.3: directory badge
+import DirectoryBadge from './DirectoryBadge';
 
 // Phase 2.2: ModeSwitch is gone. The Build/Plan selector now lives inside
 // the composer (AgentSelector component), matching opencode desktop.
@@ -119,6 +118,10 @@ const ChatView: React.FC<ChatViewProps> = ({
   // requestId and the card uses it directly. To handle multiple simultaneous
   // questions (rare), we use a queue.
   const [askUserRequestId, setAskUserRequestId] = useState<string | null>(null);
+  // Phase 8.6: Todo list — shown inline in the chat area (not the right
+  // sidebar). Collapsible. Only renders when there are todos.
+  const [todoCount, setTodoCount] = useState(0);
+  const [todoPanelExpanded, setTodoPanelExpanded] = useState(true);
   // Phase 10.7: The latest todos for the composer-connected todo list.
   const [composerTodos, setComposerTodos] = useState<any[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
@@ -213,7 +216,7 @@ const ChatView: React.FC<ChatViewProps> = ({
       const model = (models || []).find((m: any) => m.id === selectedModel);
       setModelSupportsReasoning(!!model?.supportsThinking);
     }).catch(() => setModelSupportsReasoning(false));
-  }, [selectedProviderId, selectedModel]);
+  }, [selectedProviderId, selectedModel, api]);
 
   // Auto-scroll — only when messages length or streaming content actually changes.
   useEffect(() => {
@@ -232,12 +235,14 @@ const ChatView: React.FC<ChatViewProps> = ({
     // Initial load
     if (sessionId && api?.todos?.list) {
       api.todos.list(sessionId).then((todos: any[]) => {
+        setTodoCount(todos?.length || 0);
         setComposerTodos(todos || []);
       }).catch(() => {});
     }
 
     const unsub = api.on.todosUpdated((data: { sessionId: string; todos: any[] }) => {
       if (data.sessionId !== sessionId) return;
+      setTodoCount(data.todos.length);
       setComposerTodos(data.todos || []);
     });
     return () => unsub?.();
@@ -314,92 +319,6 @@ const ChatView: React.FC<ChatViewProps> = ({
 
   const hasConnectedProvider = providers.length > 0 && providers.some((p) => p.configured);
   const hasMessages = messages.length > 0;
-
-  // Phase 1.4 + 1.5: Modern layout — render V2 views instead of the legacy
-  // chat layout. When the chat is empty → V2NewSessionView (centered logo +
-  // composer). When the chat has messages → V2ChatView (floating card with
-  // timeline + docked composer). Both reuse the same useChat sendMessage so
-  // all streaming/persistence/trace logic is preserved.
-  const isModern = settings.layoutStyle === 'modern';
-
-  const handleV2Send = useCallback((content: string) => {
-    handleSend(content);
-  }, [handleSend]);
-
-  const handleV2Copy = useCallback((content: string) => {
-    navigator.clipboard.writeText(content);
-  }, []);
-
-  if (isModern && !hasMessages) {
-    return (
-      <V2NewSessionView
-        onSend={handleV2Send}
-        onStop={stopStreaming}
-        isStreaming={isStreaming}
-        providers={providers}
-        selectedProviderId={selectedProviderId}
-        selectedModel={selectedModel}
-        onProviderChange={handleProviderChange}
-        onModelChange={handleModelChange}
-        onImagesAttached={(images) => setAttachedImages(images)}
-        thinkingEffort={thinkingEffort}
-        onThinkingEffortChange={setThinkingEffort}
-        modelSupportsReasoning={modelSupportsReasoning}
-        showThinkingEffort={settings.showThinkingEffort}
-        activeMode={activeMode}
-        onModeChange={setActiveMode}
-        showAgentMode={settings.showAgentMode}
-      />
-    );
-  }
-
-  if (isModern && hasMessages) {
-    return (
-      <V2ChatView
-        sessionId={sessionId}
-        session={session}
-        messages={messages}
-        isStreaming={isStreaming}
-        error={error}
-        streamingContent={streamingContent}
-        streamingThinking={streamingThinking}
-        providers={providers}
-        selectedProviderId={selectedProviderId}
-        selectedModel={selectedModel}
-        onProviderChange={handleProviderChange}
-        onModelChange={handleModelChange}
-        onSend={handleV2Send}
-        onStop={stopStreaming}
-        onRetry={retryLastMessage}
-        onCopyMessage={handleV2Copy}
-        onImagesAttached={(images) => setAttachedImages(images)}
-        askUserRequestId={askUserRequestId}
-        onAskUserAnswer={(requestId, answer) => {
-          if (api?.permissions?.respondToQuestion) {
-            api.permissions.respondToQuestion(requestId, answer);
-          }
-          setAskUserRequestId(null);
-        }}
-        permissionRequest={permissionRequest}
-        onPermissionRespond={(requestId, response) => {
-          if (api?.permissions?.respond) {
-            api.permissions.respond(requestId, response as any);
-          }
-          setPermissionRequest(null);
-        }}
-        v2TracePanelOpen={tracePanelOpen}
-        onToggleTracePanel={onToggleTracePanel ?? (() => {})}
-        addToast={addToast}
-        thinkingEffort={thinkingEffort}
-        onThinkingEffortChange={setThinkingEffort}
-        modelSupportsReasoning={modelSupportsReasoning}
-        showThinkingEffort={settings.showThinkingEffort}
-        activeMode={activeMode}
-        onModeChange={setActiveMode}
-        showAgentMode={settings.showAgentMode}
-      />
-    );
-  }
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
@@ -549,6 +468,9 @@ const ChatView: React.FC<ChatViewProps> = ({
           onCompact={executionContext.onCompact}
         />
       )}
+
+      {/* Phase 2.4.3: Directory badge — shows the current working directory */}
+      <DirectoryBadge />
 
       {/* ─── Messages Area ────────────────────────────────────────────── */}
       <div
@@ -785,8 +707,6 @@ const ChatView: React.FC<ChatViewProps> = ({
         thinkingEffort={thinkingEffort}
         onThinkingEffortChange={setThinkingEffort}
         modelSupportsReasoning={modelSupportsReasoning}
-        showAgentMode={settings.showAgentMode}
-        showThinkingEffort={settings.showThinkingEffort}
       />
 
       {/* ─── Phase 4: Image attachment preview ─────────────────────────── */}

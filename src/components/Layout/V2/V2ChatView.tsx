@@ -40,6 +40,8 @@ import {
 import MessageBubble from '../../Chat/MessageBubble';
 import V2Composer from './V2Composer';
 import { ThinkingEffort } from '../../Chat/ThinkingEffortSelector';
+// Phase 2.4.3: directory badge
+import DirectoryBadge from '../../Chat/DirectoryBadge';
 
 interface V2ChatViewProps {
   sessionId: string | null;
@@ -273,6 +275,9 @@ const V2ChatView: React.FC<V2ChatViewProps> = ({
             </button>
           )}
         </div>
+
+        {/* Phase 2.4.3: Directory badge — shows the current working directory */}
+        <DirectoryBadge />
 
         {/* ─── Message timeline ───────────────────────────────────────── */}
         <div
