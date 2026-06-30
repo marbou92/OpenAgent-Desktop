@@ -11,7 +11,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getDB } from './sqlite';
-import type { Database } from 'better-sqlite3';
 
 interface LegacySession {
   id: string;
@@ -44,6 +43,7 @@ interface LegacySession {
 
 export function migrateJsonToSqlite(sessionsDir: string): number {
   const db = getDB();
+  if (!db) return 0; // SQLite not available — skip migration
 
   // Check if migration is needed (database has no sessions)
   const count = db.prepare('SELECT COUNT(*) as c FROM sessions').get() as { c: number };

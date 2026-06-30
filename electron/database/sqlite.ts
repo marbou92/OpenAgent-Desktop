@@ -1,23 +1,25 @@
 /**
  * OpenAgent-Desktop — SQLite Database Module (Phase 2.5)
  *
- * Replaces the JSON-file-based storage with a proper SQLite database.
- * Uses `better-sqlite3` (synchronous, fast, well-maintained).
+ * Uses `better-sqlite3` (native, fast) when available. Falls back to
+ * JSON file storage when better-sqlite3 can't be installed (e.g. Windows 7
+ * CI without Visual Studio C++ build tools, or Node < 20).
  *
- * Schema:
- *   sessions     — session metadata (id, name, provider, model, project, etc.)
- *   messages     — chat messages (id, session_id, role, content, thinking, timestamp)
- *   tool_calls   — tool calls within messages (id, message_id, name, args, result, status, split_offset)
- *   trace_entries — agent trace (id, session_id, type, content, metadata, timestamp)
- *   projects     — project configs (id, name, directory, description, etc.)
- *
- * Migration: on first launch with SQLite, scans existing *.session.json files
- * and imports them into the database.
+ * The SessionManager already has try/catch fallbacks to JSON — this module
+ * just needs to not crash on import.
  */
 
-import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Phase 2.5.1: Dynamic import — don't crash if better-sqlite3 isn't installed.
+let Database: any = null;
+try {
+  Database = require('better-sqlite3');
+} catch {
+  // better-sqlite3 not available — app falls back to JSON storage.
+  console.info('[Database] better-sqlite3 not available — using JSON file storage');
+}
 
 export interface DBSession {
   id: string;
@@ -60,13 +62,16 @@ export interface DBTraceEntry {
   timestamp: string;
 }
 
-let db: Database.Database | null = null;
+let db: any = null;
 
 /**
  * Initialize the database. Creates the file if it doesn't exist, creates
  * tables if they don't exist, and runs migration if needed.
+ * Returns null if better-sqlite3 is not available (app falls back to JSON).
  */
-export function initDatabase(dbPath: string): Database.Database {
+export function initDatabase(dbPath: string): any | null {
+  if (!Database) return null; // better-sqlite3 not installed
+
   // Ensure the directory exists
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
@@ -148,10 +153,10 @@ export function initDatabase(dbPath: string): Database.Database {
 }
 
 /**
- * Get the database instance. Must call initDatabase() first.
+ * Get the database instance. Returns null if not initialized or unavailable.
  */
-export function getDB(): Database.Database {
-  if (!db) throw new Error('Database not initialized. Call initDatabase() first.');
+export function getDB(): any | null {
+  if (!db) return null;
   return db;
 }
 
