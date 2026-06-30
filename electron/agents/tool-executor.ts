@@ -17,6 +17,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import type { ToolCallRequest, ToolCallResult } from './types';
 
 export interface ExtensionRegistryLike {
@@ -42,6 +43,47 @@ export interface ToolExecutorDeps {
 
 /** Built-in tool names that the agent-tool-executor handles directly. */
 export const BUILTIN_TOOL_NAMES = new Set(['bash', 'shell', 'execute', 'read', 'read_file', 'write', 'write_file', 'edit', 'edit_file', 'glob', 'list_files', 'grep', 'search']);
+
+/**
+ * Phase 2.2.1: Auto-truncation — writes the full output to a temp file and
+ * returns a bounded preview + the temp file path. This prevents long bash
+ * outputs (e.g. `npm install` with 500 lines) from bloating the context
+ * window. The model sees a preview and can re-read the full content via
+ * the read tool if needed.
+ */
+const MAX_OUTPUT_LENGTH = 5000; // chars — about 1000 tokens
+const PREVIEW_LENGTH = 2000;    // chars shown to the model
+
+function truncateOutput(content: string): string {
+  if (content.length <= MAX_OUTPUT_LENGTH) return content;
+  const preview = content.slice(0, PREVIEW_LENGTH);
+  const tmpPath = path.join(os.tmpdir(), `openagent-output-${Date.now()}.txt`);
+  try {
+    fs.writeFileSync(tmpPath, content, 'utf-8');
+    const totalLines = content.split('\n').length;
+    const previewLines = preview.split('\n').length;
+    return `${preview}
+
+... (${totalLines - previewLines} more lines truncated)
+Full output saved to: ${tmpPath}
+Use the read tool to view the full output.`;
+  } catch {
+    // If writing the temp file fails, just return the truncated content.
+    return `${preview}
+
+... (output truncated at ${PREVIEW_LENGTH} chars)`;
+  }
+}
+
+/**
+ * Phase 2.2.3: Check if a path is OUTSIDE the working directory.
+ * Returns true if the path resolves to outside the working dir.
+ */
+function isExternalPath(filePath: string, workingDirectory: string): boolean {
+  const resolved = path.resolve(workingDirectory, filePath);
+  const normalizedWorking = path.resolve(workingDirectory);
+  return !resolved.startsWith(normalizedWorking + path.sep) && resolved !== normalizedWorking;
+}
 
 /**
  * List all tools available to the agent: built-in tools + extension-registered
@@ -241,13 +283,15 @@ async function executeBash(args: Record<string, unknown>, deps: ToolExecutorDeps
   const timeout = typeof args.timeout === 'number' ? args.timeout : 30000;
 
   const result = await deps.sandboxManager.execute(command, { cwd, timeout });
-  const output = [
+  let output = [
     result.stdout ? result.stdout : '',
     result.stderr ? `\n[stderr]\n${result.stderr}` : '',
     result.timedOut ? '\n[timed out]' : '',
   ].join('');
+  // Phase 2.2.1: Auto-truncate long outputs to prevent context bloat.
+  output = truncateOutput(output.trim() || `(command completed with exit code ${result.exitCode})`);
   return {
-    content: output.trim() || `(command completed with exit code ${result.exitCode})`,
+    content: output,
     isError: result.exitCode !== 0,
   };
 }
@@ -259,6 +303,22 @@ async function executeRead(args: Record<string, unknown>, deps: ToolExecutorDeps
   }
   const resolved = resolvePath(filePath, deps.workingDirectory);
   if (!isPathSafe(resolved, deps.workingDirectory)) {
+    // Phase 2.2.3: instead of hard-blocking, warn the model that this is an
+    // external path. The model can still read it (read is non-destructive) but
+    // is informed it's outside the project.
+    if (isExternalPath(filePath, deps.workingDirectory)) {
+      // Allow reads from external paths (non-destructive) but add a note.
+      try {
+        const externalContent = fs.readFileSync(resolved, 'utf-8');
+        const externalLines = externalContent.split('\n');
+        const externalNumbered = externalLines.slice(0, 2000).map((line, i) => `${String(i + 1).padStart(6, ' ')}\t${line}`);
+        return {
+          content: `[Note: reading from external path '${filePath}' — outside working directory]\n\n${externalNumbered.join('\n')}${externalLines.length > 2000 ? `\n\n[... ${externalLines.length - 2000} more lines — use offset to continue]` : ''}`,
+        };
+      } catch (err: any) {
+        return { content: `read: cannot read external path '${filePath}': ${err.message}`, isError: true };
+      }
+    }
     return { content: `read: path '${filePath}' is outside the working directory`, isError: true };
   }
   const content = fs.readFileSync(resolved, 'utf-8');
