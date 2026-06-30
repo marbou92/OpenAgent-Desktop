@@ -3,8 +3,12 @@
  * Shows tool name, status, arguments (collapsed), and result (collapsed) in ONE card.
  * Special case: AskUserQuestion renders as a question card.
  */
-import { useState, memo } from 'react';
+import React, { useState, memo } from 'react';
 import { ToolCall } from '../../../types';
+// Phase 2.1: per-tool renderers registry.
+import { getToolRenderer } from './ToolRenderers';
+// Import the tools index to register all renderers (side-effect import).
+import './tools';
 
 interface ToolUseCardProps {
   toolCall: ToolCall;
@@ -189,6 +193,17 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall, onPermissionRespond }:
   }
 
   // ─── Regular tool card ─────────────────────────────────────────
+  // Phase 2.1: Check if a specialized renderer exists for this tool.
+  // If so, delegate to it. Otherwise, fall back to the generic card below.
+  if (!hasPendingPermission) {
+    const renderer = getToolRenderer(toolCall.name);
+    if (renderer) {
+      const Renderer = renderer;
+      return <Renderer toolCall={toolCall} expanded={expanded} onToggle={() => setExpanded(!expanded)} onPermissionRespond={onPermissionRespond} />;
+    }
+  }
+
+  // ─── Generic tool card (fallback) ──────────────────────────────
   // Denied = red, Deactivated = grey, Error = alarm-red, Running = orange
   const statusColor = isDeactivated ? 'var(--color-text-muted)'
                     : isDenied ? '#ef4444'
