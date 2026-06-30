@@ -20,6 +20,13 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Install better-sqlite3 prebuilt for Electron
+        continue-on-error: true
+        run: |
+          # Downloads the prebuilt binary for the installed Electron version.
+          # If this fails, the app falls back to JSON storage (still works).
+          npx @electron/rebuild -f -w better-sqlite3
+
       - name: Run linter
         run: npm run lint
 

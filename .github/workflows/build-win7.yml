@@ -87,6 +87,20 @@ jobs:
           Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
           npm install
 
+      - name: Install better-sqlite3 prebuilt for Electron 22
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Write-Host "Installing better-sqlite3 Electron 22 prebuilt..."
+          # v9.6.0 has prebuilt binaries for electron-v110 (Electron 22)
+          # If this fails, the app falls back to JSON storage (still works)
+          npx @electron/rebuild -f -w better-sqlite3
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "better-sqlite3 prebuilt not available — app will use JSON storage fallback"
+            exit 0
+          }
+          Write-Host "better-sqlite3 Electron 22 prebuilt installed successfully"
+
       - name: Verify Electron version
         shell: pwsh
         run: |
