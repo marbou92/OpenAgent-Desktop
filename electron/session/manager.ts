@@ -13,6 +13,8 @@ import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+// Phase 2.5: SQLite storage
+import { getDB } from "../database/sqlite";
 
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
@@ -171,15 +173,42 @@ export class SessionManager extends EventEmitter {
   async list(): Promise<SessionSummary[]> {
     this.ensureInitialized();
 
+    // Phase 2.5: Query SQLite instead of scanning JSON files
+    try {
+      const db = getDB();
+      const rows = db.prepare(`
+        SELECT s.*, (SELECT COUNT(*) FROM messages WHERE session_id = s.id) as message_count
+        FROM sessions s
+        WHERE COALESCE(json_extract(s.metadata, '$.isTemplate'), 0) = 0
+        ORDER BY s.updated_at DESC
+      `).all() as any[];
+
+      return rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        providerId: row.provider_id,
+        model: row.model,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        messageCount: row.message_count,
+        metadata: JSON.parse(row.metadata || '{}'),
+        projectId: row.project_id ?? null,
+        workingDirectory: row.working_directory ?? undefined,
+      }));
+    } catch {
+      // Fallback to JSON file scanning if SQLite isn't available
+      return this.listFromJson();
+    }
+  }
+
+  // Phase 2.5: JSON fallback for list()
+  private async listFromJson(): Promise<SessionSummary[]> {
     const summaries: SessionSummary[] = [];
-
     if (!fs.existsSync(this.sessionsDir)) return summaries;
-
     const files = fs.readdirSync(this.sessionsDir);
     for (const file of files) {
       if (!file.endsWith(SESSION_FILE_EXTENSION)) continue;
       if (file.endsWith(TEMPLATE_FILE_EXTENSION)) continue;
-
       const filePath = path.join(this.sessionsDir, file);
       try {
         const session = this.readSessionFile(filePath);
@@ -190,13 +219,7 @@ export class SessionManager extends EventEmitter {
         console.error(`[SessionManager] Error reading session file ${file}:`, err);
       }
     }
-
-    // Sort by updatedAt descending
-    summaries.sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-
+    summaries.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     return summaries;
   }
 
@@ -261,7 +284,10 @@ export class SessionManager extends EventEmitter {
     // Cache the session
     this.activeSessions.set(sessionId, session);
 
-    // Persist to disk
+    // Phase 2.5: Persist to SQLite
+    try { this.writeSessionToDB(session); } catch { /* fallback to JSON */ }
+
+    // Also write to JSON as backup
     this.writeSessionFile(session);
 
     await this.traceCollector?.addEntry(sessionId, {
@@ -287,7 +313,24 @@ export class SessionManager extends EventEmitter {
       return { ...cached };
     }
 
-    // Load from disk
+    // Phase 2.5: Try SQLite first
+    try {
+      const db = getDB();
+      const session = this.readSessionFromDB(db, sessionId);
+      if (session) {
+        this.activeSessions.set(sessionId, session);
+        await this.traceCollector?.addEntry(sessionId, {
+          type: "info",
+          content: `Session loaded: ${session.name}`,
+          metadata: { sessionId },
+        });
+        return { ...session };
+      }
+    } catch {
+      // SQLite not available — fall through to JSON
+    }
+
+    // Fallback: Load from JSON file
     const filePath = this.getSessionFilePath(sessionId);
     if (!fs.existsSync(filePath)) {
       throw new Error(`Session not found: ${sessionId}`);
@@ -298,16 +341,58 @@ export class SessionManager extends EventEmitter {
       throw new Error(`Failed to read session: ${sessionId}`);
     }
 
-    // Cache it
     this.activeSessions.set(sessionId, session);
-
-    await this.traceCollector?.addEntry(sessionId, {
-      type: "info",
-      content: `Session loaded: ${session.name}`,
-      metadata: { sessionId },
-    });
-
     return { ...session };
+  }
+
+  // Phase 2.5: Read a full session (with messages + tool calls) from SQLite
+  private readSessionFromDB(db: any, sessionId: string): Session | null {
+    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
+    if (!row) return null;
+
+    const messages = db.prepare(`
+      SELECT * FROM messages WHERE session_id = ? ORDER BY sort_order ASC
+    `).all(sessionId) as any[];
+
+    const session: Session = {
+      id: row.id,
+      name: row.name,
+      providerId: row.provider_id,
+      model: row.model,
+      messages: messages.map(msg => {
+        const toolCalls = db.prepare(`
+          SELECT * FROM tool_calls WHERE message_id = ? ORDER BY id ASC
+        `).all(msg.id) as any[];
+
+        const sessionMsg: SessionMessage = {
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp,
+        };
+        if (msg.thinking) sessionMsg.thinking = msg.thinking;
+        if (toolCalls.length > 0) {
+          sessionMsg.toolCalls = toolCalls.map(tc => ({
+            id: tc.id,
+            name: tc.name,
+            arguments: JSON.parse(tc.arguments || '{}'),
+            result: tc.result,
+            status: tc.status,
+            ...(tc.split_offset != null ? { _splitOffset: tc.split_offset } : {}),
+          }));
+        }
+        return sessionMsg;
+      }),
+      extensions: [],
+      recipes: [],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      metadata: JSON.parse(row.metadata || '{}'),
+      projectId: row.project_id ?? null,
+      workingDirectory: row.working_directory ?? undefined,
+    };
+
+    return session;
   }
 
   /**
@@ -343,11 +428,84 @@ export class SessionManager extends EventEmitter {
     // Update cache
     this.activeSessions.set(sessionId, session);
 
-    // Mark as dirty for auto-save
-    this.dirtySessions.add(sessionId);
+    // Phase 2.5: Write to SQLite immediately (synchronous, fast)
+    try {
+      this.writeSessionToDB(session);
+    } catch {
+      // SQLite not available — fall back to debounced JSON save
+    }
 
-    // Debounced save
+    // Mark as dirty for auto-save (JSON backup)
+    this.dirtySessions.add(sessionId);
     this.debouncedSave(sessionId);
+  }
+
+  // Phase 2.5: Write a full session to SQLite (upsert session + replace messages)
+  private writeSessionToDB(session: Session): void {
+    const db = getDB();
+
+    const upsertSession = db.transaction(() => {
+      // Upsert session row
+      db.prepare(`
+        INSERT OR REPLACE INTO sessions (id, name, provider_id, model, project_id, working_directory, created_at, updated_at, metadata)
+        VALUES (@id, @name, @provider_id, @model, @project_id, @working_directory, @created_at, @updated_at, @metadata)
+      `).run({
+        id: session.id,
+        name: session.name,
+        provider_id: session.providerId,
+        model: session.model,
+        project_id: session.projectId ?? null,
+        working_directory: session.workingDirectory ?? null,
+        created_at: session.createdAt,
+        updated_at: session.updatedAt,
+        metadata: JSON.stringify(session.metadata || {}),
+      });
+
+      // Delete existing messages + tool calls (full replace)
+      db.prepare('DELETE FROM tool_calls WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)').run(session.id);
+      db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.id);
+
+      // Re-insert messages + tool calls
+      const insertMsg = db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, thinking, timestamp, sort_order)
+        VALUES (@id, @session_id, @role, @content, @thinking, @timestamp, @sort_order)
+      `);
+      const insertTc = db.prepare(`
+        INSERT INTO tool_calls (id, message_id, name, arguments, result, status, split_offset)
+        VALUES (@id, @message_id, @name, @arguments, @result, @status, @split_offset)
+      `);
+
+      let sortOrder = 0;
+      for (const msg of session.messages) {
+        insertMsg.run({
+          id: msg.id,
+          session_id: session.id,
+          role: msg.role,
+          content: msg.content || '',
+          thinking: msg.thinking || null,
+          timestamp: msg.timestamp,
+          sort_order: sortOrder++,
+        });
+
+        if (msg.toolCalls) {
+          for (const tc of msg.toolCalls) {
+            insertTc.run({
+              id: tc.id,
+              message_id: msg.id,
+              name: tc.name,
+              arguments: JSON.stringify(tc.arguments || {}),
+              result: tc.result !== undefined
+                ? (typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result))
+                : null,
+              status: tc.status || 'completed',
+              split_offset: (tc as any)._splitOffset ?? null,
+            });
+          }
+        }
+      }
+    });
+
+    upsertSession();
   }
 
   /**
@@ -367,7 +525,15 @@ export class SessionManager extends EventEmitter {
       this.debounceTimers.delete(sessionId);
     }
 
-    // Delete from disk
+    // Phase 2.5: Delete from SQLite (CASCADE will also delete messages + tool_calls)
+    try {
+      const db = getDB();
+      db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    } catch {
+      // SQLite not available
+    }
+
+    // Delete from JSON disk (backup)
     const filePath = this.getSessionFilePath(sessionId);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);

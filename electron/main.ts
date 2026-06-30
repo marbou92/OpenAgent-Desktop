@@ -91,6 +91,9 @@ import { SessionOperations } from './session/session-ops';
 import { ComputerUseOverlayManager } from './extensions/computer-use-overlay';
 import { LayeredConfig } from './config/layered-config';
 import { runMigrations, closeDatabase } from './database';
+// Phase 2.5: SQLite storage
+import { initDatabase, getDB } from './database/sqlite';
+import { migrateJsonToSqlite } from './database/migrate-sqlite';
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
 interface AppConfig {
@@ -1138,6 +1141,12 @@ async function initializeSubsystems(): Promise<void> {
   } catch {
     logger.info('Main', 'OpenCode server not available (will retry on demand)');
   }
+
+  // Phase 2.5: Initialize SQLite database before SessionManager
+  const dbPath = path.join(userDataPath, "openagent.db");
+  initDatabase(dbPath);
+  // Migrate existing JSON sessions to SQLite (runs only if DB is empty)
+  migrateJsonToSqlite(path.join(userDataPath, "sessions"));
 
   // Initialize session manager
   sessionManager = new SessionManager({
