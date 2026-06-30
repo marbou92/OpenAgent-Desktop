@@ -51,10 +51,9 @@ import { useFileDrop } from '../../hooks/useFileDrop';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import ChatEmptyState from './ChatEmptyState';
-import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';
+import { ThinkingEffort } from './ThinkingEffortSelector';
 import ExecutionContextBar, { ExecutionContextBarProps } from '../Layout/ExecutionContextBar';
 import PermissionDialog from './PermissionDialog';
-import TodoPanel from '../Layout/RightPanel/TodoPanel';
 import TodoWriteCard from './message/TodoWriteCard';
 import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
@@ -118,10 +117,6 @@ const ChatView: React.FC<ChatViewProps> = ({
   // requestId and the card uses it directly. To handle multiple simultaneous
   // questions (rare), we use a queue.
   const [askUserRequestId, setAskUserRequestId] = useState<string | null>(null);
-  // Phase 8.6: Todo list — shown inline in the chat area (not the right
-  // sidebar). Collapsible. Only renders when there are todos.
-  const [todoCount, setTodoCount] = useState(0);
-  const [todoPanelExpanded, setTodoPanelExpanded] = useState(true);
   // Phase 10.7: The latest todos for the composer-connected todo list.
   const [composerTodos, setComposerTodos] = useState<any[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
@@ -216,7 +211,7 @@ const ChatView: React.FC<ChatViewProps> = ({
       const model = (models || []).find((m: any) => m.id === selectedModel);
       setModelSupportsReasoning(!!model?.supportsThinking);
     }).catch(() => setModelSupportsReasoning(false));
-  }, [selectedProviderId, selectedModel, api]);
+  }, [selectedProviderId, selectedModel]);
 
   // Auto-scroll — only when messages length or streaming content actually changes.
   useEffect(() => {
@@ -235,14 +230,12 @@ const ChatView: React.FC<ChatViewProps> = ({
     // Initial load
     if (sessionId && api?.todos?.list) {
       api.todos.list(sessionId).then((todos: any[]) => {
-        setTodoCount(todos?.length || 0);
         setComposerTodos(todos || []);
       }).catch(() => {});
     }
 
     const unsub = api.on.todosUpdated((data: { sessionId: string; todos: any[] }) => {
       if (data.sessionId !== sessionId) return;
-      setTodoCount(data.todos.length);
       setComposerTodos(data.todos || []);
     });
     return () => unsub?.();

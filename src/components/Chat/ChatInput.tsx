@@ -20,7 +20,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { AttachedFile, SlashCommand, ProviderInfo, AgentMode, AgentDefinition } from '../../types';
 import { formatFileSize } from '../../utils/format';
-import { getAPI } from '../../utils/api';
 import ModelSelector from './ModelSelector';
 import AgentSelector from './AgentSelector';
 import ThinkingEffortSelector, { ThinkingEffort } from './ThinkingEffortSelector';

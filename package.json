@@ -74,7 +74,6 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/dompurify": "^3.0.5",
     "@types/js-yaml": "^4.0.9",
     "@types/react": "^18.3.1",
@@ -103,8 +102,7 @@
     "wait-on": "^7.2.0"
   },
   "optionalDependencies": {
-    "@opencode-ai/server": "^1.17.0",
-    "better-sqlite3": "^11.10.0"
+    "@opencode-ai/server": "^1.17.0"
   },
   "build": {
     "appId": "com.openagent.desktop",

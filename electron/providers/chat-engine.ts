@@ -25,8 +25,8 @@ import { AuthProvider, ChatRequest, ChatResponse, StreamChunk, ProviderDefinitio
 import { AuthStore } from './auth-store-v2';
 import { OpencodeConfig } from './opencode-config';
 import { getOpencodeRegistry } from './opencode-registry';
-import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
-import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
+import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
+import { getAdapterForProvider } from './protocol-adapters';
 import { directChatStream, DirectToolDefinition } from './direct-chat-stream';
 
 // AI SDK loading state.
@@ -1352,7 +1352,7 @@ Usage notes:
     directTools: DirectToolDefinition[];
     providerOptions?: Record<string, unknown>;
   }): AsyncGenerator<StreamChunk> {
-    const { request, options, provider, auth, baseUrl, modelId, directTools, providerOptions } = opts;
+    const { request, options, provider: _provider, auth, baseUrl, modelId, directTools, providerOptions } = opts;
     const maxSteps = options?.maxSteps || 50;
     let stepCount = 0;
     // Build the conversation messages. We'll append assistant messages

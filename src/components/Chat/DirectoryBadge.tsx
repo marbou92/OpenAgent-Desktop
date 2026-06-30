@@ -12,7 +12,7 @@
  * Clicking it opens the ProjectSelector dropdown to switch projects.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import ProjectSelector from './ProjectSelector';
 
 const api = (window as any).openagent;
@@ -20,12 +20,6 @@ const api = (window as any).openagent;
 interface DirectoryBadgeProps {
   /** The working directory to display. If not provided, reads from the active project. */
   workingDirectory?: string;
-}
-
-function getFolderName(directory: string): string {
-  if (!directory) return 'No project';
-  const parts = directory.replace(/\\/g, '/').split('/').filter(Boolean);
-  return parts[parts.length - 1] || directory;
 }
 
 const DirectoryBadge: React.FC<DirectoryBadgeProps> = ({ workingDirectory }) => {
@@ -51,8 +45,6 @@ const DirectoryBadge: React.FC<DirectoryBadgeProps> = ({ workingDirectory }) => 
     });
     return () => unsub?.();
   }, []);
-
-  const folderName = getFolderName(dir);
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0">

@@ -378,7 +378,7 @@ export class SessionManager extends EventEmitter {
             arguments: JSON.parse(tc.arguments || '{}'),
             result: tc.result,
             status: tc.status,
-            ...(tc.split_offset != null ? { _splitOffset: tc.split_offset } : {}),
+            ...(tc.split_offset !== null ? { _splitOffset: tc.split_offset } : {}),
           }));
         }
         return sessionMsg;

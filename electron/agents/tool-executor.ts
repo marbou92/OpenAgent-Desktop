@@ -701,7 +701,7 @@ async function executeApplyPatch(args: Record<string, unknown>, deps: ToolExecut
       } catch {
         // File doesn't exist yet — create it
       }
-      let lines = content.split('\n');
+      const lines = content.split('\n');
 
       // Apply hunks in reverse order (from bottom to top) so line numbers
       // don't shift for earlier hunks.

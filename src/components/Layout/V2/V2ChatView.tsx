@@ -30,7 +30,6 @@ import {
   ChatMessage,
   ProviderInfo,
   SessionData,
-  TraceEntry,
   Toast,
   PermissionRequest,
   AgentMode,

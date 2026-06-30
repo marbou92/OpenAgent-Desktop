@@ -28,7 +28,6 @@ import {
 import { autoUpdater } from "electron-updater";
 import * as path from "path";
 import * as fs from "fs";
-import * as crypto from "crypto";
 
 // ─── Subsystem Imports ────────────────────────────────────────────────────────
 import { SandboxManager } from "./sandbox/manager";
@@ -64,8 +63,7 @@ import { AgentRegistry, getAgentRegistry, setAgentRegistry } from './agents/regi
 import { AutoModeDetector, getAutoModeDetector } from './agents/auto-mode';
 import { AgentPresetManager } from './agents/agent-presets';
 import { AgentSessionBridge } from './agents/session-bridge';
-import { AgentRunner } from './agents/agent-runner';
-import { executeToolCall, listAvailableTools } from './agents/tool-executor';
+import { executeToolCall } from './agents/tool-executor';
 import { AgentMode, ToolPermissionLevel } from './agents/types';
 import { ModelIdResolver, getModelIdResolver } from './providers/model-id-resolver';
 import { ConfigSetManager } from './providers/config-sets';
@@ -92,7 +90,7 @@ import { ComputerUseOverlayManager } from './extensions/computer-use-overlay';
 import { LayeredConfig } from './config/layered-config';
 import { runMigrations, closeDatabase } from './database';
 // Phase 2.5: SQLite storage
-import { initDatabase, getDB } from './database/sqlite';
+import { initDatabase } from './database/sqlite';
 import { migrateJsonToSqlite } from './database/migrate-sqlite';
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 
@@ -159,7 +157,7 @@ interface IPCError {
 // try to call them. This enforces Plan mode (read-only) and Chat mode (no
 // tools) at the model level, not just at the execution level.
 
-function filterToolsByMode(
+function _filterToolsByMode(
   allTools: Record<string, any>,
   mode: string,
   permissions: Record<string, string>

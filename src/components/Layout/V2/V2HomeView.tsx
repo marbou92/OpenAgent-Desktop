@@ -134,7 +134,7 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
     let list = sessions;
     if (activeProjectId) {
       list = list.filter(
-        (s) => s.projectId === activeProjectId || s.projectId == null,
+        (s) => s.projectId === activeProjectId || s.projectId === null || s.projectId === undefined,
       );
     }
     // Then by search query.
