@@ -13,7 +13,7 @@ import React, { useState, useMemo } from 'react';
 import { useTheme, ThemeMode, InterfaceDensity } from '../Theme/ThemeProvider';
 import { BUILT_IN_PALETTES } from '../Theme/palettes';
 import { generatePalette, meetsWCAGAA } from '../Theme/palette-generator';
-// Phase 1.1: access the settings store for the layoutStyle toggle.
+// Phase 2.4.5: access settings store for sidebar/panel editor.
 import { useAppStore } from '../../App';
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ function SectionCard({ children }: { children: React.ReactNode }) {
 
 export default function AppearanceView() {
   const theme = useTheme();
-  // Phase 1.1: layout style toggle (classic vs modern).
+  // Phase 2.4.5: settings store for sidebar/panel editor.
   const settings = useAppStore(s => s.settings);
   const updateSettings = useAppStore(s => s.updateSettings);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -147,66 +147,6 @@ export default function AppearanceView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      {/* ─── Layout Style (Phase 1.1) ─────────────────────────────── */}
-      <SectionTitle>Layout Style</SectionTitle>
-      <SectionCard>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {([
-            { id: 'classic' as const, label: 'Classic', desc: 'Three resizable panels' },
-            { id: 'modern' as const, label: 'Modern', desc: 'Card-based with tabs' },
-          ]).map((opt) => {
-            const isActive = settings.layoutStyle === opt.id;
-            return (
-              <button
-                key={opt.id}
-                onClick={() => updateSettings({ layoutStyle: opt.id })}
-                className="flex-1 flex flex-col items-center gap-1.5 px-4 py-3 rounded-lg transition-all"
-                style={{
-                  background: isActive ? 'var(--color-accent-soft)' : 'var(--color-bg-primary)',
-                  border: `1.5px solid ${isActive ? 'var(--color-accent)' : 'var(--color-border-secondary)'}`,
-                  cursor: 'pointer',
-                }}
-              >
-                <span className="text-sm font-medium" style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-primary)' }}>
-                  {opt.label}
-                </span>
-                <span className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
-                  {opt.desc}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-[11px] mt-2" style={{ color: 'var(--color-text-muted)' }}>
-          Restart the app after switching for the new layout to take full effect.
-        </p>
-
-        {/* Phase 1.8 + 1.9: Composer selector toggles — shown for BOTH layout modes. */}
-        <div className="mt-3 flex flex-col gap-2">
-          <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-            <input
-              type="checkbox"
-              checked={settings.showAgentMode}
-              onChange={(e) => updateSettings({ showAgentMode: e.target.checked })}
-              className="cursor-pointer"
-            />
-            Show Build/Plan mode selector in composer
-          </label>
-          <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-            <input
-              type="checkbox"
-              checked={settings.showThinkingEffort}
-              onChange={(e) => updateSettings({ showThinkingEffort: e.target.checked })}
-              className="cursor-pointer"
-            />
-            Show thinking effort selector in composer
-            <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-              (only appears for reasoning-capable models)
-            </span>
-          </label>
-        </div>
-      </SectionCard>
-
       {/* ─── Theme Mode ──────────────────────────────────────────────── */}
       <SectionTitle>Theme Mode</SectionTitle>
       <SectionCard>
@@ -278,6 +218,67 @@ export default function AppearanceView() {
             (based on your system preference)
           </div>
         )}
+      </SectionCard>
+
+      {/* ─── Sidebar Editor (Phase 2.4.5) ──────────────────────────────── */}
+      <SectionTitle>Sidebar & Panels</SectionTitle>
+      <SectionCard>
+        {/* Right panel tabs */}
+        <div className="text-[11px] font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
+          Right panel tabs
+        </div>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {(['trace', 'context', 'notes', 'todo'] as const).map((tab) => {
+            const enabled = settings.rightPanelTabs?.includes(tab) ?? true;
+            return (
+              <label key={tab} className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => {
+                    const current = settings.rightPanelTabs ?? ['trace', 'context', 'notes', 'todo'];
+                    const next = e.target.checked
+                      ? [...current, tab]
+                      : current.filter(t => t !== tab);
+                    updateSettings({ rightPanelTabs: next });
+                  }}
+                  className="cursor-pointer"
+                />
+                <span style={{ textTransform: 'capitalize' }}>{tab}</span>
+              </label>
+            );
+          })}
+        </div>
+
+        {/* Left sidebar nav items */}
+        <div className="text-[11px] font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
+          Left sidebar items (Classic layout)
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(['chat', 'sessions', 'settings', 'extensions', 'recipes', 'hooks', 'sandbox', 'projects', 'skills'] as const).map((item) => {
+            const enabled = settings.sidebarItems?.includes(item) ?? true;
+            return (
+              <label key={item} className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => {
+                    const current = settings.sidebarItems ?? ['chat', 'sessions', 'settings', 'extensions', 'recipes', 'hooks', 'sandbox', 'projects', 'skills'];
+                    const next = e.target.checked
+                      ? [...current, item]
+                      : current.filter(t => t !== item);
+                    updateSettings({ sidebarItems: next });
+                  }}
+                  className="cursor-pointer"
+                />
+                <span style={{ textTransform: 'capitalize' }}>{item}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="text-[11px] mt-2" style={{ color: 'var(--color-text-muted)' }}>
+          Hidden items are completely invisible. Restart the app for changes to take effect.
+        </p>
       </SectionCard>
 
       {/* ─── Color Palette ───────────────────────────────────────────── */}

@@ -640,6 +640,10 @@ export interface AppSettings {
   showThinkingEffort: boolean;
   /** Phase 1.8 — show the Build/Plan mode selector in the composer. */
   showAgentMode: boolean;
+  /** Phase 2.4.5 — which right panel tabs are visible. */
+  rightPanelTabs: string[];
+  /** Phase 2.4.5 — which sidebar nav items are visible. */
+  sidebarItems: string[];
 
   // ─── Session ──────────────────────────────────────────────────
   maxConcurrentSessions: number;
@@ -708,6 +712,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   layoutChoiceShown: false,
   showThinkingEffort: true,
   showAgentMode: true,
+  rightPanelTabs: ['trace', 'context', 'notes', 'todo'],
+  sidebarItems: ['chat', 'sessions', 'settings', 'extensions', 'recipes', 'hooks', 'sandbox', 'projects', 'skills'],
   // Session
   maxConcurrentSessions: 5,
   autoSave: true,

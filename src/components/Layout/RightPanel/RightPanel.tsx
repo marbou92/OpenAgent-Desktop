@@ -20,11 +20,12 @@
  * header). Width is ~340px. Slides in from the right as an overlay.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TraceEntry, SessionData, ProviderInfo } from '../../../types';
 import TraceTab from './TraceTab';
 import ContextTab from './ContextTab';
 import NotesTab from './NotesTab';
+import { useAppStore } from '../../../App';
 
 interface RightPanelProps {
   entries: TraceEntry[];
@@ -54,6 +55,16 @@ const RightPanel: React.FC<RightPanelProps> = ({
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('trace');
+  // Phase 2.4.5: read the visible tabs from settings
+  const settings = useAppStore(s => s.settings);
+  const visibleTabs = TABS.filter(t => settings.rightPanelTabs?.includes(t.id) ?? true);
+
+  // If the active tab was hidden, switch to the first visible one
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.find(t => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [visibleTabs, activeTab]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-secondary)' }}>
@@ -63,7 +74,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
         style={{ borderColor: 'var(--color-border-secondary)' }}
       >
         <div className="flex items-center">
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
