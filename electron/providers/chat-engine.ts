@@ -25,8 +25,8 @@ import { AuthProvider, ChatRequest, ChatResponse, StreamChunk, ProviderDefinitio
 import { AuthStore } from './auth-store-v2';
 import { OpencodeConfig } from './opencode-config';
 import { getOpencodeRegistry } from './opencode-registry';
-import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
-import { getAdapterForProvider } from './protocol-adapters';
+import { loadAiSdk, isAiSdkAvailable, createSdkModel, createSdkEmbeddingModel, getStreamText, getGenerateText, getGenerateObject, getStreamObject, getEmbed, getEmbedMany, getJsonSchema } from './ai-sdk-loader';
+import { getAdapterForProvider, AdapterCallContext } from './protocol-adapters';
 import { directChatStream, DirectToolDefinition } from './direct-chat-stream';
 
 // AI SDK loading state.
@@ -1036,6 +1036,121 @@ Usage notes:
           required: ['questions'],
         },
       },
+      {
+        name: 'WebFetch',
+        description: `Fetch a URL and return its content as text or markdown.
+
+Use this tool when you need to:
+1. Read the content of a web page
+2. Download documentation or API references
+3. Check the content of a URL the user provided
+
+Usage notes:
+- The URL must include the protocol (http:// or https://)
+- Returns the page content as text (HTML tags stripped)
+- Large pages are truncated to fit the context window
+- Use WebSearch first if you don't know the exact URL`,
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The URL to fetch (must include http:// or https://)' },
+            format: { type: 'string', enum: ['text', 'markdown', 'html'], description: 'Output format (default: text)', },
+          },
+          required: ['url'],
+        },
+      },
+      {
+        name: 'WebSearch',
+        description: `Search the web and return results.
+
+Use this tool when you need to:
+1. Find current information (news, docs, APIs)
+2. Look up something you're unsure about
+3. Find solutions to errors or problems
+
+Usage notes:
+- Returns a list of results with title, URL, and snippet
+- Use WebFetch to read the full content of a specific result
+- Keep queries concise and specific`,
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'The search query' },
+            max_results: { type: 'number', description: 'Maximum number of results to return (default: 5)', },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'Task',
+        description: `Launch a subagent to work on a specific subtask.
+
+Use this tool when:
+1. A task can be broken into independent subtasks
+2. You need to explore multiple approaches in parallel
+3. A subtask requires its own context (e.g. reading many files)
+
+The subagent runs in the same working directory with the same tools.
+It returns a summary of its findings/work when done.
+
+Usage notes:
+- Provide a clear, specific prompt for the subagent
+- The subagent has its own context window — it doesn't see your conversation
+- The subagent's result is returned as text to you
+- Use sparingly — only when the subtask is complex enough to benefit from isolation`,
+        parameters: {
+          type: 'object',
+          properties: {
+            prompt: { type: 'string', description: 'The task description for the subagent' },
+            mode: { type: 'string', enum: ['build', 'plan'], description: 'Agent mode for the subagent (default: plan)', },
+          },
+          required: ['prompt'],
+        },
+      },
+      {
+        name: 'apply_patch',
+        description: `Apply a patch to one or more files. Each patch entry specifies a file path and a list of hunks to apply.
+
+A hunk has:
+- start: the line number to start at (1-indexed)
+- lines: the new content to write at that position
+
+Use this tool when you need to make multiple edits across files or when the edit tool is too limited for complex changes.
+
+Usage notes:
+- The patch replaces lines starting at 'start' for the length of 'lines'
+- Multiple hunks in the same file are applied in order
+- Always read the file first to get accurate line numbers`,
+        parameters: {
+          type: 'object',
+          properties: {
+            patches: {
+              type: 'array',
+              description: 'List of file patches to apply',
+              items: {
+                type: 'object',
+                properties: {
+                  path: { type: 'string', description: 'File path (relative to working directory)' },
+                  hunks: {
+                    type: 'array',
+                    description: 'List of hunks to apply',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        start: { type: 'number', description: 'Starting line number (1-indexed)' },
+                        lines: { type: 'array', items: { type: 'string' }, description: 'New lines to write at this position' },
+                      },
+                      required: ['start', 'lines'],
+                    },
+                  },
+                },
+                required: ['path', 'hunks'],
+              },
+            },
+          },
+          required: ['patches'],
+        },
+      },
     ];
 
     for (const tool of builtinTools) {
@@ -1237,7 +1352,7 @@ Usage notes:
     directTools: DirectToolDefinition[];
     providerOptions?: Record<string, unknown>;
   }): AsyncGenerator<StreamChunk> {
-    const { request, options, provider: _provider, auth, baseUrl, modelId, directTools, providerOptions } = opts;
+    const { request, options, provider, auth, baseUrl, modelId, directTools, providerOptions } = opts;
     const maxSteps = options?.maxSteps || 50;
     let stepCount = 0;
     // Build the conversation messages. We'll append assistant messages

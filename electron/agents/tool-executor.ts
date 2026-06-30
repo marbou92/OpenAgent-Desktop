@@ -42,7 +42,7 @@ export interface ToolExecutorDeps {
 }
 
 /** Built-in tool names that the agent-tool-executor handles directly. */
-export const BUILTIN_TOOL_NAMES = new Set(['bash', 'shell', 'execute', 'read', 'read_file', 'write', 'write_file', 'edit', 'edit_file', 'glob', 'list_files', 'grep', 'search']);
+export const BUILTIN_TOOL_NAMES = new Set(['bash', 'shell', 'execute', 'read', 'read_file', 'write', 'write_file', 'edit', 'edit_file', 'glob', 'list_files', 'grep', 'search', 'webfetch', 'websearch', 'task', 'apply_patch']);
 
 /**
  * Phase 2.2.1: Auto-truncation — writes the full output to a temp file and
@@ -241,6 +241,16 @@ export async function executeToolCall(
         case 'grep':
         case 'search':
           return await executeGrep(args, deps);
+
+        // Phase 2.3: New tools
+        case 'webfetch':
+          return await executeWebFetch(args);
+
+        case 'websearch':
+          return await executeWebSearch(args);
+
+        case 'apply_patch':
+          return await executeApplyPatch(args, deps);
       }
     } catch (err: any) {
       return {
@@ -536,4 +546,181 @@ async function globFiles(rootDir: string, pattern: string, maxResults: number): 
 
   await walk(rootDir, 0);
   return results.slice(0, maxResults);
+}
+
+// ─── Phase 2.3: New tool implementations ─────────────────────────────────────
+
+/**
+ * WebFetch — fetch a URL and return its content as text.
+ * Strips HTML tags for 'text' format, returns raw HTML for 'html'.
+ */
+async function executeWebFetch(args: Record<string, unknown>): Promise<ToolCallResult> {
+  const url = String(args.url || '');
+  if (!url) {
+    return { content: 'webfetch: missing "url" argument', isError: true };
+  }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return { content: 'webfetch: URL must start with http:// or https://', isError: true };
+  }
+  const format = String(args.format || 'text');
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'OpenAgent-Desktop/2.0' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) {
+      return { content: `webfetch: HTTP ${response.status} ${response.statusText}`, isError: true };
+    }
+    let content = await response.text();
+
+    if (format === 'html') {
+      // Return raw HTML
+    } else if (format === 'markdown') {
+      // Simple HTML → text: strip tags, collapse whitespace
+      content = content
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    } else {
+      // text format — strip tags
+      content = content
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    // Truncate to prevent context bloat
+    content = truncateOutput(content);
+    return { content: content || '(empty response)' };
+  } catch (err: any) {
+    return { content: `webfetch: failed to fetch '${url}': ${err.message}`, isError: true };
+  }
+}
+
+/**
+ * WebSearch — search the web using a simple approach.
+ * Uses the DuckDuckGo HTML endpoint (no API key required) and parses results.
+ */
+async function executeWebSearch(args: Record<string, unknown>): Promise<ToolCallResult> {
+  const query = String(args.query || '');
+  if (!query) {
+    return { content: 'websearch: missing "query" argument', isError: true };
+  }
+  const maxResults = typeof args.max_results === 'number' ? args.max_results : 5;
+
+  try {
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const response = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'OpenAgent-Desktop/2.0' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) {
+      return { content: `websearch: HTTP ${response.status} ${response.statusText}`, isError: true };
+    }
+    const html = await response.text();
+
+    // Parse DuckDuckGo HTML results — extract result links + snippets
+    const results: { title: string; url: string; snippet: string }[] = [];
+    const resultRegex = /<a rel="nofollow" class="result__a" href="([^"]+)">(.*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>(.*?)<\/a>/g;
+    let match;
+    while ((match = resultRegex.exec(html)) !== null && results.length < maxResults) {
+      const rawUrl = match[1];
+      const title = match[2].replace(/<[^>]+>/g, '').trim();
+      const snippet = match[3].replace(/<[^>]+>/g, '').trim();
+      // DuckDuckGo wraps URLs in a redirect — extract the actual URL
+      const urlMatch = rawUrl.match(/uddg=([^&]+)/);
+      const url = urlMatch ? decodeURIComponent(urlMatch[1]) : rawUrl;
+      results.push({ title, url, snippet });
+    }
+
+    if (results.length === 0) {
+      return { content: `No results found for: ${query}` };
+    }
+
+    const formatted = results.map((r, i) =>
+      `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`
+    ).join('\n\n');
+
+    return { content: formatted };
+  } catch (err: any) {
+    return { content: `websearch: failed to search: ${err.message}`, isError: true };
+  }
+}
+
+/**
+ * ApplyPatch — apply patch hunks to one or more files.
+ * Each patch specifies a file path + a list of hunks (start line + new lines).
+ */
+async function executeApplyPatch(args: Record<string, unknown>, deps: ToolExecutorDeps): Promise<ToolCallResult> {
+  const patches = Array.isArray(args.patches) ? args.patches : [];
+  if (patches.length === 0) {
+    return { content: 'apply_patch: missing "patches" argument', isError: true };
+  }
+
+  const results: string[] = [];
+
+  for (const patch of patches) {
+    const filePath = String(patch.path || '');
+    if (!filePath) {
+      results.push(`  skipped: missing path`);
+      continue;
+    }
+    const resolved = resolvePath(filePath, deps.workingDirectory);
+    if (!isPathSafe(resolved, deps.workingDirectory)) {
+      results.push(`  ${filePath}: blocked (outside working directory)`);
+      continue;
+    }
+
+    const hunks = Array.isArray(patch.hunks) ? patch.hunks : [];
+    if (hunks.length === 0) {
+      results.push(`  ${filePath}: no hunks`);
+      continue;
+    }
+
+    try {
+      let content = '';
+      try {
+        content = fs.readFileSync(resolved, 'utf-8');
+      } catch {
+        // File doesn't exist yet — create it
+      }
+      let lines = content.split('\n');
+
+      // Apply hunks in reverse order (from bottom to top) so line numbers
+      // don't shift for earlier hunks.
+      const sortedHunks = [...hunks].sort((a: any, b: any) => (b.start || 0) - (a.start || 0));
+
+      for (const hunk of sortedHunks) {
+        const start = typeof hunk.start === 'number' ? hunk.start : 1;
+        const newLines = Array.isArray(hunk.lines) ? hunk.lines : [];
+        const startIdx = Math.max(0, start - 1);
+        // Replace lines starting at startIdx for the length of newLines
+        lines.splice(startIdx, newLines.length, ...newLines);
+      }
+
+      fs.writeFileSync(resolved, lines.join('\n'), 'utf-8');
+      results.push(`  ${filePath}: applied ${hunks.length} hunk(s)`);
+    } catch (err: any) {
+      results.push(`  ${filePath}: error: ${err.message}`);
+    }
+  }
+
+  return { content: `apply_patch results:\n${results.join('\n')}` };
 }
