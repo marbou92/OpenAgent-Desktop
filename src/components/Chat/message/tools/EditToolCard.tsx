@@ -5,7 +5,7 @@
  * Expanded: shows old_string (red, `-`) and new_string (green, `+`) side-by-side.
  */
 import React from 'react';
-import { ToolRendererProps, getStatusIcon, getResultString } from '../ToolRenderers';
+import { ToolRendererProps, getResultString, getToolVisual } from '../ToolRenderers';
 
 const EditToolCard: React.FC<ToolRendererProps> = ({ toolCall, expanded, onToggle }) => {
   const args = (toolCall.arguments || {}) as Record<string, unknown>;
@@ -15,30 +15,22 @@ const EditToolCard: React.FC<ToolRendererProps> = ({ toolCall, expanded, onToggl
   const replaceAll = Boolean(args.replace_all);
 
   const status = toolCall.status;
-  const { icon: statusIcon, color: statusColor } = getStatusIcon(status);
+  const visual = getToolVisual(toolCall.name);
   const isError = status === 'failed';
   const isDenied = status === 'denied';
   const isDeactivated = status === 'deactivated';
   const isPending = status === 'pending';
 
-  const borderColor = isDeactivated
-    ? 'var(--color-border-secondary)'
-    : isDenied
-    ? 'rgba(239,68,68,0.3)'
-    : isError
-    ? 'rgba(239,68,68,0.25)'
-    : isPending
-    ? 'rgba(214,122,82,0.15)'
-    : 'var(--color-border-secondary)';
-  const bgColor = isDeactivated
-    ? 'rgba(107,114,128,0.05)'
-    : isDenied
-    ? 'rgba(239,68,68,0.08)'
-    : isError
-    ? 'rgba(239,68,68,0.05)'
-    : isPending
-    ? 'rgba(214,122,82,0.05)'
-    : 'rgba(0,0,0,0.15)';
+  // ─── Phase 2.4.2: per-tool visual identity ───────────────────────
+  // Subtle 1px border on top/right/bottom; 3px solid colored stripe on left.
+  // Status override: denied/failed → red, deactivated → grey; otherwise the tool's color.
+  // Background uses the tool's faint tint regardless of status.
+  const leftBorderColor = isDenied || isError
+    ? '#ef4444'
+    : isDeactivated
+    ? 'var(--color-text-muted)'
+    : visual?.color ?? 'var(--color-border-secondary)';
+  const tintBg = visual?.tint ?? 'rgba(0,0,0,0.15)';
 
   // Truncated path for the header (keep the basename visible)
   const shortPath = (() => {
@@ -55,7 +47,7 @@ const EditToolCard: React.FC<ToolRendererProps> = ({ toolCall, expanded, onToggl
   return (
     <div
       className="rounded-2xl overflow-hidden my-1.5"
-      style={{ border: `1px solid ${borderColor}`, background: bgColor }}
+      style={{ border: '1px solid var(--color-border-secondary)', borderLeft: `3px solid ${leftBorderColor}`, background: tintBg }}
     >
       {/* Header */}
       <button
@@ -65,8 +57,9 @@ const EditToolCard: React.FC<ToolRendererProps> = ({ toolCall, expanded, onToggl
         onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-hover)')}
         onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
       >
-        <span className="flex-shrink-0" style={{ color: statusColor, display: 'inline-flex' }}>
-          {statusIcon}
+        {/* Tool shape icon — colored with the tool's accent color */}
+        <span className="flex-shrink-0" style={{ color: visual?.color ?? 'var(--color-text-secondary)', display: 'inline-flex' }}>
+          {visual?.shape}
         </span>
         <span
           className="text-xs font-mono font-semibold flex-shrink-0"
