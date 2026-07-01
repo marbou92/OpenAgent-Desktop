@@ -103,6 +103,48 @@ function SectionCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ─── Toggle Row (Phase 2.5.4) ─────────────────────────────────────────────────
+// A styled toggle switch + label, replacing raw checkboxes.
+
+const ToggleRow: React.FC<{
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}> = ({ label, description, checked, onChange }) => (
+  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+    {/* Toggle switch */}
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors duration-200"
+      style={{
+        background: checked ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+        border: '1px solid ' + (checked ? 'transparent' : 'var(--color-border-primary)'),
+      }}
+    >
+      <span
+        className="inline-block h-3.5 w-3.5 rounded-full transition-transform duration-200"
+        style={{
+          background: 'white',
+          transform: checked ? 'translateX(18px)' : 'translateX(2px)',
+        }}
+      />
+    </button>
+    {/* Label + description */}
+    <div className="flex flex-col">
+      <span className="text-[12px] font-medium" style={{ color: 'var(--color-text-secondary)', textTransform: 'capitalize' }}>
+        {label}
+      </span>
+      {description && (
+        <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+          {description}
+        </span>
+      )}
+    </div>
+  </label>
+);
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function AppearanceView() {
@@ -147,6 +189,53 @@ export default function AppearanceView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      {/* ─── Layout Style ─────────────────────────────────────────────── */}
+      <SectionTitle>Layout Style</SectionTitle>
+      <SectionCard>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {([
+            { id: 'classic' as const, label: 'Classic', desc: 'Three resizable panels' },
+            { id: 'modern' as const, label: 'Modern', desc: 'Card-based with tabs' },
+          ]).map((opt) => {
+            const isActive = settings.layoutStyle === opt.id;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => updateSettings({ layoutStyle: opt.id })}
+                className="flex-1 flex flex-col items-center gap-1.5 px-4 py-3 rounded-lg transition-all"
+                style={{
+                  background: isActive ? 'var(--color-accent-soft)' : 'var(--color-bg-primary)',
+                  border: `1.5px solid ${isActive ? 'var(--color-accent)' : 'var(--color-border-secondary)'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                <span className="text-sm font-medium" style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-primary)' }}>
+                  {opt.label}
+                </span>
+                <span className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                  {opt.desc}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Composer selector toggles */}
+        <div className="mt-4 flex flex-col gap-3">
+          <ToggleRow
+            label="Show Build/Plan mode selector in composer"
+            checked={settings.showAgentMode}
+            onChange={(v) => updateSettings({ showAgentMode: v })}
+          />
+          <ToggleRow
+            label="Show thinking effort selector in composer"
+            description="Only appears for reasoning-capable models"
+            checked={settings.showThinkingEffort}
+            onChange={(v) => updateSettings({ showThinkingEffort: v })}
+          />
+        </div>
+      </SectionCard>
+
       {/* ─── Theme Mode ──────────────────────────────────────────────── */}
       <SectionTitle>Theme Mode</SectionTitle>
       <SectionCard>
@@ -220,32 +309,27 @@ export default function AppearanceView() {
         )}
       </SectionCard>
 
-      {/* ─── Sidebar Editor (Phase 2.4.5) ──────────────────────────────── */}
+      {/* ─── Sidebar Editor (Phase 2.4.5 + 2.5.4) ──────────────────────── */}
       <SectionTitle>Sidebar & Panels</SectionTitle>
       <SectionCard>
         {/* Right panel tabs */}
         <div className="text-[11px] font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
           Right panel tabs
         </div>
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-3 mb-4">
           {(['trace', 'context', 'notes', 'todo'] as const).map((tab) => {
             const enabled = settings.rightPanelTabs?.includes(tab) ?? true;
             return (
-              <label key={tab} className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(e) => {
-                    const current = settings.rightPanelTabs ?? ['trace', 'context', 'notes', 'todo'];
-                    const next = e.target.checked
-                      ? [...current, tab]
-                      : current.filter(t => t !== tab);
-                    updateSettings({ rightPanelTabs: next });
-                  }}
-                  className="cursor-pointer"
-                />
-                <span style={{ textTransform: 'capitalize' }}>{tab}</span>
-              </label>
+              <ToggleRow
+                key={tab}
+                label={tab}
+                checked={enabled}
+                onChange={(v) => {
+                  const current = settings.rightPanelTabs ?? ['trace', 'context', 'notes', 'todo'];
+                  const next = v ? [...current, tab] : current.filter(t => t !== tab);
+                  updateSettings({ rightPanelTabs: next });
+                }}
+              />
             );
           })}
         </div>
@@ -254,29 +338,24 @@ export default function AppearanceView() {
         <div className="text-[11px] font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
           Left sidebar items (Classic layout)
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-3">
           {(['chat', 'sessions', 'settings', 'extensions', 'recipes', 'hooks', 'sandbox', 'projects', 'skills'] as const).map((item) => {
             const enabled = settings.sidebarItems?.includes(item) ?? true;
             return (
-              <label key={item} className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(e) => {
-                    const current = settings.sidebarItems ?? ['chat', 'sessions', 'settings', 'extensions', 'recipes', 'hooks', 'sandbox', 'projects', 'skills'];
-                    const next = e.target.checked
-                      ? [...current, item]
-                      : current.filter(t => t !== item);
-                    updateSettings({ sidebarItems: next });
-                  }}
-                  className="cursor-pointer"
-                />
-                <span style={{ textTransform: 'capitalize' }}>{item}</span>
-              </label>
+              <ToggleRow
+                key={item}
+                label={item}
+                checked={enabled}
+                onChange={(v) => {
+                  const current = settings.sidebarItems ?? ['chat', 'sessions', 'settings', 'extensions', 'recipes', 'hooks', 'sandbox', 'projects', 'skills'];
+                  const next = v ? [...current, item] : current.filter(t => t !== item);
+                  updateSettings({ sidebarItems: next });
+                }}
+              />
             );
           })}
         </div>
-        <p className="text-[11px] mt-2" style={{ color: 'var(--color-text-muted)' }}>
+        <p className="text-[11px] mt-3" style={{ color: 'var(--color-text-muted)' }}>
           Hidden items are completely invisible. Restart the app for changes to take effect.
         </p>
       </SectionCard>
