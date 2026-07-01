@@ -150,9 +150,9 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
         />
       </div>
 
-      {/* Right-side actions: trace toggle + settings. */}
+      {/* Right-side actions: sidebar toggle + settings. */}
       <div
-        className="flex items-center gap-0.5 flex-shrink-0 pr-1"
+        className="flex items-center gap-1 flex-shrink-0 pr-2"
         style={{
           // @ts-expect-error — webkitAppRegion is a non-standard CSS property.
           WebkitAppRegion: 'no-drag',
@@ -161,7 +161,7 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
         <button
           type="button"
           onClick={toggleV2TracePanel}
-          className="flex items-center justify-center h-7 px-2 rounded-md transition-colors text-[12px]"
+          className="flex items-center justify-center h-7 w-7 rounded-md transition-colors"
           style={{
             color: v2TracePanelOpen
               ? 'var(--color-accent, var(--v2-blue-600))'
@@ -169,7 +169,6 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
             background: v2TracePanelOpen
               ? 'var(--v2-overlay-simple-overlay-hover)'
               : 'transparent',
-            fontWeight: 'var(--v2-font-weight-medium)',
           }}
           onMouseEnter={(e) => {
             if (!v2TracePanelOpen) {
@@ -183,24 +182,24 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
               e.currentTarget.style.color = 'var(--v2-icon-icon-muted)';
             }
           }}
-          aria-label="Toggle trace panel"
+          aria-label="Toggle sidebar"
           aria-pressed={v2TracePanelOpen}
-          title="Toggle trace panel"
+          title="Toggle sidebar"
         >
+          {/* Phase 2.8.1: Right sidebar/panel icon (rectangle + right divider) */}
           <svg
-            width="14"
-            height="14"
+            width="15"
+            height="15"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{ marginRight: '4px' }}
           >
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="15" y1="3" x2="15" y2="21" />
           </svg>
-          Trace
         </button>
 
         <button

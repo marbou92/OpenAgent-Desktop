@@ -230,49 +230,6 @@ const V2ChatView: React.FC<V2ChatViewProps> = ({
                 : 'Connecting'}
             </span>
           )}
-
-          {/* Trace toggle */}
-          {onToggleTracePanel && (
-            <button
-              type="button"
-              onClick={onToggleTracePanel}
-              className="flex items-center justify-center h-7 w-7 rounded-md transition-colors flex-shrink-0"
-              style={{
-                color: v2TracePanelOpen
-                  ? 'var(--color-accent, var(--v2-blue-600))'
-                  : 'var(--v2-icon-icon-muted)',
-                background: v2TracePanelOpen
-                  ? 'var(--v2-overlay-simple-overlay-hover)'
-                  : 'transparent',
-              }}
-              onMouseEnter={(e) => {
-                if (!v2TracePanelOpen) {
-                  e.currentTarget.style.background = 'var(--v2-overlay-simple-overlay-hover)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!v2TracePanelOpen) {
-                  e.currentTarget.style.background = 'transparent';
-                }
-              }}
-              aria-label="Toggle trace panel"
-              aria-pressed={v2TracePanelOpen}
-              title="Toggle trace panel"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-              </svg>
-            </button>
-          )}
         </div>
 
         {/* Phase 2.4.3: Directory badge — shows the current working directory */}

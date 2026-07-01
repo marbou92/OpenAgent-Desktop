@@ -30,7 +30,6 @@ import {
   ProjectConfig,
   Toast,
 } from '../../../types';
-import { getAPI } from '../../../utils/api';
 
 interface V2HomeViewProps {
   sessions: SessionInfo[];
@@ -71,7 +70,9 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
   onOpenSettings,
   addToast,
 }) => {
-  const api = getAPI();
+  // Phase 2.8.1: use window.openagent directly instead of getAPI() which
+  // can return a stale reference if the preload isn't fully ready.
+  const api = (window as any).openagent;
   const [projects, setProjects] = useState<ProjectConfig[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -270,6 +271,7 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
                       background: isActive
                         ? 'var(--v2-overlay-simple-overlay-hover)'
                         : 'transparent',
+                      borderLeft: isActive ? '3px solid var(--color-accent, var(--v2-blue-500))' : '3px solid transparent',
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
