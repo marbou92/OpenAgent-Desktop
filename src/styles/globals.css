@@ -76,6 +76,169 @@
   transition: background-color 0.2s, color 0.2s;
 }
 
+/* ─── Phase 2.8: V2 (Modern Layout) Theme Tokens ──────────────────────────────
+   The --v2-* token scale powers the "Modern" layout. It references the
+   active palette's --color-* tokens (set dynamically by ThemeProvider) so
+   palettes apply to the Modern layout. Dark is the default (:root).
+   Light overrides via [data-theme='light']. */
+
+:root {
+  /* ── Greyscale ramp ── */
+  --v2-grey-50: #fafafa;
+  --v2-grey-100: #f4f4f5;
+  --v2-grey-200: #e4e4e7;
+  --v2-grey-300: #d4d4d8;
+  --v2-grey-400: #a1a1aa;
+  --v2-grey-500: #71717a;
+  --v2-grey-600: #52525b;
+  --v2-grey-700: #3f3f46;
+  --v2-grey-800: #27272a;
+  --v2-grey-900: #1c1c20;
+  --v2-grey-1000: #18181c;
+  --v2-grey-1100: #232328;
+  --v2-grey-1200: #1a1a1e;
+
+  /* ── Blue accent ramp (fallback) ── */
+  --v2-blue-400: #60a5fa;
+  --v2-blue-500: #3b82f6;
+  --v2-blue-600: #2563eb;
+
+  /* ── Alpha overlays ── */
+  --v2-alpha-light-0: rgba(255, 255, 255, 0);
+  --v2-alpha-light-6: rgba(255, 255, 255, 0.06);
+  --v2-alpha-light-8: rgba(255, 255, 255, 0.08);
+  --v2-alpha-light-10: rgba(255, 255, 255, 0.10);
+  --v2-alpha-light-12: rgba(255, 255, 255, 0.12);
+  --v2-alpha-light-20: rgba(255, 255, 255, 0.20);
+  --v2-alpha-dark-0: rgba(0, 0, 0, 0);
+  --v2-alpha-dark-4: rgba(0, 0, 0, 0.04);
+  --v2-alpha-dark-8: rgba(0, 0, 0, 0.08);
+  --v2-alpha-dark-10: rgba(0, 0, 0, 0.10);
+  --v2-alpha-dark-12: rgba(0, 0, 0, 0.12);
+  --v2-alpha-dark-20: rgba(0, 0, 0, 0.20);
+
+  /* ── Semantic tokens (dark defaults) — reference palette --color-* ── */
+  --v2-background-bg-base: var(--color-card, var(--v2-grey-1100));
+  --v2-background-bg-deep: var(--color-background, var(--v2-grey-1200));
+  --v2-background-bg-layer-01: var(--color-background-secondary, var(--v2-grey-1000));
+  --v2-background-bg-layer-02: var(--color-background-tertiary, var(--v2-grey-900));
+  --v2-background-bg-layer-03: var(--color-bg-hover, var(--v2-grey-800));
+  --v2-background-bg-layer-04: var(--color-border-hover, var(--v2-grey-700));
+  --v2-background-bg-contrast: var(--color-foreground, var(--v2-grey-700));
+  --v2-background-bg-inverse: var(--color-foreground, var(--v2-grey-1100));
+  --v2-background-bg-accent: var(--color-accent, var(--v2-blue-600));
+
+  --v2-text-text-base: var(--color-foreground, var(--v2-grey-50));
+  --v2-text-text-muted: var(--color-foreground-secondary, var(--v2-grey-500));
+  --v2-text-text-faint: var(--color-foreground-muted, var(--v2-grey-600));
+  --v2-text-text-inverse: var(--color-background, var(--v2-grey-50));
+  --v2-text-text-accent: var(--color-accent, var(--v2-blue-400));
+
+  --v2-icon-icon-base: var(--color-foreground-secondary, var(--v2-grey-400));
+  --v2-icon-icon-muted: var(--color-foreground-muted, var(--v2-grey-600));
+  --v2-icon-icon-accent: var(--color-accent, var(--v2-blue-400));
+
+  --v2-border-border-muted: var(--v2-alpha-light-8);
+  --v2-border-border-base: var(--v2-alpha-light-10);
+  --v2-border-border-strong: var(--v2-alpha-light-20);
+  --v2-border-border-focus: var(--color-accent, var(--v2-blue-500));
+
+  --v2-overlay-simple-overlay-hover: var(--v2-alpha-light-6);
+  --v2-overlay-simple-overlay-pressed: var(--v2-alpha-light-10);
+
+  /* ── Elevation (shadows) ── */
+  --v2-elevation-raised:
+    0px 2px 4px 0px var(--v2-alpha-light-6, rgba(255,255,255,0.04)),
+    0px 1px 2px -1px var(--v2-alpha-light-8);
+  --v2-elevation-floating:
+    0px 8px 16px 0px var(--v2-alpha-light-6, rgba(255,255,255,0.04)),
+    0px 4px 8px 0px var(--v2-alpha-light-8);
+  --v2-elevation-overlay:
+    0px 16px 32px 0px var(--v2-alpha-light-8),
+    0px 8px 16px 0px var(--v2-alpha-light-12);
+  --v2-elevation-button-neutral:
+    0px 1px 2px 0px var(--v2-alpha-light-8);
+  --v2-elevation-button-contrast:
+    0px 1px 2px 0px var(--v2-alpha-dark-20);
+
+  /* ── Typography ── */
+  --v2-font-family-text: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --v2-font-size-base: 13px;
+  --v2-font-weight-regular: 440;
+  --v2-font-weight-medium: 530;
+
+  /* ── Radii ── */
+  --v2-radius-sm: 6px;
+  --v2-radius-md: 8px;
+  --v2-radius-lg: 10px;
+  --v2-radius-xl: 14px;
+}
+
+/* ── V2 Light theme overrides ── */
+[data-theme='light'] {
+  --v2-background-bg-base: var(--color-card, var(--v2-grey-50));
+  --v2-background-bg-deep: var(--color-background, var(--v2-grey-100));
+  --v2-background-bg-layer-01: var(--color-background-secondary, var(--v2-grey-100));
+  --v2-background-bg-layer-02: var(--color-background-tertiary, var(--v2-grey-200));
+  --v2-background-bg-layer-03: var(--color-bg-hover, var(--v2-grey-300));
+  --v2-background-bg-layer-04: var(--color-border-hover, var(--v2-grey-400));
+  --v2-background-bg-contrast: var(--color-foreground, var(--v2-grey-1000));
+  --v2-background-bg-inverse: var(--color-foreground, var(--v2-grey-1100));
+  --v2-background-bg-accent: var(--color-accent, var(--v2-blue-600));
+
+  --v2-text-text-base: var(--color-foreground, var(--v2-grey-1100));
+  --v2-text-text-muted: var(--color-foreground-secondary, var(--v2-grey-700));
+  --v2-text-text-faint: var(--color-foreground-muted, var(--v2-grey-600));
+  --v2-text-text-inverse: var(--color-background, var(--v2-grey-50));
+  --v2-text-text-accent: var(--color-accent, var(--v2-blue-600));
+
+  --v2-icon-icon-base: var(--color-foreground-secondary, var(--v2-grey-800));
+  --v2-icon-icon-muted: var(--color-foreground-muted, var(--v2-grey-600));
+  --v2-icon-icon-accent: var(--color-accent, var(--v2-blue-600));
+
+  --v2-border-border-muted: var(--v2-alpha-dark-8);
+  --v2-border-border-base: var(--v2-alpha-dark-10);
+  --v2-border-border-strong: var(--v2-alpha-dark-20);
+  --v2-border-border-focus: var(--color-accent, var(--v2-blue-500));
+
+  --v2-overlay-simple-overlay-hover: var(--v2-alpha-dark-4);
+  --v2-overlay-simple-overlay-pressed: var(--v2-alpha-dark-8);
+
+  --v2-elevation-raised:
+    0px 2px 4px 0px var(--v2-alpha-dark-4),
+    0px 1px 2px -1px var(--v2-alpha-dark-8);
+  --v2-elevation-floating:
+    0px 8px 16px 0px var(--v2-alpha-dark-4),
+    0px 4px 8px 0px var(--v2-alpha-dark-8);
+  --v2-elevation-overlay:
+    0px 16px 32px 0px var(--v2-alpha-dark-8),
+    0px 8px 16px 0px var(--v2-alpha-dark-12);
+  --v2-elevation-button-neutral:
+    0px 1px 2px 0px var(--v2-alpha-dark-8);
+  --v2-elevation-button-contrast:
+    0px 1px 2px 0px var(--v2-alpha-dark-20);
+}
+
+/* ── V2 Helper utility classes ── */
+.v2-surface-base {
+  background: var(--v2-background-bg-base);
+  box-shadow: var(--v2-elevation-raised);
+}
+.v2-surface-floating {
+  background: var(--v2-background-bg-base);
+  box-shadow: var(--v2-elevation-floating);
+}
+.v2-text-regular {
+  font-family: var(--v2-font-family-text);
+  font-size: var(--v2-font-size-base);
+  font-weight: var(--v2-font-weight-regular);
+}
+.v2-text-medium {
+  font-family: var(--v2-font-family-text);
+  font-size: var(--v2-font-size-base);
+  font-weight: var(--v2-font-weight-medium);
+}
+
 /* ─── Light Theme Overrides (Violet Palette) ───────────────────────────────── */
 
 [data-theme='light'] {
