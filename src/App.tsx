@@ -41,6 +41,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { getAPI } from './utils/api';
 // Phase 2.0.3: Modern layout shell + first-launch chooser.
 import V2AppShell from './components/Layout/V2/V2AppShell';
+import V2HomeView from './components/Layout/V2/V2HomeView';
 import LayoutChooserDialog from './components/Layout/LayoutChooserDialog';
 
 const api = getAPI();
@@ -717,6 +718,20 @@ const App: React.FC = () => {
           </div>
         );
       case 'sessions':
+        // Phase 2.7: Modern layout renders V2HomeView (floating card with
+        // Projects + Sessions columns). Classic keeps the legacy SessionsView.
+        if (settings.layoutStyle === 'modern') {
+          return (
+            <V2HomeView
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              onLoadSession={handleLoadSession}
+              onNewSession={handleNewSession}
+              onOpenSettings={() => setCurrentView('settings')}
+              addToast={addToast}
+            />
+          );
+        }
         return (
           <div className="flex flex-col h-full">
             <ViewHeader title="Sessions" />

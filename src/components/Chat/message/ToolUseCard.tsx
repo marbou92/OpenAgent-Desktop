@@ -6,7 +6,7 @@
 import { useState, memo } from 'react';
 import { ToolCall } from '../../../types';
 // Phase 2.1: per-tool renderers registry.
-import { getToolRenderer } from './ToolRenderers';
+import { getToolRenderer, getToolVisual } from './ToolRenderers';
 // Import the tools index to register all renderers (side-effect import).
 import './tools';
 
@@ -235,9 +235,59 @@ const ToolUseCard = memo(function ToolUseCard({ toolCall, onPermissionRespond }:
   };
 
   const summary = getSummary();
+  const visual = getToolVisual(toolCall.name);
 
+  // Phase 2.7: Collapsed = compact inline chip (Claude Code-style).
+  // Expanded = full-width details panel.
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] my-0.5 transition-all"
+        style={{
+          background: visual?.tint || bgColor,
+          border: `1px solid var(--color-border-secondary)`,
+          borderLeft: `3px solid ${isDenied ? '#ef4444' : isError ? 'var(--color-error)' : isDeactivated ? 'var(--color-text-muted)' : visual?.color || statusColor}`,
+          cursor: 'pointer',
+          fontFamily: 'var(--v2-font-family-text, inherit)',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = visual?.tint || bgColor; }}
+      >
+        {/* Shape icon */}
+        {visual ? (
+          <span style={{ color: visual.color, display: 'inline-flex' }}>{visual.shape}</span>
+        ) : (
+          <span style={{ color: statusColor, display: 'inline-flex' }}>
+            {isRunning ? (
+              <div className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin-slow" style={{ borderColor: statusColor, borderTopColor: 'transparent' }} />
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={statusColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="9 12 11 14 15 10" /></svg>
+            )}
+          </span>
+        )}
+        {/* Tool name */}
+        <span className="font-mono" style={{ color: 'var(--color-text-secondary)' }}>{toolCall.name}</span>
+        {/* Summary */}
+        {summary && (
+          <span style={{ color: 'var(--color-text-muted)' }}>· {summary}</span>
+        )}
+        {/* Status badge */}
+        {isDenied && <span style={{ color: '#ef4444' }}>· denied</span>}
+        {isDeactivated && <span style={{ color: 'var(--color-text-muted)' }}>· off</span>}
+        {isError && !isDenied && <span style={{ color: 'var(--color-error)' }}>· error</span>}
+        {isRunning && <span style={{ color: statusColor }}>· running</span>}
+      </button>
+    );
+  }
+
+  // Expanded state — full-width details panel
   return (
-    <div className="rounded-2xl overflow-hidden my-1.5" style={{ border: `1px solid ${borderColor}`, background: bgColor }}>
+    <div className="rounded-xl overflow-hidden my-1.5" style={{
+      border: `1px solid ${borderColor}`,
+      borderLeft: `3px solid ${isDenied ? '#ef4444' : isError ? 'var(--color-error)' : isDeactivated ? 'var(--color-text-muted)' : visual?.color || statusColor}`,
+      background: bgColor,
+    }}>
       {/* Header — always visible */}
       <button
         onClick={() => setExpanded(!expanded)}

@@ -45,6 +45,57 @@ const BashToolCard: React.FC<ToolRendererProps> = ({ toolCall, expanded, onToggl
   // Truncated command for the header
   const truncatedCommand = command.length > 80 ? command.slice(0, 77) + '…' : command;
 
+  // ─── Phase 2.7: Collapsed = compact inline chip (Claude Code-style).
+  // Expanded = full-width details panel (kept unchanged below).
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] my-0.5 transition-all max-w-full"
+        style={{
+          background: tintBg,
+          border: '1px solid var(--color-border-secondary)',
+          borderLeft: `3px solid ${leftBorderColor}`,
+          cursor: 'pointer',
+          fontFamily: 'var(--v2-font-family-text, inherit)',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = tintBg; }}
+      >
+        {/* Tool shape icon — colored with the tool's accent color */}
+        <span className="flex-shrink-0" style={{ color: visual?.color ?? 'var(--color-text-secondary)', display: 'inline-flex' }}>
+          {visual?.shape}
+        </span>
+        {/* Tool name */}
+        <span className="font-mono flex-shrink-0" style={{ color: isDeactivated ? 'var(--color-text-muted)' : 'var(--color-text-secondary)' }}>
+          bash
+        </span>
+        {/* Summary — the command */}
+        {truncatedCommand ? (
+          <span className="font-mono truncate min-w-0" style={{ color: 'var(--color-text-primary)', maxWidth: '40ch' }} title={command}>
+            <span style={{ color: 'var(--color-text-muted)' }}>· $ </span>
+            {truncatedCommand}
+          </span>
+        ) : isPending ? (
+          <span className="flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>· …</span>
+        ) : null}
+        {/* Status badge */}
+        {isPending ? (
+          <span className="flex-shrink-0" style={{ color: 'var(--color-accent)' }}>· running</span>
+        ) : isDenied ? (
+          <span className="flex-shrink-0" style={{ color: '#ef4444' }}>· denied</span>
+        ) : isDeactivated ? (
+          <span className="flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>· off</span>
+        ) : isError ? (
+          <span className="flex-shrink-0" style={{ color: '#ef4444' }}>· {exitCode !== null ? `exit ${exitCode}` : 'error'}</span>
+        ) : (
+          <span className="flex-shrink-0" style={{ color: 'var(--color-success)' }}>· {exitCode !== null ? `exit ${exitCode}` : 'ok'}</span>
+        )}
+      </button>
+    );
+  }
+
   return (
     <div
       className="rounded-2xl overflow-hidden my-1.5"
