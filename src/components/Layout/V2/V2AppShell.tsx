@@ -11,12 +11,12 @@
  *   │  V2ChatView — chosen by the parent based on currentView. │
  *   │                                                          │
  *   ├──────────────────────────────────────────────────────────┤
- *   │ Right side: V2SlideInPanel wraps the existing RightPanel │ (overlay)
+ *   │ Right side: V2SlideInPanel wraps the existing RightPanel │ (docked)
  *   └──────────────────────────────────────────────────────────┘
  *
  * The shell is responsible for:
  *   - Mounting the titlebar with all the session-tab plumbing.
- *   - Mounting the slide-in trace panel + forwarding RightPanel props.
+ *   - Mounting the docked trace panel + forwarding RightPanel props.
  *   - Rendering `children` (the active view) inside a deep-bg container.
  *
  * `currentView` / `setCurrentView` are accepted for routing — the titlebar's
@@ -134,43 +134,49 @@ const V2AppShell: React.FC<V2AppShellProps> = ({
         toggleV2TracePanel={toggleV2TracePanel}
       />
 
-      {/* Main area — children fill the space. The slide-in panel overlays
-          this area (absolute-positioned inside the relative parent). */}
-      <main className="flex-1 min-h-0 relative overflow-hidden">
-        {loading ? (
-          <div
-            className="flex items-center justify-center h-full"
-            style={{ color: 'var(--v2-text-text-muted)' }}
-          >
+      {/* Main area — flex row. The content fills available space and shrinks
+          when the docked panel opens. The panel is a flex sibling, NOT an
+          overlay — it pushes the main content instead of covering it. */}
+      <main className="flex-1 min-h-0 flex flex-row overflow-hidden">
+        {/* Content area — fills space, shrinks when panel opens */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+          {loading ? (
             <div
-              className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin-slow"
-              style={{
-                borderColor: 'var(--color-accent, var(--v2-blue-600))',
-                borderTopColor: 'transparent',
-              }}
-            />
-          </div>
-        ) : (
-          children
-        )}
+              className="flex items-center justify-center h-full"
+              style={{ color: 'var(--v2-text-text-muted)' }}
+            >
+              <div
+                className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin-slow"
+                style={{
+                  borderColor: 'var(--color-accent, var(--v2-blue-600))',
+                  borderTopColor: 'transparent',
+                }}
+              />
+            </div>
+          ) : (
+            children
+          )}
+        </div>
 
-        {/* Slide-in trace / context / notes panel. */}
-        <V2SlideInPanel
-          open={v2TracePanelOpen}
-          onClose={handleClosePanel}
-          width={340}
-          title="Inspector"
-        >
-          <RightPanel
-            entries={traceEntries}
-            session={currentSession}
-            sessionId={currentSessionId}
-            providers={providers}
-            selectedProviderId={selectedProviderId}
-            selectedModel={selectedModel}
+        {/* Docked sidebar — a flex sibling, NOT an overlay. Renders only when open. */}
+        {v2TracePanelOpen && (
+          <V2SlideInPanel
+            open={v2TracePanelOpen}
             onClose={handleClosePanel}
-          />
-        </V2SlideInPanel>
+            width={340}
+            title="Inspector"
+          >
+            <RightPanel
+              entries={traceEntries}
+              session={currentSession}
+              sessionId={currentSessionId}
+              providers={providers}
+              selectedProviderId={selectedProviderId}
+              selectedModel={selectedModel}
+              onClose={handleClosePanel}
+            />
+          </V2SlideInPanel>
+        )}
       </main>
 
       {/* Silence "currentView is unused" — it's used implicitly via the

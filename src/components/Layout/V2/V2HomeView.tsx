@@ -37,6 +37,8 @@ interface V2HomeViewProps {
   onLoadSession: (sessionId: string) => void;
   onNewSession: () => void;
   onOpenSettings: () => void;
+  /** Called after the active project is switched — parent should refresh sessions. */
+  onProjectChanged?: (projectId: string) => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
 }
 
@@ -68,6 +70,7 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
   onLoadSession,
   onNewSession,
   onOpenSettings,
+  onProjectChanged,
   addToast,
 }) => {
   // Phase 2.8.1: use window.openagent directly instead of getAPI() which
@@ -97,13 +100,18 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
   }, [refreshProjects]);
 
   const handleAddProject = useCallback(async () => {
-    if (!api?.projects?.create) {
+    if (!api?.projects?.create || !api?.dialog?.openDirectory) {
       addToast({ type: 'info', title: 'Projects unavailable in this build' });
       return;
     }
     try {
+      const dir = await api.dialog.openDirectory('Select project directory');
+      if (!dir) return; // user cancelled
+      const defaultName =
+        dir.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Project';
       const created = await api.projects.create({
-        name: `Project ${projects.length + 1}`,
+        name: defaultName,
+        directory: dir,
       });
       addToast({ type: 'success', title: `Created ${created.name}` });
       await refreshProjects();
@@ -111,7 +119,7 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
       const msg = err instanceof Error ? err.message : String(err);
       addToast({ type: 'error', title: 'Failed to create project', message: msg });
     }
-  }, [api, projects.length, refreshProjects, addToast]);
+  }, [api, refreshProjects, addToast]);
 
   const handleSelectProject = useCallback(
     async (projectId: string) => {
@@ -119,6 +127,7 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
       try {
         await api.projects.setActive(projectId);
         setActiveProjectId(projectId);
+        onProjectChanged?.(projectId);
         const p = projects.find((x) => x.id === projectId);
         if (p) addToast({ type: 'success', title: `Switched to ${p.name}` });
       } catch (err: unknown) {
@@ -126,7 +135,7 @@ const V2HomeView: React.FC<V2HomeViewProps> = ({
         addToast({ type: 'error', title: 'Failed to switch project', message: msg });
       }
     },
-    [api, projects, addToast],
+    [api, projects, onProjectChanged, addToast],
   );
 
   // ── Filter + group sessions ────────────────────────────────────────

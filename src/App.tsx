@@ -728,6 +728,17 @@ const App: React.FC = () => {
               onLoadSession={handleLoadSession}
               onNewSession={handleNewSession}
               onOpenSettings={() => setCurrentView('settings')}
+              onProjectChanged={async (projectId) => {
+                // Re-fetch sessions so the home view reflects the new project's sessions.
+                if (api?.sessions?.list) {
+                  try {
+                    const s = await api.sessions.list();
+                    setSessions(s);
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              }}
               addToast={addToast}
             />
           );

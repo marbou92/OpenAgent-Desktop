@@ -82,7 +82,7 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
         WebkitAppRegion: 'drag',
         fontFamily: 'var(--v2-font-family-text)',
         paddingLeft: isMac ? '78px' : '8px',
-        paddingRight: isMac ? '8px' : '72px',
+        paddingRight: isMac ? '4px' : '72px',
       }}
     >
       {/* Home button — always visible, returns to the home view. */}
@@ -152,7 +152,7 @@ const V2Titlebar: React.FC<V2TitlebarProps> = ({
 
       {/* Right-side actions: sidebar toggle + settings. */}
       <div
-        className="flex items-center gap-1 flex-shrink-0 pr-2"
+        className="flex items-center gap-1 flex-shrink-0"
         style={{
           // @ts-expect-error — webkitAppRegion is a non-standard CSS property.
           WebkitAppRegion: 'no-drag',
