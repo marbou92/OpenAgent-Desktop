@@ -59,6 +59,9 @@ import StructuredOutputPanel from './StructuredOutputPanel';
 import { getAPI } from '../../utils/api';
 // Phase 2.4.3: directory badge
 import DirectoryBadge from './DirectoryBadge';
+// Phase 2.6: Modern layout views
+import V2NewSessionView from '../Layout/V2/V2NewSessionView';
+import V2ChatView from '../Layout/V2/V2ChatView';
 
 // Phase 2.2: ModeSwitch is gone. The Build/Plan selector now lives inside
 // the composer (AgentSelector component), matching opencode desktop.
@@ -312,6 +315,88 @@ const ChatView: React.FC<ChatViewProps> = ({
 
   const hasConnectedProvider = providers.length > 0 && providers.some((p) => p.configured);
   const hasMessages = messages.length > 0;
+
+  // Phase 2.6: Modern layout — render V2 views instead of the classic layout.
+  const isModern = settings.layoutStyle === 'modern';
+
+  const handleV2Send = useCallback((content: string) => {
+    handleSend(content);
+  }, [handleSend]);
+
+  const handleV2Copy = useCallback((content: string) => {
+    navigator.clipboard.writeText(content);
+  }, []);
+
+  if (isModern && !hasMessages) {
+    return (
+      <V2NewSessionView
+        onSend={handleV2Send}
+        onStop={stopStreaming}
+        isStreaming={isStreaming}
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        selectedModel={selectedModel}
+        onProviderChange={handleProviderChange}
+        onModelChange={handleModelChange}
+        onImagesAttached={(images) => setAttachedImages(images)}
+        thinkingEffort={thinkingEffort}
+        onThinkingEffortChange={setThinkingEffort}
+        modelSupportsReasoning={modelSupportsReasoning}
+        showThinkingEffort={settings.showThinkingEffort}
+        activeMode={activeMode}
+        onModeChange={setActiveMode}
+        showAgentMode={settings.showAgentMode}
+      />
+    );
+  }
+
+  if (isModern && hasMessages) {
+    return (
+      <V2ChatView
+        sessionId={sessionId}
+        session={session}
+        messages={messages}
+        isStreaming={isStreaming}
+        error={error}
+        streamingContent={streamingContent}
+        streamingThinking={streamingThinking}
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        selectedModel={selectedModel}
+        onProviderChange={handleProviderChange}
+        onModelChange={handleModelChange}
+        onSend={handleV2Send}
+        onStop={stopStreaming}
+        onRetry={retryLastMessage}
+        onCopyMessage={handleV2Copy}
+        onImagesAttached={(images) => setAttachedImages(images)}
+        askUserRequestId={askUserRequestId}
+        onAskUserAnswer={(requestId, answer) => {
+          if (api?.permissions?.respondToQuestion) {
+            api.permissions.respondToQuestion(requestId, answer);
+          }
+          setAskUserRequestId(null);
+        }}
+        permissionRequest={permissionRequest}
+        onPermissionRespond={(requestId, response) => {
+          if (api?.permissions?.respond) {
+            api.permissions.respond(requestId, response as any);
+          }
+          setPermissionRequest(null);
+        }}
+        v2TracePanelOpen={tracePanelOpen}
+        onToggleTracePanel={onToggleTracePanel ?? (() => {})}
+        addToast={addToast}
+        thinkingEffort={thinkingEffort}
+        onThinkingEffortChange={setThinkingEffort}
+        modelSupportsReasoning={modelSupportsReasoning}
+        showThinkingEffort={settings.showThinkingEffort}
+        activeMode={activeMode}
+        onModeChange={setActiveMode}
+        showAgentMode={settings.showAgentMode}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>

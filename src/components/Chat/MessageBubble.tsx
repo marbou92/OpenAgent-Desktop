@@ -16,8 +16,10 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ChatMessage } from '../../types';
 import { renderMarkdown, sanitizeHtml, attachCopyCodeHandlers } from '../../utils/markdown';
+import { formatFileSize } from '../../utils/format';
 import ThinkingBlock from './message/ThinkingBlock';
 import ToolUseCard from './message/ToolUseCard';
+import TodoWriteCard from './message/TodoWriteCard';
 import AskUserQuestionCard from './message/AskUserQuestionCard';
 
 interface MessageBubbleProps {
@@ -33,7 +35,7 @@ interface MessageBubbleProps {
   onPermissionRespond?: (requestId: string, response: 'allow_once' | 'always_allow' | 'deny_once' | 'always_deny') => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy: _onCopy, onAskUserAnswer, askUserRequestId: _askUserRequestId, onPermissionRespond }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast, onRetry, onCopy, onAskUserAnswer, askUserRequestId, onPermissionRespond }) => {
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
 
@@ -120,19 +122,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
             </div>
           )}
 
-          {/* Phase 11.3: Render content split at tool call positions.
-              AskUserQuestion cards appear at the position where they were
-              triggered — not at the end of the message. */}
+          {/* Phase 2.6: Interleave ALL tool calls by _splitOffset, not just AskUserQuestion.
+              Each tool card renders at the position where it was triggered in the text. */}
           {(() => {
-            const askToolCalls = (message.toolCalls || []).filter(
-              tc => tc.name === 'AskUserQuestion' && tc.arguments?.questions
+            const allToolCalls = (message.toolCalls || []).filter(
+              tc => tc.name !== 'TodoWrite'
             );
 
-            // If no AskUserQuestion tool calls, render content + other tool calls normally.
-            if (askToolCalls.length === 0) {
+            // If no tool calls, just render content
+            if (allToolCalls.length === 0) {
               return (
                 <>
-                  {/* Message content */}
                   {message.content && (
                     <div>
                       <div ref={contentRef} className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: renderedContent }} />
@@ -141,31 +141,35 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                       )}
                     </div>
                   )}
-                  {/* Other tool calls (non-TodoWrite, non-AskUserQuestion) */}
-                  {message.toolCalls && message.toolCalls.length > 0 && (
-                    <div className="space-y-1.5">
-                      {message.toolCalls.map((tc) => {
-                        if (tc.name === 'TodoWrite') return null;
-                        if (tc.name === 'AskUserQuestion') return null;
-                        return <ToolUseCard key={tc.id} toolCall={tc} onPermissionRespond={onPermissionRespond} />;
-                      })}
-                    </div>
-                  )}
                 </>
               );
             }
 
-            // Phase 0.5: Interleave content segments and AskUserQuestion cards
-            // by their _splitOffset so each card renders at the position where
-            // it was actually triggered. Previously only askToolCalls[0]'s
-            // offset was used and ALL cards were bunched between before/after —
-            // so the 2nd+ cards appeared right after the 1st instead of at
-            // their real position in the message.
-            const rawContent = message.content || '';
+            // Check if ANY tool calls have _splitOffset
+            const hasOffsets = allToolCalls.some(tc => (tc as any)._splitOffset !== undefined);
+            if (!hasOffsets) {
+              // No offsets — render content first, then tool cards after (legacy fallback)
+              return (
+                <>
+                  {message.content && (
+                    <div>
+                      <div ref={contentRef} className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: renderedContent }} />
+                      {message.isStreaming && (
+                        <span className="inline-block w-2 h-4 ml-1 align-middle" style={{ background: 'var(--color-accent)', animation: 'cursor-blink 0.8s ease-in-out infinite' }} />
+                      )}
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    {allToolCalls.map((tc) => (
+                      <ToolUseCard key={tc.id} toolCall={tc} onPermissionRespond={onPermissionRespond} />
+                    ))}
+                  </div>
+                </>
+              );
+            }
 
-            // Sort ask tool calls by their split offset (ascending). Cards
-            // without an offset are placed at the end.
-            const sortedAsk = [...askToolCalls].sort((a, b) => {
+            // Sort ALL tool calls by _splitOffset
+            const sorted = [...allToolCalls].sort((a, b) => {
               const oa = (a as any)._splitOffset as number | undefined;
               const ob = (b as any)._splitOffset as number | undefined;
               if (oa === undefined) return 1;
@@ -173,19 +177,19 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
               return oa - ob;
             });
 
-            // Build interleaved segments: [content0, card0, content1, card1, ..., contentN]
-            const segments: Array<{ type: 'content'; text: string } | { type: 'card'; tc: typeof askToolCalls[number] }> = [];
+            // Build interleaved segments
+            const rawContent = message.content || '';
+            const segments: Array<{ type: 'content'; text: string } | { type: 'tool'; tc: typeof allToolCalls[number] }> = [];
             let cursor = 0;
-            for (const tc of sortedAsk) {
+            for (const tc of sorted) {
               const offset = (tc as any)._splitOffset as number | undefined;
               const clamped = offset === undefined ? rawContent.length : Math.max(0, Math.min(offset, rawContent.length));
               if (clamped > cursor) {
                 segments.push({ type: 'content', text: rawContent.substring(cursor, clamped) });
               }
-              segments.push({ type: 'card', tc });
+              segments.push({ type: 'tool', tc });
               cursor = clamped;
             }
-            // Trailing content after the last card.
             if (cursor < rawContent.length) {
               segments.push({ type: 'content', text: rawContent.substring(cursor) });
             }
@@ -196,45 +200,19 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast: _isLast,
                   if (seg.type === 'content') {
                     if (!seg.text) return null;
                     const html = sanitizeHtml(renderMarkdown(seg.text));
-                    // Attach contentRef to the first content segment so the
-                    // copy-code-handlers effect can wire up <pre> blocks.
                     const ref = i === 0 ? contentRef : undefined;
                     return (
                       <div key={`seg-${i}`} ref={ref} className="markdown-content text-sm break-words" dangerouslySetInnerHTML={{ __html: html }} />
                     );
                   }
-                  // Card segment
-                  const tc = seg.tc;
-                  const tcRequestId = (tc.arguments as any)?._askRequestId as string | undefined;
+                  // Tool card segment — use ToolUseCard for all tools (it delegates to per-tool renderers)
                   return (
-                    <AskUserQuestionCard
-                      key={tc.id}
-                      questions={tc.arguments.questions as any[]}
-                      toolCallId={tc.id}
-                      answered={typeof tc.result === 'string' ? extractAnswerFromResult(tc.result) : null}
-                      onAnswer={(answer) => {
-                        if (tcRequestId && onAskUserAnswer) {
-                          onAskUserAnswer(tcRequestId, answer);
-                        }
-                      }}
-                    />
+                    <ToolUseCard key={seg.tc.id} toolCall={seg.tc} onPermissionRespond={onPermissionRespond} />
                   );
                 })}
-
                 {/* Streaming cursor */}
                 {message.isStreaming && (
                   <span className="inline-block w-2 h-4 ml-1 align-middle" style={{ background: 'var(--color-accent)', animation: 'cursor-blink 0.8s ease-in-out infinite' }} />
-                )}
-
-                {/* Other tool calls (non-TodoWrite, non-AskUserQuestion) */}
-                {message.toolCalls && message.toolCalls.length > 0 && (
-                  <div className="space-y-1.5">
-                    {message.toolCalls.map((tc) => {
-                      if (tc.name === 'TodoWrite') return null;
-                      if (tc.name === 'AskUserQuestion') return null;
-                      return <ToolUseCard key={tc.id} toolCall={tc} onPermissionRespond={onPermissionRespond} />;
-                    })}
-                  </div>
                 )}
               </>
             );
